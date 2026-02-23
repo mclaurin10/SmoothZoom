@@ -87,8 +87,9 @@ void ZoomController::applyScrollDelta(int32_t accumulatedDelta)
 
 void ZoomController::applyKeyboardStep(int direction)
 {
-    // Phase 2: Additive step from current target for retargeting (AC-2.2.06, AC-2.8.07)
-    float newTarget = targetZoom_ + (static_cast<float>(direction) * keyboardStep_);
+    // Phase 2: Multiplicative step for logarithmic consistency (AC-2.1.06, AC-2.2.06, AC-2.8.07)
+    // direction=+1 → target *= (1 + step), direction=-1 → target /= (1 + step)
+    float newTarget = targetZoom_ * std::pow(1.0f + keyboardStep_, static_cast<float>(direction));
     newTarget = std::clamp(newTarget, minZoom_, maxZoom_);
 
     // Snap within epsilon of 1.0 and max (R-17)

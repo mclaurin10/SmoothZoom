@@ -282,18 +282,19 @@ TEST_CASE("Three rapid keyboard steps retarget smoothly (E2.3)", "[ZoomControlle
 {
     ZoomController zc;
 
-    // Three rapid presses before any tick
+    // Three rapid presses before any tick (multiplicative: 1.0 * 1.25^3)
     zc.applyKeyboardStep(+1); // target = 1.25
-    zc.applyKeyboardStep(+1); // target = 1.50
-    zc.applyKeyboardStep(+1); // target = 1.75
-    REQUIRE(zc.targetZoom() == Approx(1.75f));
+    zc.applyKeyboardStep(+1); // target = 1.5625
+    zc.applyKeyboardStep(+1); // target = 1.953125
+    float expected = std::pow(1.25f, 3.0f); // ~1.953
+    REQUIRE(zc.targetZoom() == Approx(expected));
     REQUIRE(zc.mode() == ZoomController::Mode::Animating);
 
     // Run to completion
     for (int i = 0; i < 120; ++i)
         zc.tick(1.0f / 60.0f);
 
-    REQUIRE(zc.currentZoom() == Approx(1.75f).margin(0.005f));
+    REQUIRE(zc.currentZoom() == Approx(expected).margin(0.005f));
     REQUIRE(zc.mode() == ZoomController::Mode::Idle);
 }
 
@@ -344,8 +345,9 @@ TEST_CASE("Keyboard step clamps to max at 9.9x (E2.6)", "[ZoomController][Phase2
 {
     ZoomController zc;
 
-    // 10.0 - 1.0 = 9.0 range, step = 0.25, so 36 steps to reach 10.0
-    for (int i = 0; i < 36; ++i)
+    // Multiplicative: 1.0 * 1.25^N reaches 10.0 at N = ceil(log(10)/log(1.25)) = 11
+    // 12 steps ensures we exceed 10.0 and clamp
+    for (int i = 0; i < 12; ++i)
         zc.applyKeyboardStep(+1);
 
     REQUIRE(zc.targetZoom() == Approx(10.0f));
