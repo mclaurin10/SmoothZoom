@@ -1,8 +1,7 @@
 // =============================================================================
 // SmoothZoom — ZoomController
-// Zoom level state, scroll accumulation, animation targets. Doc 3 §3.3
+// Zoom level state, scroll accumulation, animation targets. Doc 3 §3.5
 //
-// Phase 0: Simple linear zoom from scroll delta. No logarithmic model yet.
 // Phase 1: Logarithmic scroll model (AC-2.1.06), soft bounds (AC-2.1.15).
 // Phase 2: ANIMATING mode with ease-out (AC-2.2.04–AC-2.2.07).
 // Phase 4: TOGGLING mode (AC-2.7.01–AC-2.7.12).
@@ -15,14 +14,17 @@
 namespace SmoothZoom
 {
 
-// Phase 0: simple linear zoom — each WHEEL_DELTA (120 units) changes zoom
-// by a fixed fraction of the current level. This is intentionally simple;
-// the logarithmic model (AC-2.1.06) comes in Phase 1.
 static constexpr float kWheelDelta = 120.0f;
-static constexpr float kScrollZoomFactor = 0.1f; // 10% per notch
 
-// Epsilon for snapping to 1.0× (R-17)
+// Logarithmic zoom factor per notch (AC-2.1.06): newZoom = currentZoom * pow(kScrollZoomBase, normalizedDelta)
+// 1.1 = 10% per notch at any zoom level. 1×→2× requires same scroll effort as 5×→10×.
+static constexpr float kScrollZoomBase = 1.1f;
+
+// Epsilon for snapping to 1.0× and maxZoom (R-17)
 static constexpr float kSnapEpsilon = 0.005f;
+
+// Soft-approach margin as fraction of log-range near bounds (AC-2.1.15)
+static constexpr float kSoftMarginFraction = 0.15f;
 
 void ZoomController::applyScrollDelta(int32_t accumulatedDelta)
 {
@@ -31,12 +33,39 @@ void ZoomController::applyScrollDelta(int32_t accumulatedDelta)
 
     mode_ = Mode::Scrolling;
 
-    // Phase 0: linear multiply. Each notch = kScrollZoomFactor of current zoom.
+    // Logarithmic zoom model (AC-2.1.06):
+    // Each 120-unit notch multiplies zoom by kScrollZoomBase.
+    // Sub-notch deltas (Precision Touchpad) scale proportionally.
     float normalizedDelta = static_cast<float>(accumulatedDelta) / kWheelDelta;
-    float change = currentZoom_ * kScrollZoomFactor * normalizedDelta;
-    float newZoom = currentZoom_ + change;
 
-    // Clamp to bounds
+    // Soft-approach bounds attenuation (AC-2.1.15):
+    // As zoom nears min or max, attenuate the delta to decelerate smoothly.
+    float logMin = std::log(minZoom_);
+    float logMax = std::log(maxZoom_);
+    float logRange = logMax - logMin;
+    float margin = logRange * kSoftMarginFraction;
+    float logCurrent = std::log(currentZoom_);
+
+    if (normalizedDelta > 0.0f && logCurrent > logMax - margin)
+    {
+        // Approaching upper bound — attenuate
+        float t = (logCurrent - (logMax - margin)) / margin;
+        t = std::clamp(t, 0.0f, 1.0f);
+        float attenuation = 1.0f - t * t; // quadratic ease to zero
+        normalizedDelta *= attenuation;
+    }
+    else if (normalizedDelta < 0.0f && logCurrent < logMin + margin)
+    {
+        // Approaching lower bound — attenuate
+        float t = ((logMin + margin) - logCurrent) / margin;
+        t = std::clamp(t, 0.0f, 1.0f);
+        float attenuation = 1.0f - t * t;
+        normalizedDelta *= attenuation;
+    }
+
+    float newZoom = currentZoom_ * std::pow(kScrollZoomBase, normalizedDelta);
+
+    // Hard clamp to bounds (safety net after soft approach)
     newZoom = std::clamp(newZoom, minZoom_, maxZoom_);
 
     // Snap to 1.0× within epsilon (R-17)

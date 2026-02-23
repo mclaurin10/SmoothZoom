@@ -17,8 +17,8 @@ public:
     void uninstall();
     bool isHealthy() const;
 
-private:
-    // Hook handles — platform-specific (HHOOK on Win32)
+    // Reinstall deregistered hooks (R-05 watchdog, AC-ERR.03)
+    bool reinstall();
 };
 
 } // namespace SmoothZoom

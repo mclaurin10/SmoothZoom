@@ -1,5 +1,5 @@
 // =============================================================================
-// Unit tests for ViewportTracker — Doc 3 §3.4
+// Unit tests for ViewportTracker — Doc 3 §3.6
 // Pure logic — no Win32 API dependencies.
 // =============================================================================
 
@@ -121,6 +121,53 @@ TEST_CASE("Element offset clamps at edges", "[ViewportTracker]")
 }
 
 // ─── Tracking source priority ───────────────────────────────────────────────
+
+// ─── Corner reachability (AC-2.4.05) ─────────────────────────────────────
+
+TEST_CASE("All four corners reachable at 5x zoom (AC-2.4.05)", "[ViewportTracker]")
+{
+    float zoom = 5.0f;
+    float viewW = kScreenW / zoom;
+    float viewH = kScreenH / zoom;
+
+    // Top-left corner: pointer at (0,0)
+    auto tl = ViewportTracker::computePointerOffset(0, 0, zoom, kScreenW, kScreenH);
+    REQUIRE(tl.x == Approx(0.0f));
+    REQUIRE(tl.y == Approx(0.0f));
+
+    // Bottom-right corner: pointer at screen edge
+    auto br = ViewportTracker::computePointerOffset(kScreenW, kScreenH, zoom, kScreenW, kScreenH);
+    REQUIRE(br.x == Approx(kScreenW - viewW).margin(1.0f));
+    REQUIRE(br.y == Approx(kScreenH - viewH).margin(1.0f));
+
+    // Top-right corner
+    auto tr = ViewportTracker::computePointerOffset(kScreenW, 0, zoom, kScreenW, kScreenH);
+    REQUIRE(tr.x == Approx(kScreenW - viewW).margin(1.0f));
+    REQUIRE(tr.y == Approx(0.0f));
+
+    // Bottom-left corner
+    auto bl = ViewportTracker::computePointerOffset(0, kScreenH, zoom, kScreenW, kScreenH);
+    REQUIRE(bl.x == Approx(0.0f));
+    REQUIRE(bl.y == Approx(kScreenH - viewH).margin(1.0f));
+}
+
+// ─── High zoom tracking (AC-2.4.12, AC-2.4.13) ──────────────────────────
+
+TEST_CASE("Proportional tracking works at 10x zoom (AC-2.4.12)", "[ViewportTracker]")
+{
+    float zoom = 10.0f;
+    int px = 960, py = 540;
+    auto off = ViewportTracker::computePointerOffset(px, py, zoom, kScreenW, kScreenH);
+
+    // Verify key property holds at extreme zoom
+    float desktopX = off.x + static_cast<float>(px) / zoom;
+    float desktopY = off.y + static_cast<float>(py) / zoom;
+
+    REQUIRE(desktopX == Approx(static_cast<float>(px)).margin(0.1f));
+    REQUIRE(desktopY == Approx(static_cast<float>(py)).margin(0.1f));
+}
+
+// ─── Tracking source priority ───────────────────────────────────────────
 
 TEST_CASE("Default tracking source is Pointer", "[ViewportTracker]")
 {

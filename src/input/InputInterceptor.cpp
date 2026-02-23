@@ -6,9 +6,12 @@
 // The system silently deregisters hooks that exceed ~300ms.
 // Callbacks: read event → update atomic or post message → return.
 // No computation, no I/O, no allocation.
+//
+// Phase 1: WinKeyManager integration for Start Menu suppression (AC-2.1.16).
 // =============================================================================
 
 #include "smoothzoom/input/InputInterceptor.h"
+#include "smoothzoom/input/WinKeyManager.h"
 #include "smoothzoom/common/SharedState.h"
 #include "smoothzoom/common/Types.h"
 
@@ -28,9 +31,10 @@ namespace SmoothZoom
 static SharedState* s_state = nullptr;
 static HHOOK s_mouseHook = nullptr;
 static HHOOK s_keyboardHook = nullptr;
+static WinKeyManager s_winKeyMgr;
 
 // ─── Mouse Hook Callback ────────────────────────────────────────────────────
-// Minimal: read event, check modifier, update atomics, return.
+// Minimal: read event, check modifier via WinKeyManager, update atomics, return.
 static LRESULT CALLBACK mouseHookProc(int nCode, WPARAM wParam, LPARAM lParam)
 {
     if (nCode < 0 || s_state == nullptr)
@@ -42,9 +46,8 @@ static LRESULT CALLBACK mouseHookProc(int nCode, WPARAM wParam, LPARAM lParam)
     {
     case WM_MOUSEWHEEL:
     {
-        // Check if modifier (Win key) is held — Phase 0 uses GetAsyncKeyState
-        bool winHeld = (GetAsyncKeyState(VK_LWIN) & 0x8000) != 0 ||
-                       (GetAsyncKeyState(VK_RWIN) & 0x8000) != 0;
+        // Check if Win key is held via WinKeyManager state machine (AC-2.1.04)
+        bool winHeld = s_winKeyMgr.state() != WinKeyManager::State::Idle;
 
         if (winHeld)
         {
@@ -54,10 +57,11 @@ static LRESULT CALLBACK mouseHookProc(int nCode, WPARAM wParam, LPARAM lParam)
             // Atomically accumulate delta (render thread will exchange-with-0)
             s_state->scrollAccumulator.fetch_add(delta, std::memory_order_release);
 
-            // Mark modifier as used for zoom (for Start Menu suppression — Phase 1)
+            // Mark Win key as used for zoom → suppresses Start Menu on release (AC-2.1.16)
+            s_winKeyMgr.markUsedForZoom();
             s_state->modifierHeld.store(true, std::memory_order_relaxed);
 
-            // Consume the event — do not pass to next hook or applications
+            // Consume the event — do not pass to next hook or applications (AC-2.1.02)
             return 1;
         }
         break;
@@ -80,7 +84,7 @@ static LRESULT CALLBACK mouseHookProc(int nCode, WPARAM wParam, LPARAM lParam)
 }
 
 // ─── Keyboard Hook Callback ─────────────────────────────────────────────────
-// Phase 0: detect Ctrl+Q for clean exit. Observe-only (never consumes).
+// Tracks Win key via WinKeyManager. Observe-only (never consumes). (AC-2.1.18)
 static LRESULT CALLBACK keyboardHookProc(int nCode, WPARAM wParam, LPARAM lParam)
 {
     if (nCode < 0 || s_state == nullptr)
@@ -88,26 +92,43 @@ static LRESULT CALLBACK keyboardHookProc(int nCode, WPARAM wParam, LPARAM lParam
 
     auto* info = reinterpret_cast<KBDLLHOOKSTRUCT*>(lParam);
 
-    if (wParam == WM_KEYDOWN || wParam == WM_SYSKEYDOWN)
+    bool isDown = (wParam == WM_KEYDOWN || wParam == WM_SYSKEYDOWN);
+    bool isUp = (wParam == WM_KEYUP || wParam == WM_SYSKEYUP);
+
+    // Track Win key state via WinKeyManager (AC-2.1.04: both LWin and RWin)
+    if (info->vkCode == VK_LWIN || info->vkCode == VK_RWIN)
+    {
+        if (isDown)
+        {
+            s_winKeyMgr.onWinKeyDown();
+        }
+        else if (isUp)
+        {
+            // WinKeyManager injects Ctrl if used for zoom (Start Menu suppression)
+            s_winKeyMgr.onWinKeyUp();
+            s_state->modifierHeld.store(false, std::memory_order_relaxed);
+        }
+    }
+
+    if (isDown)
     {
         // Record keyboard activity timestamp (for caret tracking priority — Phase 3)
         s_state->lastKeyboardInputTime.store(
             static_cast<int64_t>(info->time), std::memory_order_relaxed);
 
-        // Phase 0: Ctrl+Q → post ResetZoom command
+        // Ctrl+Q → post ResetZoom command and quit
         if (info->vkCode == 'Q')
         {
             bool ctrlHeld = (GetAsyncKeyState(VK_CONTROL) & 0x8000) != 0;
             if (ctrlHeld)
             {
                 s_state->commandQueue.push(ZoomCommand::ResetZoom);
-                // Also post WM_QUIT to main thread message pump
                 PostQuitMessage(0);
             }
         }
     }
 
-    // Never consume keyboard events (Doc 3 §3.1) — only observe
+    // Never consume keyboard events (Doc 3 §3.1) — only observe (AC-2.1.18)
     return CallNextHookEx(s_keyboardHook, nCode, wParam, lParam);
 }
 
@@ -116,6 +137,7 @@ static LRESULT CALLBACK keyboardHookProc(int nCode, WPARAM wParam, LPARAM lParam
 bool InputInterceptor::install(SharedState& state)
 {
     s_state = &state;
+    s_winKeyMgr = WinKeyManager{}; // Reset state machine
 
     // Install low-level mouse hook (requires message pump on this thread)
     s_mouseHook = SetWindowsHookExW(WH_MOUSE_LL, mouseHookProc, nullptr, 0);
@@ -152,6 +174,24 @@ void InputInterceptor::uninstall()
 bool InputInterceptor::isHealthy() const
 {
     return s_mouseHook != nullptr && s_keyboardHook != nullptr;
+}
+
+bool InputInterceptor::reinstall()
+{
+    if (s_state == nullptr)
+        return false;
+
+    // Reinstall unhealthy hooks (R-05, AC-ERR.03)
+    if (!s_mouseHook)
+    {
+        s_mouseHook = SetWindowsHookExW(WH_MOUSE_LL, mouseHookProc, nullptr, 0);
+    }
+    if (!s_keyboardHook)
+    {
+        s_keyboardHook = SetWindowsHookExW(WH_KEYBOARD_LL, keyboardHookProc, nullptr, 0);
+    }
+
+    return isHealthy();
 }
 
 } // namespace SmoothZoom

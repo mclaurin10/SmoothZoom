@@ -128,4 +128,12 @@ bool MagBridge::setColorInversion(bool /*enabled*/)
     return false;
 }
 
+// Image smoothing note (AC-2.3.07–AC-2.3.09):
+// MagSetFullscreenTransform does not expose a filtering/smoothing parameter.
+// MagSetImageScalingCallback is deprecated and only works with windowed
+// magnification (not full-screen). The Magnification API always uses bilinear
+// filtering (smoothing ON). Nearest-neighbor mode (smoothing OFF) would
+// require migration to Desktop Duplication API + Direct3D rendering.
+// This is deferred to Phase 5/6 alongside the Desktop Duplication migration (R-01).
+
 } // namespace SmoothZoom

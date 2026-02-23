@@ -192,6 +192,7 @@ if(SMOOTHZOOM_BUILD_TESTS)
     target_include_directories(smoothzoom_tests PRIVATE
         ${CMAKE_SOURCE_DIR}/include
     )
+    target_compile_definitions(smoothzoom_tests PRIVATE SMOOTHZOOM_TESTING)
     target_link_libraries(smoothzoom_tests PRIVATE
         Catch2::Catch2WithMain
     )

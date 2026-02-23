@@ -1,9 +1,9 @@
 // =============================================================================
 // SmoothZoom — ViewportTracker
-// Offset computation, proportional pointer mapping. Doc 3 §3.4
+// Offset computation, proportional pointer mapping. Doc 3 §3.6
 //
-// Phase 0: hardcoded center offset (no proportional tracking yet).
-// Phase 1: Full proportional mapping (AC-2.4.01), edge clamping, deadzone.
+// Phase 1: Full proportional mapping (AC-2.4.01), edge clamping.
+//          Deadzone filtering lives in RenderLoop (AC-2.4.09–AC-2.4.11).
 // Phase 3: Multi-source priority arbitration (focus, caret, pointer).
 // =============================================================================
 
@@ -21,9 +21,6 @@ namespace SmoothZoom
 // is always (pointerX, pointerY), regardless of zoom level. This means
 // zoom-center stability comes for free: zooming in/out while the pointer is
 // stationary keeps the same desktop content under the pointer.
-//
-// Phase 0 note: We implement the formula but Phase 0 calls it with
-// hardcoded center coordinates. Phase 1 activates full tracking.
 
 ViewportTracker::Offset ViewportTracker::computePointerOffset(
     int32_t pointerX, int32_t pointerY,

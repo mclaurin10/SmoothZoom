@@ -47,6 +47,14 @@ static float s_lastOffY = 0.0f;
 static int s_screenW = 0;
 static int s_screenH = 0;
 
+// Deadzone filter for pointer micro-jitter suppression (AC-2.4.09–AC-2.4.11).
+// Tracks last "committed" pointer position. Viewport only updates when pointer
+// moves beyond the deadzone threshold, preventing visible jitter from
+// sub-pixel pointer noise while remaining imperceptible during intentional movement.
+static int32_t s_committedPtrX = 0;
+static int32_t s_committedPtrY = 0;
+static bool s_deadzoneInitialized = false;
+
 // Forward declare the thread trampoline
 static void renderThreadMain(RenderLoop* self);
 
@@ -147,12 +155,32 @@ void RenderLoop::frameTick()
     // Get current zoom level
     float zoom = s_zoomController.currentZoom();
 
-    // 5. Compute viewport offset
-    // Phase 0: use pointer position from shared state for proportional mapping
-    int32_t ptrX = s_state->pointerX.load(std::memory_order_relaxed);
-    int32_t ptrY = s_state->pointerY.load(std::memory_order_relaxed);
+    // 5. Compute viewport offset with deadzone filtering (AC-2.4.09–AC-2.4.11)
+    int32_t rawPtrX = s_state->pointerX.load(std::memory_order_relaxed);
+    int32_t rawPtrY = s_state->pointerY.load(std::memory_order_relaxed);
 
-    auto offset = ViewportTracker::computePointerOffset(ptrX, ptrY, zoom, s_screenW, s_screenH);
+    // Deadzone: suppress viewport updates for micro-movements (3px at 1080p, scales with resolution)
+    int32_t deadzoneThreshold = s_screenH > 0 ? (3 * s_screenH / 1080) : 3;
+    if (deadzoneThreshold < 1) deadzoneThreshold = 1;
+
+    if (!s_deadzoneInitialized)
+    {
+        s_committedPtrX = rawPtrX;
+        s_committedPtrY = rawPtrY;
+        s_deadzoneInitialized = true;
+    }
+
+    int32_t dx = rawPtrX - s_committedPtrX;
+    int32_t dy = rawPtrY - s_committedPtrY;
+    if (dx * dx + dy * dy > deadzoneThreshold * deadzoneThreshold)
+    {
+        // Movement exceeds deadzone — commit the new position
+        s_committedPtrX = rawPtrX;
+        s_committedPtrY = rawPtrY;
+    }
+
+    auto offset = ViewportTracker::computePointerOffset(
+        s_committedPtrX, s_committedPtrY, zoom, s_screenW, s_screenH);
 
     // 6 + 7. Apply to MagBridge — only if values changed since last frame.
     // Both calls use identical zoom/offset values (R-04: same frame, same block).
