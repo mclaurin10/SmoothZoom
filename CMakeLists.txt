@@ -141,7 +141,7 @@ endif()
 # Embed application manifest (Doc 3 §5.3)
 if(MSVC)
     set_target_properties(SmoothZoom PROPERTIES
-        LINK_FLAGS "/MANIFEST:EMBED /MANIFESTINPUT:\"${CMAKE_SOURCE_DIR}/res/SmoothZoom.manifest\""
+        LINK_FLAGS "/MANIFEST:EMBED /MANIFESTUAC:NO /MANIFESTINPUT:\"${CMAKE_SOURCE_DIR}/res/SmoothZoom.manifest\""
     )
 endif()
 
@@ -163,7 +163,7 @@ target_include_directories(Phase0Harness PRIVATE
 )
 if(MSVC)
     set_target_properties(Phase0Harness PROPERTIES
-        LINK_FLAGS "/MANIFEST:EMBED /MANIFESTINPUT:\"${CMAKE_SOURCE_DIR}/res/SmoothZoom.manifest\""
+        LINK_FLAGS "/MANIFEST:EMBED /MANIFESTUAC:NO /MANIFESTINPUT:\"${CMAKE_SOURCE_DIR}/res/SmoothZoom.manifest\""
     )
 endif()
 

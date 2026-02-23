@@ -4,6 +4,8 @@
 // Zoom level state, scroll accumulation, animation targets. Doc 3 §3.5
 // =============================================================================
 
+#include <cstdint>
+
 namespace SmoothZoom
 {
 

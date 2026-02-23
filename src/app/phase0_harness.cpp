@@ -27,6 +27,7 @@
 #include <windows.h>
 #include <magnification.h>
 #include <dwmapi.h>
+#include <cstdint>
 #include <cstdio>
 
 #pragma comment(lib, "Magnification.lib")
