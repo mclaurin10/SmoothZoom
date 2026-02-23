@@ -25,6 +25,7 @@
 #include <windows.h>
 #include <dwmapi.h>
 #include <thread>
+#include <chrono>
 
 #pragma comment(lib, "Dwmapi.lib")
 
@@ -58,6 +59,24 @@ static int s_screenH = 0;
 static int32_t s_committedPtrX = 0;
 static int32_t s_committedPtrY = 0;
 static bool s_deadzoneInitialized = false;
+
+// Phase 3: Source tracking state — all pre-allocated, no heap on hot path.
+static int64_t s_lastPointerMoveTimeMs = 0;  // Updated when committed pointer changes
+static TrackingSource s_activeSource = TrackingSource::Pointer;
+
+// Source transition smoothing (200ms ease-out between sources)
+static constexpr float kSourceTransitionDurationMs = 200.0f;
+static float s_transitionOffX = 0.0f;   // Starting offset when transition began
+static float s_transitionOffY = 0.0f;
+static float s_transitionElapsedMs = 0.0f;
+static bool s_sourceTransitionActive = false;
+
+// Get monotonic time in milliseconds (for source priority timestamps)
+static int64_t currentTimeMs()
+{
+    using namespace std::chrono;
+    return duration_cast<milliseconds>(steady_clock::now().time_since_epoch()).count();
+}
 
 // Forward declare the thread trampoline
 static void renderThreadMain(RenderLoop* self);
@@ -186,11 +205,13 @@ void RenderLoop::frameTick()
     // Get current zoom level
     float zoom = s_zoomController.currentZoom();
 
-    // 5. Compute viewport offset with deadzone filtering (AC-2.4.09–AC-2.4.11)
+    // 5. Compute viewport offset with multi-source tracking (Phase 3)
+    //    Reads are all lock-free (atomics + SeqLock) — no hot path violations.
+
+    // 5a. Pointer position with deadzone filtering (AC-2.4.09–AC-2.4.11)
     int32_t rawPtrX = s_state->pointerX.load(std::memory_order_relaxed);
     int32_t rawPtrY = s_state->pointerY.load(std::memory_order_relaxed);
 
-    // Deadzone: suppress viewport updates for micro-movements (3px at 1080p, scales with resolution)
     int32_t deadzoneThreshold = s_screenH > 0 ? (3 * s_screenH / 1080) : 3;
     if (deadzoneThreshold < 1) deadzoneThreshold = 1;
 
@@ -203,15 +224,81 @@ void RenderLoop::frameTick()
 
     int32_t dx = rawPtrX - s_committedPtrX;
     int32_t dy = rawPtrY - s_committedPtrY;
-    if (dx * dx + dy * dy > deadzoneThreshold * deadzoneThreshold)
+    bool pointerMoved = (dx * dx + dy * dy > deadzoneThreshold * deadzoneThreshold);
+    if (pointerMoved)
     {
-        // Movement exceeds deadzone — commit the new position
         s_committedPtrX = rawPtrX;
         s_committedPtrY = rawPtrY;
+        s_lastPointerMoveTimeMs = currentTimeMs();
     }
 
-    auto offset = ViewportTracker::computePointerOffset(
-        s_committedPtrX, s_committedPtrY, zoom, s_screenW, s_screenH);
+    // 5b. Read timestamps and rects for source priority arbitration
+    int64_t nowMs = currentTimeMs();
+    int64_t lastFocusChange = s_state->lastFocusChangeTime.load(std::memory_order_acquire);
+    int64_t lastKeyboardInput = s_state->lastKeyboardInputTime.load(std::memory_order_acquire);
+
+    // Read focus/caret rects via SeqLock (lock-free reader)
+    ScreenRect focusRect = s_state->focusRect.read();
+    ScreenRect caretRect = s_state->caretRect.read();
+
+    // Validate rects (non-zero area means valid data has been written)
+    bool focusValid = (focusRect.width() > 0 && focusRect.height() > 0);
+    bool caretValid = (caretRect.width() >= 0 && caretRect.height() > 0); // Caret can be 0-width
+
+    // 5c. Determine active tracking source
+    TrackingSource newSource = s_viewportTracker.determineActiveSource(
+        nowMs, s_lastPointerMoveTimeMs, lastFocusChange, lastKeyboardInput,
+        focusValid, caretValid);
+
+    // 5d. Compute target offset based on active source
+    ViewportTracker::Offset targetOffset;
+    switch (newSource)
+    {
+    case TrackingSource::Caret:
+        targetOffset = ViewportTracker::computeCaretOffset(
+            caretRect, zoom, s_screenW, s_screenH);
+        break;
+    case TrackingSource::Focus:
+        targetOffset = ViewportTracker::computeElementOffset(
+            focusRect, zoom, s_screenW, s_screenH);
+        break;
+    case TrackingSource::Pointer:
+    default:
+        targetOffset = ViewportTracker::computePointerOffset(
+            s_committedPtrX, s_committedPtrY, zoom, s_screenW, s_screenH);
+        break;
+    }
+
+    // 5e. Source transition smoothing (200ms ease-out between sources)
+    // When the active source changes, don't snap — interpolate from current to new.
+    if (newSource != s_activeSource)
+    {
+        // Begin transition: save current offset as starting point
+        s_transitionOffX = s_lastOffX;
+        s_transitionOffY = s_lastOffY;
+        s_transitionElapsedMs = 0.0f;
+        s_sourceTransitionActive = true;
+        s_activeSource = newSource;
+    }
+
+    ViewportTracker::Offset offset = targetOffset;
+    if (s_sourceTransitionActive)
+    {
+        s_transitionElapsedMs += dtSeconds * 1000.0f;
+        float t = s_transitionElapsedMs / kSourceTransitionDurationMs;
+        if (t >= 1.0f)
+        {
+            // Transition complete
+            s_sourceTransitionActive = false;
+        }
+        else
+        {
+            // Ease-out: 1 - (1-t)^2
+            float eased = 1.0f - (1.0f - t) * (1.0f - t);
+            offset.x = s_transitionOffX + (targetOffset.x - s_transitionOffX) * eased;
+            offset.y = s_transitionOffY + (targetOffset.y - s_transitionOffY) * eased;
+        }
+    }
 
     // 6 + 7. Apply to MagBridge — only if values changed since last frame.
     // Both calls use identical zoom/offset values (R-04: same frame, same block).

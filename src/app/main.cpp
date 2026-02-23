@@ -21,6 +21,8 @@
 
 #include "smoothzoom/common/SharedState.h"
 #include "smoothzoom/input/InputInterceptor.h"
+#include "smoothzoom/input/FocusMonitor.h"
+#include "smoothzoom/input/CaretMonitor.h"
 #include "smoothzoom/logic/RenderLoop.h"
 #include "smoothzoom/output/MagBridge.h"
 
@@ -30,6 +32,8 @@ static SmoothZoom::SharedState g_sharedState;
 // Components
 static SmoothZoom::InputInterceptor g_inputInterceptor;
 static SmoothZoom::RenderLoop g_renderLoop;
+static SmoothZoom::FocusMonitor g_focusMonitor;   // Phase 3: UIA focus tracking
+static SmoothZoom::CaretMonitor g_caretMonitor;    // Phase 3: text caret tracking
 
 // Hook watchdog timer ID and interval (R-05, AC-ERR.03)
 static constexpr UINT_PTR kWatchdogTimerId = 1;
@@ -76,6 +80,8 @@ static LRESULT CALLBACK msgWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lP
         {
             // System is shutting down or user is logging off.
             // Reset zoom to prevent stuck magnification (R-14).
+            g_caretMonitor.stop();
+            g_focusMonitor.stop();
             g_renderLoop.requestShutdown();
 
             // Brief wait for render thread to reset zoom
@@ -152,7 +158,12 @@ int WINAPI wWinMain(
         return 1;
     }
 
-    // ── 2b. Create message window for watchdog timer + WM_ENDSESSION ────────
+    // ── 2b. Start UIA monitoring (Phase 3: focus + caret tracking) ──────────
+    // These run on a dedicated UIA thread. Failure is non-fatal (AC-2.5.14, AC-2.6.11).
+    g_focusMonitor.start(g_sharedState);
+    g_caretMonitor.start(g_sharedState);
+
+    // ── 2c. Create message window for watchdog timer + WM_ENDSESSION ────────
     g_msgWindow = createMessageWindow(hInstance);
     if (g_msgWindow)
     {
@@ -176,6 +187,10 @@ int WINAPI wWinMain(
         DestroyWindow(g_msgWindow);
         g_msgWindow = nullptr;
     }
+
+    // Stop UIA monitors first (they write to shared state read by render thread)
+    g_caretMonitor.stop();
+    g_focusMonitor.stop();
 
     g_renderLoop.requestShutdown();
 

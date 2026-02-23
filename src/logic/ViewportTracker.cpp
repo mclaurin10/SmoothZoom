@@ -70,12 +70,66 @@ ViewportTracker::Offset ViewportTracker::computeElementOffset(
     return {xOff, yOff};
 }
 
-TrackingSource ViewportTracker::determineActiveSource(
-    int64_t /*lastPointerMoveTime*/,
-    int64_t /*lastFocusChangeTime*/,
-    int64_t /*lastKeyboardInputTime*/) const
+// Caret offset with lookahead margin (AC-2.6.06):
+// Shifts the target ~15% of viewport width ahead of the caret so the user
+// can see upcoming text. Assumes LTR typing direction (positive X shift).
+ViewportTracker::Offset ViewportTracker::computeCaretOffset(
+    const ScreenRect& caretRect,
+    float zoom, int32_t screenW, int32_t screenH)
 {
-    // Phase 0–2: Pointer only. Phase 3 adds focus/caret priority arbitration.
+    if (zoom <= 1.0f)
+        return {0.0f, 0.0f};
+
+    float viewportW = static_cast<float>(screenW) / zoom;
+    float viewportH = static_cast<float>(screenH) / zoom;
+
+    ScreenPoint center = caretRect.center();
+
+    // Apply lookahead: shift target ahead of caret in typing direction
+    float lookahead = viewportW * kCaretLookaheadFraction;
+    float xOff = static_cast<float>(center.x) + lookahead - viewportW / 2.0f;
+    float yOff = static_cast<float>(center.y) - viewportH / 2.0f;
+
+    // Clamp to desktop bounds
+    float maxOffX = static_cast<float>(screenW) - viewportW;
+    float maxOffY = static_cast<float>(screenH) - viewportH;
+
+    xOff = std::clamp(xOff, 0.0f, maxOffX);
+    yOff = std::clamp(yOff, 0.0f, maxOffY);
+
+    return {xOff, yOff};
+}
+
+// Priority arbitration for viewport tracking source (Doc 3 §3.4):
+//   1. Caret — user is actively typing (keyboard input within 500ms) and caret available
+//   2. Focus — a focus change occurred more recently than mouse movement, debounced 100ms
+//   3. Pointer — default fallback
+TrackingSource ViewportTracker::determineActiveSource(
+    int64_t now,
+    int64_t lastPointerMoveTime,
+    int64_t lastFocusChangeTime,
+    int64_t lastKeyboardInputTime,
+    bool focusRectValid,
+    bool caretRectValid) const
+{
+    // Caret takes priority while user is actively typing (AC-2.6.07)
+    if (caretRectValid && lastKeyboardInputTime > 0 &&
+        (now - lastKeyboardInputTime) < kCaretIdleTimeoutMs)
+    {
+        return TrackingSource::Caret;
+    }
+
+    // Focus takes priority if a focus change occurred after the last pointer move,
+    // the focus rect is valid, and the debounce window has elapsed (AC-2.5.07, AC-2.5.08).
+    // The debounce prevents chasing intermediate elements during rapid Tab cycling.
+    if (focusRectValid && lastFocusChangeTime > 0 &&
+        lastFocusChangeTime > lastPointerMoveTime &&
+        (now - lastFocusChangeTime) >= kFocusDebounceMs)
+    {
+        return TrackingSource::Focus;
+    }
+
+    // Default: pointer tracking (AC-2.5.10)
     return TrackingSource::Pointer;
 }
 
