@@ -217,3 +217,227 @@ TEST_CASE("Zoom in then zoom out returns near 1.0x", "[ZoomController]")
 
     REQUIRE(zc.currentZoom() == Approx(1.0f).margin(0.01f));
 }
+
+// =============================================================================
+// Phase 2: Animation tests (AC-2.2.04–AC-2.2.10, AC-2.8.01–AC-2.8.10)
+// =============================================================================
+
+TEST_CASE("Keyboard step animates toward target (E2.1)", "[ZoomController][Phase2]")
+{
+    ZoomController zc;
+
+    zc.applyKeyboardStep(+1);
+    REQUIRE(zc.mode() == ZoomController::Mode::Animating);
+    REQUIRE(zc.targetZoom() == Approx(1.25f));
+
+    // Simulate several frames at 60fps
+    float prevZoom = zc.currentZoom();
+    for (int i = 0; i < 5; ++i)
+    {
+        zc.tick(1.0f / 60.0f);
+        REQUIRE(zc.currentZoom() > prevZoom);          // Moving toward target
+        REQUIRE(zc.currentZoom() <= zc.targetZoom());   // Not overshooting
+        prevZoom = zc.currentZoom();
+    }
+}
+
+TEST_CASE("Animation completes within reasonable frames (AC-2.2.04)", "[ZoomController][Phase2]")
+{
+    ZoomController zc;
+
+    zc.applyKeyboardStep(+1); // target = 1.25
+
+    // Run for 60 frames at 60fps (~1s, well beyond 150ms)
+    for (int i = 0; i < 60; ++i)
+        zc.tick(1.0f / 60.0f);
+
+    REQUIRE(zc.currentZoom() == Approx(1.25f).margin(0.005f));
+    REQUIRE(zc.mode() == ZoomController::Mode::Idle);
+}
+
+TEST_CASE("Ease-out: velocity decreases each frame (AC-2.2.05)", "[ZoomController][Phase2]")
+{
+    ZoomController zc;
+
+    zc.applyKeyboardStep(+1); // target = 1.25
+
+    float prev = zc.currentZoom();
+    zc.tick(1.0f / 60.0f);
+    float delta1 = zc.currentZoom() - prev;
+
+    prev = zc.currentZoom();
+    zc.tick(1.0f / 60.0f);
+    float delta2 = zc.currentZoom() - prev;
+
+    prev = zc.currentZoom();
+    zc.tick(1.0f / 60.0f);
+    float delta3 = zc.currentZoom() - prev;
+
+    // Each successive delta should be smaller (decelerating)
+    REQUIRE(delta2 < delta1);
+    REQUIRE(delta3 < delta2);
+}
+
+TEST_CASE("Three rapid keyboard steps retarget smoothly (E2.3)", "[ZoomController][Phase2]")
+{
+    ZoomController zc;
+
+    // Three rapid presses before any tick
+    zc.applyKeyboardStep(+1); // target = 1.25
+    zc.applyKeyboardStep(+1); // target = 1.50
+    zc.applyKeyboardStep(+1); // target = 1.75
+    REQUIRE(zc.targetZoom() == Approx(1.75f));
+    REQUIRE(zc.mode() == ZoomController::Mode::Animating);
+
+    // Run to completion
+    for (int i = 0; i < 120; ++i)
+        zc.tick(1.0f / 60.0f);
+
+    REQUIRE(zc.currentZoom() == Approx(1.75f).margin(0.005f));
+    REQUIRE(zc.mode() == ZoomController::Mode::Idle);
+}
+
+TEST_CASE("Plus then minus reverses smoothly (E2.4)", "[ZoomController][Phase2]")
+{
+    ZoomController zc;
+
+    zc.applyKeyboardStep(+1); // target = 1.25
+
+    // Advance a few frames
+    for (int i = 0; i < 3; ++i)
+        zc.tick(1.0f / 60.0f);
+
+    float midZoom = zc.currentZoom();
+    REQUIRE(midZoom > 1.0f);
+    REQUIRE(midZoom < 1.25f);
+
+    // Reverse direction
+    zc.applyKeyboardStep(-1); // target = 1.25 - 0.25 = 1.0
+    REQUIRE(zc.targetZoom() == Approx(1.0f));
+    REQUIRE(zc.mode() == ZoomController::Mode::Animating);
+
+    // Should animate back down
+    float prevZoom = zc.currentZoom();
+    zc.tick(1.0f / 60.0f);
+    REQUIRE(zc.currentZoom() < prevZoom); // Moving back toward 1.0
+}
+
+TEST_CASE("Scroll interrupts keyboard animation (E2.5)", "[ZoomController][Phase2]")
+{
+    ZoomController zc;
+
+    zc.applyKeyboardStep(+1); // target = 1.25, mode = Animating
+    REQUIRE(zc.mode() == ZoomController::Mode::Animating);
+
+    // Advance a frame
+    zc.tick(1.0f / 60.0f);
+
+    // Scroll arrives — takes over
+    zc.applyScrollDelta(120);
+    REQUIRE(zc.mode() == ZoomController::Mode::Scrolling);
+
+    // Zoom reflects the scroll, not the animation target
+    REQUIRE(zc.currentZoom() == zc.targetZoom()); // Scroll sets both equal
+}
+
+TEST_CASE("Keyboard step clamps to max at 9.9x (E2.6)", "[ZoomController][Phase2]")
+{
+    ZoomController zc;
+
+    // 10.0 - 1.0 = 9.0 range, step = 0.25, so 36 steps to reach 10.0
+    for (int i = 0; i < 36; ++i)
+        zc.applyKeyboardStep(+1);
+
+    REQUIRE(zc.targetZoom() == Approx(10.0f));
+}
+
+TEST_CASE("No effect when stepping down at 1.0x (E2.2)", "[ZoomController][Phase2]")
+{
+    ZoomController zc;
+    REQUIRE(zc.mode() == ZoomController::Mode::Idle);
+
+    zc.applyKeyboardStep(-1);
+    // Should remain idle — no animation started
+    REQUIRE(zc.mode() == ZoomController::Mode::Idle);
+    REQUIRE(zc.targetZoom() == Approx(1.0f));
+}
+
+TEST_CASE("No effect when stepping up at max (AC-2.8.05)", "[ZoomController][Phase2]")
+{
+    ZoomController zc;
+
+    // Get to max
+    for (int i = 0; i < 40; ++i)
+        zc.applyKeyboardStep(+1);
+
+    // Run animation to completion
+    for (int i = 0; i < 120; ++i)
+        zc.tick(1.0f / 60.0f);
+
+    REQUIRE(zc.currentZoom() == Approx(10.0f).margin(0.005f));
+    REQUIRE(zc.mode() == ZoomController::Mode::Idle);
+
+    // Try to step up — should be no-op
+    zc.applyKeyboardStep(+1);
+    REQUIRE(zc.mode() == ZoomController::Mode::Idle);
+}
+
+TEST_CASE("animateToZoom(1.0) animates from zoomed state (E2.7)", "[ZoomController][Phase2]")
+{
+    ZoomController zc;
+
+    // Get to ~2.0x via scroll
+    for (int i = 0; i < 8; ++i)
+        zc.applyScrollDelta(120);
+    REQUIRE(zc.currentZoom() > 1.5f);
+
+    // Animate to 1.0
+    zc.animateToZoom(1.0f);
+    REQUIRE(zc.mode() == ZoomController::Mode::Animating);
+    REQUIRE(zc.targetZoom() == Approx(1.0f));
+
+    // Run to completion
+    for (int i = 0; i < 120; ++i)
+        zc.tick(1.0f / 60.0f);
+
+    REQUIRE(zc.currentZoom() == Approx(1.0f));
+    REQUIRE(zc.mode() == ZoomController::Mode::Idle);
+}
+
+TEST_CASE("animateToZoom(1.0) at 1.0x is no-op (E2.8)", "[ZoomController][Phase2]")
+{
+    ZoomController zc;
+
+    zc.animateToZoom(1.0f);
+    REQUIRE(zc.mode() == ZoomController::Mode::Idle); // No animation started
+}
+
+TEST_CASE("Animation duration similar at 60Hz and 144Hz", "[ZoomController][Phase2]")
+{
+    // 60Hz animation
+    ZoomController zc60;
+    zc60.applyKeyboardStep(+1);
+    int frames60 = 0;
+    while (zc60.mode() == ZoomController::Mode::Animating && frames60 < 600)
+    {
+        zc60.tick(1.0f / 60.0f);
+        ++frames60;
+    }
+    float duration60ms = frames60 * (1000.0f / 60.0f);
+
+    // 144Hz animation
+    ZoomController zc144;
+    zc144.applyKeyboardStep(+1);
+    int frames144 = 0;
+    while (zc144.mode() == ZoomController::Mode::Animating && frames144 < 1440)
+    {
+        zc144.tick(1.0f / 144.0f);
+        ++frames144;
+    }
+    float duration144ms = frames144 * (1000.0f / 144.0f);
+
+    // Durations should be within 20% of each other
+    float ratio = duration60ms / duration144ms;
+    REQUIRE(ratio > 0.8f);
+    REQUIRE(ratio < 1.2f);
+}

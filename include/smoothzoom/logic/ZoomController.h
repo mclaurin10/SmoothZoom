@@ -30,7 +30,10 @@ public:
     // Returns true if zoom value changed this frame.
     bool tick(float dtSeconds);
 
-    // Reset to 1.0×
+    // Animate to an arbitrary target zoom (Win+Esc → 1.0×, Phase 4 toggle, etc.)
+    void animateToZoom(float target);
+
+    // Reset to 1.0× instantly (shutdown path)
     void reset();
 
     // Accessors

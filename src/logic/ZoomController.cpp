@@ -23,6 +23,11 @@ static constexpr float kScrollZoomBase = 1.1f;
 // Epsilon for snapping to 1.0× and maxZoom (R-17)
 static constexpr float kSnapEpsilon = 0.005f;
 
+// Exponential ease-out rate: ~0.15 per frame at 60fps (render-loop.md, AC-2.2.05)
+// Used as: alpha = 1.0 - pow(1.0 - kEaseOutRate, dt * kReferenceHz)
+static constexpr double kEaseOutRate = 0.15;
+static constexpr double kReferenceHz = 60.0;
+
 // Soft-approach margin as fraction of log-range near bounds (AC-2.1.15)
 static constexpr float kSoftMarginFraction = 0.15f;
 
@@ -82,18 +87,47 @@ void ZoomController::applyScrollDelta(int32_t accumulatedDelta)
 
 void ZoomController::applyKeyboardStep(int direction)
 {
-    // Phase 2 — stub for now
+    // Phase 2: Additive step from current target for retargeting (AC-2.2.06, AC-2.8.07)
     float newTarget = targetZoom_ + (static_cast<float>(direction) * keyboardStep_);
     newTarget = std::clamp(newTarget, minZoom_, maxZoom_);
+
+    // Snap within epsilon of 1.0 and max (R-17)
+    if (std::abs(newTarget - 1.0f) < kSnapEpsilon)
+        newTarget = 1.0f;
+    if (std::abs(newTarget - maxZoom_) < kSnapEpsilon)
+        newTarget = maxZoom_;
+
+    // No-effect check at bounds (AC-2.8.05): if step produces no change, don't animate
+    if (std::abs(newTarget - targetZoom_) < kSnapEpsilon)
+        return;
+
     targetZoom_ = newTarget;
     mode_ = Mode::Animating;
 }
 
-bool ZoomController::tick(float /*dtSeconds*/)
+void ZoomController::animateToZoom(float target)
 {
-    // Phase 0: no animation — scroll input is applied directly.
-    // Phase 2 adds ease-out interpolation for ANIMATING mode.
+    target = std::clamp(target, minZoom_, maxZoom_);
 
+    // Snap within epsilon (R-17)
+    if (std::abs(target - 1.0f) < kSnapEpsilon)
+        target = 1.0f;
+    if (std::abs(target - maxZoom_) < kSnapEpsilon)
+        target = maxZoom_;
+
+    // No-effect: already at target (AC-2.8.09)
+    if (std::abs(currentZoom_ - target) < kSnapEpsilon &&
+        std::abs(targetZoom_ - target) < kSnapEpsilon)
+    {
+        return;
+    }
+
+    targetZoom_ = target;
+    mode_ = Mode::Animating;
+}
+
+bool ZoomController::tick(float dtSeconds)
+{
     if (mode_ == Mode::Idle)
         return false;
 
@@ -105,7 +139,35 @@ bool ZoomController::tick(float /*dtSeconds*/)
         return true;
     }
 
-    // Phase 2+: ANIMATING / TOGGLING interpolation would go here
+    if (mode_ == Mode::Animating)
+    {
+        // Exponential ease-out (render-loop.md, AC-2.2.05):
+        // Frame-rate-independent: at 60fps alpha≈0.15, at 144fps alpha≈0.065.
+        double dt = static_cast<double>(dtSeconds);
+        if (dt <= 0.0)
+            dt = 1.0 / kReferenceHz; // Fallback if dt is zero or negative
+        if (dt > 0.1)
+            dt = 0.1; // Clamp to avoid huge jumps (debugger break, system sleep)
+
+        double alpha = 1.0 - std::pow(1.0 - kEaseOutRate, dt * kReferenceHz);
+
+        double current = static_cast<double>(currentZoom_);
+        double target = static_cast<double>(targetZoom_);
+        double newZoom = current + (target - current) * alpha;
+
+        // Snap to target within epsilon — prevents infinite asymptotic approach
+        if (std::abs(newZoom - target) < static_cast<double>(kSnapEpsilon))
+        {
+            currentZoom_ = targetZoom_;
+            mode_ = Mode::Idle;
+            return true;
+        }
+
+        currentZoom_ = static_cast<float>(newZoom);
+        return true;
+    }
+
+    // Mode::Toggling — Phase 4
     return false;
 }
 

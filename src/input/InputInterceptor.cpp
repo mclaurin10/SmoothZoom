@@ -116,6 +116,31 @@ static LRESULT CALLBACK keyboardHookProc(int nCode, WPARAM wParam, LPARAM lParam
         s_state->lastKeyboardInputTime.store(
             static_cast<int64_t>(info->time), std::memory_order_relaxed);
 
+        // Win+key shortcuts (Phase 2: AC-2.8.01 through AC-2.8.10)
+        bool winHeld = s_winKeyMgr.state() != WinKeyManager::State::Idle;
+        if (winHeld)
+        {
+            switch (info->vkCode)
+            {
+            case VK_OEM_PLUS:   // '=' / '+' on main keyboard
+            case VK_ADD:        // '+' on numpad
+                s_state->commandQueue.push(ZoomCommand::ZoomIn);
+                s_winKeyMgr.markUsedForZoom();
+                break;
+
+            case VK_OEM_MINUS:  // '-' on main keyboard
+            case VK_SUBTRACT:   // '-' on numpad
+                s_state->commandQueue.push(ZoomCommand::ZoomOut);
+                s_winKeyMgr.markUsedForZoom();
+                break;
+
+            case VK_ESCAPE:
+                s_state->commandQueue.push(ZoomCommand::ResetZoom);
+                s_winKeyMgr.markUsedForZoom();
+                break;
+            }
+        }
+
         // Ctrl+Q → post ResetZoom command and quit
         if (info->vkCode == 'Q')
         {

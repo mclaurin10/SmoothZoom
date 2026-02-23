@@ -43,6 +43,10 @@ static float s_lastZoom = 1.0f;
 static float s_lastOffX = 0.0f;
 static float s_lastOffY = 0.0f;
 
+// Frame timing for dt computation (QPC is a hardware register read — safe for hot path)
+static int64_t s_lastFrameTimeQpc = 0;
+static int64_t s_qpcFrequency = 0;
+
 // Screen dimensions (cached once at start, Phase 6 updates on display change)
 static int s_screenW = 0;
 static int s_screenH = 0;
@@ -69,6 +73,13 @@ void RenderLoop::start(SharedState& state)
     // Cache screen dimensions (render thread will use these)
     s_screenW = GetSystemMetrics(SM_CXSCREEN);
     s_screenH = GetSystemMetrics(SM_CYSCREEN);
+
+    // Initialize frame timing for dt computation
+    LARGE_INTEGER freq, now;
+    QueryPerformanceFrequency(&freq);
+    QueryPerformanceCounter(&now);
+    s_qpcFrequency = freq.QuadPart;
+    s_lastFrameTimeQpc = now.QuadPart;
 
     // Initialize MagBridge on the main thread (required by API)
     if (!s_magBridge.initialize())
@@ -132,15 +143,22 @@ void RenderLoop::frameTick()
     int32_t scrollDelta = s_state->scrollAccumulator.exchange(0, std::memory_order_acquire);
 
     // 2. Drain keyboard commands (lock-free queue)
-    // Phase 2+ will process ZoomIn/ZoomOut/ResetZoom commands here.
-    // For Phase 0, we only check for ResetZoom (Ctrl+Q).
     while (auto cmd = s_state->commandQueue.pop())
     {
-        if (*cmd == ZoomCommand::ResetZoom)
+        switch (*cmd)
         {
-            s_zoomController.reset();
+        case ZoomCommand::ZoomIn:
+            s_zoomController.applyKeyboardStep(+1);
+            break;
+        case ZoomCommand::ZoomOut:
+            s_zoomController.applyKeyboardStep(-1);
+            break;
+        case ZoomCommand::ResetZoom:
+            s_zoomController.animateToZoom(1.0f);
+            break;
+        default:
+            break; // Phase 4+: ToggleEngage, ToggleRelease
         }
-        // Phase 2+: handle ZoomIn, ZoomOut, ToggleEngage, etc.
     }
 
     // 3. Apply scroll delta to zoom (if any)
@@ -149,8 +167,21 @@ void RenderLoop::frameTick()
         s_zoomController.applyScrollDelta(scrollDelta);
     }
 
-    // 4. Advance animation (Phase 2+ — currently a no-op for scroll-direct)
-    s_zoomController.tick(0.0f);
+    // 4. Compute dt and advance animation (Phase 2: ease-out interpolation)
+    LARGE_INTEGER now;
+    QueryPerformanceCounter(&now);
+    float dtSeconds = 0.0f;
+    if (s_lastFrameTimeQpc > 0 && s_qpcFrequency > 0)
+    {
+        dtSeconds = static_cast<float>(
+            static_cast<double>(now.QuadPart - s_lastFrameTimeQpc) /
+            static_cast<double>(s_qpcFrequency));
+        if (dtSeconds > 0.1f) dtSeconds = 0.1f;
+        if (dtSeconds < 0.0f) dtSeconds = 0.0f;
+    }
+    s_lastFrameTimeQpc = now.QuadPart;
+
+    s_zoomController.tick(dtSeconds);
 
     // Get current zoom level
     float zoom = s_zoomController.currentZoom();
