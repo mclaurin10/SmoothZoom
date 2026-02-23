@@ -22,8 +22,15 @@ public:
     void requestShutdown();
     bool isRunning() const;
 
-private:
+    // Must be called from main thread after render thread has stopped.
+    // Calls MagUninitialize() which requires main thread context.
+    void finalizeShutdown();
+
+    // Called by the render thread function — public so the static trampoline
+    // in RenderLoop.cpp can invoke it. Not part of the external API.
     void threadMain();
+
+private:
     void frameTick();
 
     std::atomic<bool> shutdownRequested_{false};

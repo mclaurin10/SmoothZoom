@@ -5,7 +5,6 @@
 // Phase 5 component (stubbed until then).
 // =============================================================================
 
-#include <atomic>
 #include <memory>
 
 namespace SmoothZoom
@@ -33,11 +32,13 @@ public:
     bool loadFromFile(const char* path);
     bool saveToFile(const char* path) const;
 
-    // Thread-safe: returns an immutable snapshot (atomic pointer swap)
+    // Thread-safe via std::atomic_load/store (C++17 compatible).
+    // Readers never lock — uses the C++11 shared_ptr atomic free functions.
     std::shared_ptr<const SettingsSnapshot> snapshot() const;
 
 private:
-    std::atomic<std::shared_ptr<const SettingsSnapshot>> current_;
+    // C++17: use std::atomic_load/store with shared_ptr (no std::atomic<shared_ptr>)
+    std::shared_ptr<const SettingsSnapshot> current_ = std::make_shared<SettingsSnapshot>();
 };
 
 } // namespace SmoothZoom

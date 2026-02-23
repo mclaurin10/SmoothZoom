@@ -28,6 +28,7 @@ CMakeSettings.json
 Thumbs.db
 desktop.ini
 .DS_Store
+*:Zone.Identifier
 
 # Certificates (never commit private keys)
 *.pfx

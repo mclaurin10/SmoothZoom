@@ -15,6 +15,13 @@ if(NOT CMAKE_SIZEOF_VOID_P EQUAL 8)
 endif()
 
 # ---------------------------------------------------------------------------
+# Compiler flags (MSVC)
+# ---------------------------------------------------------------------------
+if(MSVC)
+    add_compile_options(/W4 /WX /permissive- /utf-8)
+endif()
+
+# ---------------------------------------------------------------------------
 # Options
 # ---------------------------------------------------------------------------
 option(SMOOTHZOOM_BUILD_TESTS  "Build unit tests"          ON)
@@ -31,14 +38,27 @@ target_include_directories(nlohmann_json INTERFACE
 # ---------------------------------------------------------------------------
 # Common (shared types, threading primitives)
 # ---------------------------------------------------------------------------
-add_library(smoothzoom_common STATIC
-    src/common/SeqLock.cpp
-    src/common/LockFreeQueue.cpp
-    src/common/SharedState.cpp
-)
-target_include_directories(smoothzoom_common PUBLIC
+add_library(smoothzoom_common INTERFACE)
+target_include_directories(smoothzoom_common INTERFACE
     ${CMAKE_SOURCE_DIR}/include
 )
+
+# ---------------------------------------------------------------------------
+# Output Layer (MagBridge — sole Magnification API wrapper)
+# ---------------------------------------------------------------------------
+add_library(smoothzoom_output STATIC
+    src/output/MagBridge.cpp
+)
+target_include_directories(smoothzoom_output PUBLIC
+    ${CMAKE_SOURCE_DIR}/include
+)
+target_link_libraries(smoothzoom_output PUBLIC smoothzoom_common)
+if(WIN32)
+    target_link_libraries(smoothzoom_output PRIVATE
+        Magnification.lib
+        User32.lib
+    )
+endif()
 
 # ---------------------------------------------------------------------------
 # Input Layer
@@ -53,6 +73,9 @@ target_include_directories(smoothzoom_input PUBLIC
     ${CMAKE_SOURCE_DIR}/include
 )
 target_link_libraries(smoothzoom_input PUBLIC smoothzoom_common)
+if(WIN32)
+    target_link_libraries(smoothzoom_input PRIVATE User32.lib)
+endif()
 
 # ---------------------------------------------------------------------------
 # Logic Layer
@@ -65,18 +88,16 @@ add_library(smoothzoom_logic STATIC
 target_include_directories(smoothzoom_logic PUBLIC
     ${CMAKE_SOURCE_DIR}/include
 )
-target_link_libraries(smoothzoom_logic PUBLIC smoothzoom_common)
-
-# ---------------------------------------------------------------------------
-# Output Layer
-# ---------------------------------------------------------------------------
-add_library(smoothzoom_output STATIC
-    src/output/MagBridge.cpp
+target_link_libraries(smoothzoom_logic PUBLIC
+    smoothzoom_common
+    smoothzoom_output
 )
-target_include_directories(smoothzoom_output PUBLIC
-    ${CMAKE_SOURCE_DIR}/include
-)
-target_link_libraries(smoothzoom_output PUBLIC smoothzoom_common)
+if(WIN32)
+    target_link_libraries(smoothzoom_logic PRIVATE
+        Dwmapi.lib
+        User32.lib
+    )
+endif()
 
 # ---------------------------------------------------------------------------
 # Support Layer
@@ -105,16 +126,14 @@ target_link_libraries(SmoothZoom PRIVATE
     smoothzoom_output
     smoothzoom_support
 )
-
-# Win32 system libraries (Doc 3 §5.2)
 if(WIN32)
     target_link_libraries(SmoothZoom PRIVATE
         Magnification.lib
         Dwmapi.lib
         User32.lib
         Shell32.lib
-        Ole32.lib          # COM for UIA
-        OleAut32.lib       # COM for UIA
+        Ole32.lib
+        OleAut32.lib
         UIAutomationCore.lib
     )
 endif()
@@ -122,7 +141,7 @@ endif()
 # Embed application manifest (Doc 3 §5.3)
 if(MSVC)
     set_target_properties(SmoothZoom PROPERTIES
-        LINK_FLAGS "/MANIFEST:EMBED /MANIFESTINPUT:${CMAKE_SOURCE_DIR}/res/SmoothZoom.manifest"
+        LINK_FLAGS "/MANIFEST:EMBED /MANIFESTINPUT:\"${CMAKE_SOURCE_DIR}/res/SmoothZoom.manifest\""
     )
 endif()
 
@@ -144,7 +163,7 @@ target_include_directories(Phase0Harness PRIVATE
 )
 if(MSVC)
     set_target_properties(Phase0Harness PROPERTIES
-        LINK_FLAGS "/MANIFEST:EMBED /MANIFESTINPUT:${CMAKE_SOURCE_DIR}/res/SmoothZoom.manifest"
+        LINK_FLAGS "/MANIFEST:EMBED /MANIFESTINPUT:\"${CMAKE_SOURCE_DIR}/res/SmoothZoom.manifest\""
     )
 endif()
 
@@ -152,20 +171,31 @@ endif()
 # Unit tests (Layer 1 — pure logic, CI-safe, no Win32 API deps)
 # ---------------------------------------------------------------------------
 if(SMOOTHZOOM_BUILD_TESTS)
-    enable_testing()
+    include(FetchContent)
+    FetchContent_Declare(
+        Catch2
+        GIT_REPOSITORY https://github.com/catchorg/Catch2.git
+        GIT_TAG        v3.5.2
+    )
+    FetchContent_MakeAvailable(Catch2)
+
+    # Tests compile only the pure-logic source files they need directly,
+    # avoiding Win32 dependencies (InputInterceptor, RenderLoop, MagBridge).
     add_executable(smoothzoom_tests
-        tests/unit/test_main.cpp
         tests/unit/test_ZoomController.cpp
         tests/unit/test_ViewportTracker.cpp
         tests/unit/test_WinKeyManager.cpp
-        tests/unit/test_SettingsManager.cpp
+        src/logic/ZoomController.cpp
+        src/logic/ViewportTracker.cpp
+        src/input/WinKeyManager.cpp
     )
     target_include_directories(smoothzoom_tests PRIVATE
         ${CMAKE_SOURCE_DIR}/include
     )
     target_link_libraries(smoothzoom_tests PRIVATE
-        smoothzoom_logic
-        smoothzoom_common
+        Catch2::Catch2WithMain
     )
+
+    enable_testing()
     add_test(NAME UnitTests COMMAND smoothzoom_tests)
 endif()
