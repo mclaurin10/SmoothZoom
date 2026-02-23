@@ -1,0 +1,35 @@
+# Build output
+build/
+out/
+x64/
+Debug/
+Release/
+
+# IDE
+.vs/
+.vscode/settings.json
+*.user
+*.suo
+*.ncb
+*.sdf
+*.opensdf
+CMakeSettings.json
+
+# Compiled
+*.obj
+*.exe
+*.dll
+*.lib
+*.pdb
+*.ilk
+*.exp
+
+# OS
+Thumbs.db
+desktop.ini
+.DS_Store
+
+# Certificates (never commit private keys)
+*.pfx
+*.pvk
+*.cer
