@@ -88,8 +88,12 @@ static LRESULT CALLBACK msgWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lP
             for (int i = 0; i < 50 && g_renderLoop.isRunning(); ++i)
                 Sleep(10);
 
-            g_renderLoop.finalizeShutdown();
-            g_inputInterceptor.uninstall();
+            if (!g_renderLoop.isRunning())
+            {
+                g_renderLoop.finalizeShutdown();
+                g_inputInterceptor.uninstall();
+            }
+            // else: render thread still alive — process exit will clean up
         }
         return 0;
 

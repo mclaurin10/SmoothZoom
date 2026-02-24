@@ -41,6 +41,8 @@ static bool isValidCaretRect(const RECT& r)
     if (w < 0 || h <= 0) return false;
     // Reject absurdly large
     if (w > 5000 || h > 5000) return false;
+    // Reject clearly off-screen (R-09, matches FocusMonitor bounds)
+    if (r.left < -5000 || r.top < -5000) return false;
     return true;
 }
 
