@@ -37,6 +37,12 @@ public:
     void releaseToggle();
     bool isToggled() const { return isToggled_; }
 
+    // Phase 5: Apply settings from snapshot. Called by render thread when it
+    // detects a new settings version. Triggers animation if zoom is out of new
+    // bounds (AC-2.9.05, AC-2.9.06).
+    void applySettings(float minZoom, float maxZoom, float keyboardStep,
+                       float defaultZoomLevel);
+
     // Reset to 1.0× instantly (shutdown path)
     void reset();
 

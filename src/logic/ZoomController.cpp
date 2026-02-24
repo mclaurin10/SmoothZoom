@@ -217,6 +217,26 @@ bool ZoomController::tick(float dtSeconds)
     return false;
 }
 
+void ZoomController::applySettings(float minZoom, float maxZoom,
+                                    float keyboardStep, float defaultZoomLevel)
+{
+    minZoom_ = minZoom;
+    maxZoom_ = maxZoom;
+    keyboardStep_ = keyboardStep;
+    lastUsedZoom_ = defaultZoomLevel; // Update default for toggle-from-1.0× (AC-2.7.05)
+
+    // AC-2.9.05: zoomed above new max → animate down
+    if (currentZoom_ > maxZoom_)
+        animateToZoom(maxZoom_);
+
+    // AC-2.9.06: zoomed below new min → animate up
+    if (currentZoom_ < minZoom_)
+        animateToZoom(minZoom_);
+
+    // Clamp pending target to new bounds
+    targetZoom_ = std::clamp(targetZoom_, minZoom_, maxZoom_);
+}
+
 void ZoomController::reset()
 {
     currentZoom_ = 1.0f;

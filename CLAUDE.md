@@ -2,6 +2,10 @@
 
 Native C++17 Win32 full-screen magnifier for Windows. Hold Win+Scroll to smoothly zoom up to 10× with continuous viewport tracking of pointer, keyboard focus, and text cursor. Uses the Windows Magnification API.
 
+## Active Plan
+
+Phase 5 implementation plan (5A done, 5B/5C remaining): `.claude/plans/snoopy-finding-lemur.md`
+
 ## Design Documents — Read Before Implementing
 
 Five docs and a research report fully specify this project. **Always consult the relevant doc before coding. Do not guess—look it up.**

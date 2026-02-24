@@ -185,9 +185,11 @@ if(SMOOTHZOOM_BUILD_TESTS)
         tests/unit/test_ZoomController.cpp
         tests/unit/test_ViewportTracker.cpp
         tests/unit/test_WinKeyManager.cpp
+        tests/unit/test_SettingsManager.cpp
         src/logic/ZoomController.cpp
         src/logic/ViewportTracker.cpp
         src/input/WinKeyManager.cpp
+        src/support/SettingsManager.cpp
     )
     target_include_directories(smoothzoom_tests PRIVATE
         ${CMAKE_SOURCE_DIR}/include
@@ -195,6 +197,7 @@ if(SMOOTHZOOM_BUILD_TESTS)
     target_compile_definitions(smoothzoom_tests PRIVATE SMOOTHZOOM_TESTING)
     target_link_libraries(smoothzoom_tests PRIVATE
         Catch2::Catch2WithMain
+        nlohmann_json
     )
 
     enable_testing()

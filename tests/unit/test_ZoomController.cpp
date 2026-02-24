@@ -100,9 +100,11 @@ TEST_CASE("Reset returns to 1.0x idle", "[ZoomController]")
 
 TEST_CASE("Logarithmic model: equal effort for equal ratios (AC-2.1.06)", "[ZoomController]")
 {
-    // Core property: 1×→2× requires same scroll as 5×→10× (same ratio = 2:1)
-    // With pow(1.1, n) model: zoom_after = zoom_before * 1.1^n
-    // So n = log(ratio) / log(1.1) regardless of starting zoom.
+    // Core property: same ratio requires same number of notches regardless of starting zoom.
+    // With pow(1.1, n) model: n = log(ratio) / log(1.1).
+    // Test 1→2 vs 2→4 (both 2:1 ratios, both well within soft-bound margins).
+    // Note: 5→10 enters the upper soft-bound attenuation zone (above ~7.1×), so we
+    // test with 2→4 which stays in the linear region.
 
     ZoomController zc1;
     // Count notches from 1.0 to 2.0
@@ -114,22 +116,22 @@ TEST_CASE("Logarithmic model: equal effort for equal ratios (AC-2.1.06)", "[Zoom
     }
 
     ZoomController zc2;
-    // Get to 5.0× first
-    while (zc2.currentZoom() < 5.0f)
+    // Get to 2.0× first
+    while (zc2.currentZoom() < 2.0f)
         zc2.applyScrollDelta(120);
 
-    // Count notches from 5.0 to 10.0
-    int notches_5_to_10 = 0;
+    // Count notches from ~2.0 to ~4.0 (same 2:1 ratio, away from soft bounds)
+    int notches_2_to_4 = 0;
     float start = zc2.currentZoom();
-    float target = start * 2.0f; // same 2:1 ratio
-    while (zc2.currentZoom() < target && notches_5_to_10 < 200)
+    float target = start * 2.0f;
+    while (zc2.currentZoom() < target && notches_2_to_4 < 200)
     {
         zc2.applyScrollDelta(120);
-        ++notches_5_to_10;
+        ++notches_2_to_4;
     }
 
-    // Should be approximately equal (within 1–2 notches due to soft bounds near 10×)
-    REQUIRE(std::abs(notches_1_to_2 - notches_5_to_10) <= 2);
+    // Should be exactly equal (no soft-bound interference in this range)
+    REQUIRE(std::abs(notches_1_to_2 - notches_2_to_4) <= 1);
 }
 
 TEST_CASE("Multiple scroll deltas accumulate correctly", "[ZoomController]")
@@ -202,12 +204,19 @@ TEST_CASE("Keyboard step clamps to bounds", "[ZoomController]")
     REQUIRE(zc.targetZoom() == Approx(1.0f));
 }
 
-TEST_CASE("Zoom in then zoom out returns near 1.0x", "[ZoomController]")
+TEST_CASE("Zoom in then zoom out returns to same level", "[ZoomController]")
 {
     ZoomController zc;
 
-    // With logarithmic model, zoom_in(n) then zoom_out(n) should return to start
-    // because: zoom * 1.1^n * 1.1^(-n) = zoom
+    // Test symmetry in the middle range (away from soft-bound attenuation zones).
+    // Near 1.0×, downward scrolling is attenuated (AC-2.1.15), so we first move
+    // to ~3× where neither bound's attenuation affects the result.
+    for (int i = 0; i < 12; ++i)
+        zc.applyScrollDelta(120);
+    float baseZoom = zc.currentZoom();
+    REQUIRE(baseZoom > 2.5f);
+
+    // 3 notches up, then 3 notches down — should return to baseZoom
     zc.applyScrollDelta(120);
     zc.applyScrollDelta(120);
     zc.applyScrollDelta(120);
@@ -215,7 +224,7 @@ TEST_CASE("Zoom in then zoom out returns near 1.0x", "[ZoomController]")
     zc.applyScrollDelta(-120);
     zc.applyScrollDelta(-120);
 
-    REQUIRE(zc.currentZoom() == Approx(1.0f).margin(0.01f));
+    REQUIRE(zc.currentZoom() == Approx(baseZoom).margin(0.001f));
 }
 
 // =============================================================================
@@ -646,4 +655,68 @@ TEST_CASE("Release when not toggled is idempotent", "[ZoomController][Phase4]")
     REQUIRE(!zc.isToggled());
     REQUIRE(zc.currentZoom() == Approx(1.0f));
     REQUIRE(zc.mode() == ZoomController::Mode::Idle);
+}
+
+// =============================================================================
+// Phase 5: Settings application tests (AC-2.9.04–AC-2.9.06)
+// =============================================================================
+
+TEST_CASE("applySettings: reduce max while above it → animate down (AC-2.9.05, E5.2)", "[ZoomController][Phase5]")
+{
+    ZoomController zc;
+
+    // Zoom to ~8.0x
+    for (int i = 0; i < 22; ++i)
+        zc.applyScrollDelta(120);
+    REQUIRE(zc.currentZoom() > 7.0f);
+
+    zc.applySettings(1.0f, 5.0f, 0.25f, 2.0f);
+    REQUIRE(zc.targetZoom() == Approx(5.0f));
+    REQUIRE(zc.mode() == ZoomController::Mode::Animating);
+
+    runToIdle(zc);
+    REQUIRE(zc.currentZoom() == Approx(5.0f).margin(0.005f));
+}
+
+TEST_CASE("applySettings: raise min while below it → animate up (AC-2.9.06)", "[ZoomController][Phase5]")
+{
+    ZoomController zc;
+    REQUIRE(zc.currentZoom() == Approx(1.0f));
+
+    zc.applySettings(2.0f, 10.0f, 0.25f, 2.0f);
+    REQUIRE(zc.targetZoom() == Approx(2.0f));
+    REQUIRE(zc.mode() == ZoomController::Mode::Animating);
+
+    runToIdle(zc);
+    REQUIRE(zc.currentZoom() == Approx(2.0f).margin(0.005f));
+}
+
+TEST_CASE("applySettings: idle within bounds → no spurious animation", "[ZoomController][Phase5]")
+{
+    ZoomController zc;
+
+    // Zoom to ~3.0x
+    for (int i = 0; i < 12; ++i)
+        zc.applyScrollDelta(120);
+    float level = zc.currentZoom();
+    REQUIRE(level > 2.0f);
+
+    // Change settings but keep bounds that contain current zoom
+    zc.applySettings(1.0f, 8.0f, 0.5f, 3.0f);
+
+    // No animation triggered — zoom is within new bounds
+    REQUIRE(zc.currentZoom() == Approx(level));
+    REQUIRE(zc.mode() == ZoomController::Mode::Scrolling); // Still in scroll mode from delta
+}
+
+TEST_CASE("applySettings: new keyboard step takes effect (AC-2.9.04)", "[ZoomController][Phase5]")
+{
+    ZoomController zc;
+
+    // Apply settings with large step
+    zc.applySettings(1.0f, 10.0f, 0.5f, 2.0f);
+
+    zc.applyKeyboardStep(+1);
+    // 1.0 * (1 + 0.5) = 1.5 (not 1.25 as with default 0.25 step)
+    REQUIRE(zc.targetZoom() == Approx(1.5f));
 }

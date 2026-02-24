@@ -9,7 +9,9 @@
 #include "smoothzoom/common/Types.h"
 #include "smoothzoom/common/SeqLock.h"
 #include "smoothzoom/common/LockFreeQueue.h"
+#include "smoothzoom/support/SettingsManager.h"
 #include <atomic>
+#include <memory>
 
 namespace SmoothZoom
 {
@@ -31,6 +33,12 @@ struct SharedState
 
     // -- Command queue: main thread → render thread --
     LockFreeQueue<ZoomCommand> commandQueue;
+
+    // -- Settings snapshot: written by main thread, read by all --
+    // Render thread checks settingsVersion (one atomic int) per frame.
+    // Only does the heavier shared_ptr atomic_load when version changes.
+    std::shared_ptr<const SettingsSnapshot> settingsSnapshot;
+    std::atomic<uint64_t> settingsVersion{0};
 };
 
 } // namespace SmoothZoom
