@@ -64,6 +64,12 @@ static bool s_deadzoneInitialized = false;
 static int64_t s_lastPointerMoveTimeMs = 0;  // Updated when committed pointer changes
 static TrackingSource s_activeSource = TrackingSource::Pointer;
 
+// Phase 5B: Settings integration — render thread checks version once per frame.
+// Common case cost: one atomic uint64 load + comparison. No heap, no mutex.
+static uint64_t s_cachedSettingsVersion = 0;
+static bool s_followKeyboardFocus = true;   // Match SettingsSnapshot defaults
+static bool s_followTextCursor = true;
+
 // Source transition smoothing (200ms ease-out between sources)
 static constexpr float kSourceTransitionDurationMs = 200.0f;
 static float s_transitionOffX = 0.0f;   // Starting offset when transition began
@@ -158,6 +164,23 @@ static void renderThreadMain(RenderLoop* self)
 // =============================================================================
 void RenderLoop::frameTick()
 {
+    // 0. Check for settings changes (Phase 5B: AC-2.9.04–AC-2.9.09)
+    //    One atomic uint64 load per frame (common case). shared_ptr load only on change.
+    uint64_t ver = s_state->settingsVersion.load(std::memory_order_acquire);
+    if (ver != s_cachedSettingsVersion)
+    {
+        auto snap = std::atomic_load(&s_state->settingsSnapshot);
+        if (snap)
+        {
+            s_zoomController.applySettings(
+                snap->minZoom, snap->maxZoom,
+                snap->keyboardZoomStep, snap->defaultZoomLevel);
+            s_followKeyboardFocus = snap->followKeyboardFocus;
+            s_followTextCursor = snap->followTextCursor;
+        }
+        s_cachedSettingsVersion = ver;
+    }
+
     // 1. Consume scroll delta (atomic exchange with 0)
     int32_t scrollDelta = s_state->scrollAccumulator.exchange(0, std::memory_order_acquire);
 
@@ -254,6 +277,10 @@ void RenderLoop::frameTick()
     bool caretValid = (caretRect.width() >= 0 && caretRect.height() > 0 // Caret can be 0-width
         && caretRect.left > -5000 && caretRect.top > -5000
         && caretRect.height() <= 5000);
+
+    // Phase 5B: Gate on settings (AC-2.9.08, AC-2.9.09)
+    focusValid = focusValid && s_followKeyboardFocus;
+    caretValid = caretValid && s_followTextCursor;
 
     // 5c. Determine active tracking source
     TrackingSource newSource = s_viewportTracker.determineActiveSource(

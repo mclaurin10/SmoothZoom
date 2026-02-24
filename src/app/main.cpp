@@ -25,6 +25,10 @@
 #include "smoothzoom/input/CaretMonitor.h"
 #include "smoothzoom/logic/RenderLoop.h"
 #include "smoothzoom/output/MagBridge.h"
+#include "smoothzoom/support/SettingsManager.h"
+
+#include <memory>
+#include <string>
 
 // Global shared state — single instance, lifetime = application
 static SmoothZoom::SharedState g_sharedState;
@@ -34,10 +38,25 @@ static SmoothZoom::InputInterceptor g_inputInterceptor;
 static SmoothZoom::RenderLoop g_renderLoop;
 static SmoothZoom::FocusMonitor g_focusMonitor;   // Phase 3: UIA focus tracking
 static SmoothZoom::CaretMonitor g_caretMonitor;    // Phase 3: text caret tracking
+static SmoothZoom::SettingsManager g_settingsManager; // Phase 5: config persistence
+static std::string g_configPath;                      // Resolved at startup
 
 // Hook watchdog timer ID and interval (R-05, AC-ERR.03)
 static constexpr UINT_PTR kWatchdogTimerId = 1;
 static constexpr UINT kWatchdogIntervalMs = 5000;
+
+// Phase 5B: Application-defined message for settings window (AC-2.8.11)
+static constexpr UINT WM_OPEN_SETTINGS = WM_APP + 1;
+
+// Phase 5B: Observer callback — publishes settings changes to SharedState.
+// Runs on main thread. Render thread detects via settingsVersion atomic.
+static void publishToSharedState(const SmoothZoom::SettingsSnapshot& s, void* ud)
+{
+    auto* state = static_cast<SmoothZoom::SharedState*>(ud);
+    auto snap = std::make_shared<const SmoothZoom::SettingsSnapshot>(s);
+    std::atomic_store(&state->settingsSnapshot, snap);
+    state->settingsVersion.fetch_add(1, std::memory_order_release);
+}
 
 // Crash handler (R-14): reset magnification on unhandled exception
 static LONG WINAPI crashHandler(EXCEPTION_POINTERS* /*exInfo*/)
@@ -73,6 +92,11 @@ static LRESULT CALLBACK msgWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lP
                 g_inputInterceptor.reinstall();
             }
         }
+        return 0;
+
+    case WM_OPEN_SETTINGS:
+        // Phase 5B: Win+Ctrl+M received — settings window stub (Phase 5C implements UI)
+        OutputDebugStringW(L"SmoothZoom: Win+Ctrl+M — open settings (Phase 5C)\n");
         return 0;
 
     case WM_ENDSESSION:
@@ -128,6 +152,20 @@ int WINAPI wWinMain(
     // ── 0. Install crash handler (R-14) ──────────────────────────────────────
     SetUnhandledExceptionFilter(crashHandler);
 
+    // ── 0b. Load settings (Phase 5B: AC-2.9.01, AC-2.9.02) ─────────────────
+    // Register observers BEFORE loading so the initial load triggers them.
+    g_settingsManager.addObserver(publishToSharedState, &g_sharedState);
+    g_configPath = SmoothZoom::SettingsManager::getDefaultConfigPath();
+    if (!g_configPath.empty())
+        g_settingsManager.loadFromFile(g_configPath.c_str());
+    // Ensure SharedState has settings even if load failed (defaults apply):
+    {
+        auto snap = g_settingsManager.snapshot();
+        std::atomic_store(&g_sharedState.settingsSnapshot, snap);
+        g_sharedState.settingsVersion.store(
+            g_settingsManager.version(), std::memory_order_release);
+    }
+
     // ── 1. Install input hooks (must be on a thread with a message pump) ────
     if (!g_inputInterceptor.install(g_sharedState))
     {
@@ -141,6 +179,9 @@ int WINAPI wWinMain(
                     MB_OK | MB_ICONERROR);
         return 1;
     }
+
+    // Phase 5B: Register InputInterceptor for settings changes (AC-2.9.04)
+    SmoothZoom::InputInterceptor::registerSettingsObserver(g_settingsManager);
 
     // ── 2. Start render loop (launches render thread, initializes MagBridge) ─
     g_renderLoop.start(g_sharedState);
@@ -172,6 +213,8 @@ int WINAPI wWinMain(
     if (g_msgWindow)
     {
         SetTimer(g_msgWindow, kWatchdogTimerId, kWatchdogIntervalMs, nullptr);
+        // Phase 5B: Give InputInterceptor the msg window for Win+Ctrl+M (AC-2.8.11)
+        SmoothZoom::InputInterceptor::setMessageWindow(g_msgWindow);
     }
 
     // ── 3. Run Win32 message pump ───────────────────────────────────────────
@@ -185,6 +228,11 @@ int WINAPI wWinMain(
     }
 
     // ── 4. Shutdown sequence ────────────────────────────────────────────────
+
+    // Phase 5B: Save settings on clean exit (AC-2.9.02)
+    if (!g_configPath.empty())
+        g_settingsManager.saveToFile(g_configPath.c_str());
+
     if (g_msgWindow)
     {
         KillTimer(g_msgWindow, kWatchdogTimerId);

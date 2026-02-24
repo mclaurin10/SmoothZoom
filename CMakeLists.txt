@@ -186,6 +186,7 @@ if(SMOOTHZOOM_BUILD_TESTS)
         tests/unit/test_ViewportTracker.cpp
         tests/unit/test_WinKeyManager.cpp
         tests/unit/test_SettingsManager.cpp
+        tests/unit/test_ModifierUtils.cpp
         src/logic/ZoomController.cpp
         src/logic/ViewportTracker.cpp
         src/input/WinKeyManager.cpp

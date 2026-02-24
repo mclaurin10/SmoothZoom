@@ -39,7 +39,7 @@ enum class ZoomCommand : uint8_t
     ResetZoom,      // Win+Esc
     ToggleEngage,   // Ctrl+Alt press
     ToggleRelease,  // Ctrl+Alt release
-    OpenSettings,   // Win+; (Phase 5)
+    OpenSettings,   // Win+Ctrl+M (Phase 5, AC-2.8.11)
     ToggleInvert,   // Win+I (Phase 6)
 };
 

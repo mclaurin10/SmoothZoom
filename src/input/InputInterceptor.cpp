@@ -8,12 +8,15 @@
 // No computation, no I/O, no allocation.
 //
 // Phase 1: WinKeyManager integration for Start Menu suppression (AC-2.1.16).
+// Phase 5B: Configurable modifier/toggle keys, Win+Ctrl+M shortcut.
 // =============================================================================
 
 #include "smoothzoom/input/InputInterceptor.h"
 #include "smoothzoom/input/WinKeyManager.h"
+#include "smoothzoom/input/ModifierUtils.h"
 #include "smoothzoom/common/SharedState.h"
 #include "smoothzoom/common/Types.h"
+#include "smoothzoom/support/SettingsManager.h"
 
 #ifndef UNICODE
 #define UNICODE
@@ -33,6 +36,24 @@ static HHOOK s_mouseHook = nullptr;
 static HHOOK s_keyboardHook = nullptr;
 static WinKeyManager s_winKeyMgr;
 
+// Phase 5B: Configurable keys — updated by settings observer on main thread.
+// Safe to read from hook callbacks (same thread). (AC-2.1.19, AC-2.1.20)
+static int s_modifierKeyVK = VK_LWIN;
+static int s_toggleKey1VK  = VK_LCONTROL;
+static int s_toggleKey2VK  = VK_LMENU;
+static HWND s_msgWindow    = nullptr;
+
+// Phase 5B: Settings observer callback — runs on main thread (same as hooks).
+static void onSettingsChanged(const SettingsSnapshot& s, void* /*userData*/)
+{
+    s_modifierKeyVK = s.modifierKeyVK;
+    s_toggleKey1VK  = s.toggleKey1VK;
+    s_toggleKey2VK  = s.toggleKey2VK;
+}
+
+// Named constant for settings window message (AC-2.8.11)
+static constexpr UINT WM_OPEN_SETTINGS = WM_APP + 1;
+
 // ─── Mouse Hook Callback ────────────────────────────────────────────────────
 // Minimal: read event, check modifier via WinKeyManager, update atomics, return.
 static LRESULT CALLBACK mouseHookProc(int nCode, WPARAM wParam, LPARAM lParam)
@@ -46,10 +67,14 @@ static LRESULT CALLBACK mouseHookProc(int nCode, WPARAM wParam, LPARAM lParam)
     {
     case WM_MOUSEWHEEL:
     {
-        // Check if Win key is held via WinKeyManager state machine (AC-2.1.04)
-        bool winHeld = s_winKeyMgr.state() != WinKeyManager::State::Idle;
+        // Phase 5B: Configurable modifier key (AC-2.1.19, AC-2.1.20)
+        bool modifierHeld = false;
+        if (s_modifierKeyVK == VK_LWIN || s_modifierKeyVK == VK_RWIN)
+            modifierHeld = s_winKeyMgr.state() != WinKeyManager::State::Idle;
+        else
+            modifierHeld = (GetAsyncKeyState(toGenericVK(s_modifierKeyVK)) & 0x8000) != 0;
 
-        if (winHeld)
+        if (modifierHeld)
         {
             // Extract scroll delta from high word of mouseData
             int16_t delta = static_cast<int16_t>(HIWORD(info->mouseData));
@@ -57,8 +82,10 @@ static LRESULT CALLBACK mouseHookProc(int nCode, WPARAM wParam, LPARAM lParam)
             // Atomically accumulate delta (render thread will exchange-with-0)
             s_state->scrollAccumulator.fetch_add(delta, std::memory_order_release);
 
-            // Mark Win key as used for zoom → suppresses Start Menu on release (AC-2.1.16)
-            s_winKeyMgr.markUsedForZoom();
+            // Suppress Start Menu only when Win is the modifier (AC-2.1.16, AC-2.1.20)
+            if (s_modifierKeyVK == VK_LWIN || s_modifierKeyVK == VK_RWIN)
+                s_winKeyMgr.markUsedForZoom();
+
             s_state->modifierHeld.store(true, std::memory_order_relaxed);
 
             // Consume the event — do not pass to next hook or applications (AC-2.1.02)
@@ -87,9 +114,9 @@ static LRESULT CALLBACK mouseHookProc(int nCode, WPARAM wParam, LPARAM lParam)
 // Tracks Win key via WinKeyManager. Observe-only (never consumes). (AC-2.1.18)
 // Phase 4: Tracks Ctrl+Alt for temporary toggle (AC-2.7.01–AC-2.7.10).
 
-// Phase 4: Ctrl+Alt toggle state — minimal (3 bools + 1 queue push), R-05 safe.
-static bool s_toggleCtrlHeld = false;
-static bool s_toggleAltHeld = false;
+// Phase 4/5B: Toggle key state — configurable keys (3 bools + 1 queue push), R-05 safe.
+static bool s_toggleKey1Held = false;
+static bool s_toggleKey2Held = false;
 static bool s_toggleEngaged = false;
 
 static LRESULT CALLBACK keyboardHookProc(int nCode, WPARAM wParam, LPARAM lParam)
@@ -117,14 +144,14 @@ static LRESULT CALLBACK keyboardHookProc(int nCode, WPARAM wParam, LPARAM lParam
         }
     }
 
-    // Phase 4: Ctrl+Alt toggle tracking (AC-2.7.01–AC-2.7.10)
-    bool isCtrl = (info->vkCode == VK_LCONTROL || info->vkCode == VK_RCONTROL);
-    bool isAlt  = (info->vkCode == VK_LMENU    || info->vkCode == VK_RMENU);
+    // Phase 4/5B: Configurable toggle key tracking (AC-2.7.01–AC-2.7.10)
+    bool isToggle1 = isModifierMatch(info->vkCode, s_toggleKey1VK);
+    bool isToggle2 = isModifierMatch(info->vkCode, s_toggleKey2VK);
 
-    if (isCtrl) s_toggleCtrlHeld = isDown;
-    if (isAlt)  s_toggleAltHeld  = isDown;
+    if (isToggle1) s_toggleKey1Held = isDown;
+    if (isToggle2) s_toggleKey2Held = isDown;
 
-    bool bothHeld = s_toggleCtrlHeld && s_toggleAltHeld;
+    bool bothHeld = s_toggleKey1Held && s_toggleKey2Held;
     if (bothHeld && !s_toggleEngaged)
     {
         s_toggleEngaged = true;
@@ -163,6 +190,15 @@ static LRESULT CALLBACK keyboardHookProc(int nCode, WPARAM wParam, LPARAM lParam
             case VK_ESCAPE:
                 s_state->commandQueue.push(ZoomCommand::ResetZoom);
                 s_winKeyMgr.markUsedForZoom();
+                break;
+
+            // Phase 5B: Win+Ctrl+M → open settings (AC-2.8.11)
+            case 'M':
+                if ((GetAsyncKeyState(VK_CONTROL) & 0x8000) && s_msgWindow)
+                {
+                    PostMessageW(s_msgWindow, WM_OPEN_SETTINGS, 0, 0);
+                    s_winKeyMgr.markUsedForZoom();
+                }
                 break;
             }
         }
@@ -243,6 +279,18 @@ bool InputInterceptor::reinstall()
     }
 
     return isHealthy();
+}
+
+// Phase 5B: Register for settings change notifications (AC-2.9.04)
+void InputInterceptor::registerSettingsObserver(SettingsManager& mgr)
+{
+    mgr.addObserver(onSettingsChanged, nullptr);
+}
+
+// Phase 5B: Store message window handle for Win+Ctrl+M posting (AC-2.8.11)
+void InputInterceptor::setMessageWindow(void* hWnd)
+{
+    s_msgWindow = static_cast<HWND>(hWnd);
 }
 
 } // namespace SmoothZoom
