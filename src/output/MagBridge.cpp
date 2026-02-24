@@ -74,9 +74,15 @@ bool MagBridge::setTransform(float magnification, float xOffset, float yOffset)
     if (!initialized_)
         return false;
 
-    return MagSetFullscreenTransform(magnification,
-                                     static_cast<int>(xOffset),
-                                     static_cast<int>(yOffset)) != FALSE;
+    BOOL ok = MagSetFullscreenTransform(magnification,
+                                        static_cast<int>(xOffset),
+                                        static_cast<int>(yOffset));
+    if (!ok)
+    {
+        lastError_ = GetLastError();
+    }
+
+    return ok != FALSE;
 }
 
 bool MagBridge::setInputTransform(float magnification, float xOffset, float yOffset)

@@ -203,14 +203,13 @@ static LRESULT CALLBACK keyboardHookProc(int nCode, WPARAM wParam, LPARAM lParam
             }
         }
 
-        // Ctrl+Q → post ResetZoom command and quit
+        // Ctrl+Q → graceful exit (Phase 5C: AC-2.9.16)
         if (info->vkCode == 'Q')
         {
             bool ctrlHeld = (GetAsyncKeyState(VK_CONTROL) & 0x8000) != 0;
-            if (ctrlHeld)
+            if (ctrlHeld && s_msgWindow)
             {
-                s_state->commandQueue.push(ZoomCommand::ResetZoom);
-                PostQuitMessage(0);
+                PostMessageW(s_msgWindow, WM_APP + 3, 0, 0); // WM_GRACEFUL_EXIT
             }
         }
     }

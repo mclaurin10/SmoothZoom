@@ -60,50 +60,20 @@ signed and running from a secure folder (`C:\Program Files\`).
 .\scripts\install-secure.ps1
 ```
 
-## Phase 0 — Risk Spike
-
-Phase 0 validates three assumptions before building the full application:
-
-1. **Float-precision magnification** — `MagSetFullscreenTransform` honors
-   sub-integer float values (e.g., 1.07, 2.34) and produces visually smooth results.
-2. **Sub-frame API latency** — Visual changes appear within one VSync of the API call.
-3. **Reliable scroll interception** — A `WH_MOUSE_LL` hook from a `uiAccess="true"`
-   process intercepts scroll events system-wide, including over elevated windows.
-
-### Running the Phase 0 Harness
-
-```
-# After build + sign + install:
-& "C:\Program Files\SmoothZoom\Phase0Harness.exe"
-```
-
-The harness:
-- Runs automated E0.1 (1.5× static zoom) and E0.2 (smooth ramp) tests on startup
-- Then enters interactive mode: **Hold Win + Scroll** to zoom, **Ctrl+Q** to exit
-
-### Running the Full Application (Phase 0 Slice)
+## Usage
 
 ```
 & "C:\Program Files\SmoothZoom\SmoothZoom.exe"
 ```
 
-Controls:
-- **Hold Win + Scroll wheel** — Zoom in/out
-- **Release Win** — Retain current zoom, scroll passes through normally
-- **Ctrl+Q** — Reset to 1.0× and exit
+### Controls
 
-### Phase 0 Exit Criteria
-
-| # | Criterion | How to Test |
-|---|-----------|-------------|
-| E0.1 | 1.5× produces visible magnification between 1× and 2× | Harness runs this automatically |
-| E0.2 | 0.01-increment ramp produces smooth zoom | Harness runs this automatically |
-| E0.3 | Zoom changes appear within one frame | Observe during E0.2 ramp |
-| E0.4 | Win+Scroll zooms the screen | Interactive: hold Win, scroll up/down |
-| E0.5 | Scroll without Win reaches foreground app | Release Win, scroll in a browser |
-| E0.6 | Hook works over elevated windows | Open Task Manager as admin, Win+Scroll over it |
-
-**If E0.1 or E0.2 fails:** Stop — the Magnification API approach may be invalid. See R-02 in Doc 5.
+- **Win + Scroll wheel** — Zoom in/out (continuous)
+- **Win + Plus / Minus** — Zoom in/out (animated step)
+- **Win + Esc** — Reset to 1× (animated)
+- **Ctrl+Alt (hold)** — Temporary toggle (peek at zoom/unzoom)
+- **Win+Ctrl+M** — Toggle zoom on/off
+- **Tray icon** — Right-click for settings and exit
 
 ## Unit Tests
 
@@ -138,10 +108,10 @@ See `docs/` for the five design documents and research report.
 
 | Phase | Name | Status |
 |-------|------|--------|
-| **0** | **Foundation & Risk Spike** | **Current** |
-| 1 | Core Scroll-Gesture Zoom | Planned |
-| 2 | Keyboard Shortcuts & Animation | Planned |
-| 3 | Accessibility Tracking | Planned |
-| 4 | Temporary Toggle | Planned |
-| 5 | Settings, Tray, Persistence | Planned |
+| 0 | Foundation & Risk Spike | Done |
+| 1 | Core Scroll-Gesture Zoom | Done |
+| 2 | Keyboard Shortcuts & Animation | Done |
+| 3 | Accessibility Tracking | Done |
+| 4 | Temporary Toggle | Done |
+| **5** | **Settings, Tray, Persistence** | **Current** (5A/5B done) |
 | 6 | Polish & Hardening | Planned |

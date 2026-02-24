@@ -94,6 +94,7 @@ void RenderLoop::start(SharedState& state)
 
     s_state = &state;
     shutdownRequested_.store(false, std::memory_order_relaxed);
+    initComplete_.store(false, std::memory_order_relaxed);
 
     // Cache screen dimensions (render thread will use these)
     s_screenW = GetSystemMetrics(SM_CXSCREEN);
@@ -106,15 +107,17 @@ void RenderLoop::start(SharedState& state)
     s_qpcFrequency = freq.QuadPart;
     s_lastFrameTimeQpc = now.QuadPart;
 
-    // Initialize MagBridge on the main thread (required by API)
-    if (!s_magBridge.initialize())
-        return;
-
-    running_.store(true, std::memory_order_release);
-
-    // Launch render thread
+    // Launch render thread — MagBridge init happens there so all Mag* API
+    // calls share the same thread (thread affinity requirement).
     std::thread renderThread(renderThreadMain, this);
     renderThread.detach();
+
+    // Spin-wait for render thread to finish MagBridge initialization.
+    // Allows main thread to check isRunning() and show error dialog on failure.
+    while (!initComplete_.load(std::memory_order_acquire))
+    {
+        Sleep(1);
+    }
 }
 
 void RenderLoop::requestShutdown()
@@ -129,29 +132,55 @@ bool RenderLoop::isRunning() const
 
 void RenderLoop::threadMain()
 {
+    // Initialize MagBridge on the render thread so all Mag* API calls
+    // (MagInitialize, MagSetFullscreenTransform, MagUninitialize) share
+    // the same thread. The Magnification API has undocumented thread
+    // affinity — offsets are silently ignored when MagSetFullscreenTransform
+    // is called from a different thread than MagInitialize.
+    if (!s_magBridge.initialize())
+    {
+        // Leave running_ false so main thread sees failure via isRunning()
+        initComplete_.store(true, std::memory_order_release);
+        return;
+    }
+
+    running_.store(true, std::memory_order_release);
+    initComplete_.store(true, std::memory_order_release);
+
     // Frame pacing loop (Doc 3 §3.7):
-    //   frameTick() → DwmFlush() → repeat
+    //   frameTick() → pump messages → DwmFlush() → repeat
+    // The PeekMessage pump is required for MagSetFullscreenTransform offsets
+    // to take effect. The Magnification API uses internal DWM messages to apply
+    // viewport offsets; without a message pump on the calling thread, offsets
+    // are silently ignored while the zoom factor still applies.
     while (!shutdownRequested_.load(std::memory_order_acquire))
     {
         frameTick();
+
+        // Pump messages for Magnification API internals.
+        // PeekMessage with no pending messages is ~1µs, no heap alloc, no mutex.
+        // The render thread has no windows and no hooks, so no unexpected messages.
+        MSG msg;
+        while (PeekMessage(&msg, nullptr, 0, 0, PM_REMOVE))
+        {
+            TranslateMessage(&msg);
+            DispatchMessage(&msg);
+        }
+
         DwmFlush(); // Block until next VSync
     }
 
-    // Reset zoom to 1.0× on the render thread (these API calls are render-thread-safe)
+    // Reset zoom to 1.0× then shut down MagBridge, all on the render thread.
     s_magBridge.setTransform(1.0f, 0.0f, 0.0f);
-    s_magBridge.setInputTransform(1.0f, 0.0f, 0.0f);
-
-    // Note: MagUninitialize() must be called from the main thread.
-    // The main thread calls finalizeShutdown() after detecting !isRunning().
+    s_magBridge.shutdown();
 
     running_.store(false, std::memory_order_release);
 }
 
 void RenderLoop::finalizeShutdown()
 {
-    // Called from main thread after render thread has stopped.
-    // MagUninitialize must be called from the main thread.
-    s_magBridge.shutdown();
+    // No-op. MagBridge init and shutdown now both happen on the render thread
+    // to satisfy Magnification API thread affinity.
 }
 
 static void renderThreadMain(RenderLoop* self)
@@ -204,6 +233,9 @@ void RenderLoop::frameTick()
         case ZoomCommand::ToggleRelease:
             s_zoomController.releaseToggle();
             break;
+        case ZoomCommand::TrayToggle:
+            s_zoomController.trayToggle();
+            break;
         default:
             break;
         }
@@ -238,8 +270,15 @@ void RenderLoop::frameTick()
     //    Reads are all lock-free (atomics + SeqLock) — no hot path violations.
 
     // 5a. Pointer position with deadzone filtering (AC-2.4.09–AC-2.4.11)
-    int32_t rawPtrX = s_state->pointerX.load(std::memory_order_relaxed);
-    int32_t rawPtrY = s_state->pointerY.load(std::memory_order_relaxed);
+    // Use GetCursorPos() directly instead of SharedState atomics. The low-level
+    // mouse hook's WM_MOUSEMOVE events are not reliably delivered when the
+    // fullscreen magnifier is active (DWM handles cursor rendering at a level
+    // that bypasses the hook chain). GetCursorPos() is a fast shared-memory
+    // read (~1µs), no heap allocation, no mutex — safe for the hot path.
+    POINT cursorPos;
+    GetCursorPos(&cursorPos);
+    int32_t rawPtrX = cursorPos.x;
+    int32_t rawPtrY = cursorPos.y;
 
     int32_t deadzoneThreshold = s_screenH > 0 ? (3 * s_screenH / 1080) : 3;
     if (deadzoneThreshold < 1) deadzoneThreshold = 1;
@@ -337,18 +376,19 @@ void RenderLoop::frameTick()
         }
     }
 
-    // 6 + 7. Apply to MagBridge — only if values changed since last frame.
-    // Both calls use identical zoom/offset values (R-04: same frame, same block).
+    // 6. Apply to MagBridge — only if values changed since last frame.
     bool changed = (zoom != s_lastZoom || offset.x != s_lastOffX || offset.y != s_lastOffY);
 
     if (changed)
     {
-        s_magBridge.setTransform(zoom, offset.x, offset.y);
-        s_magBridge.setInputTransform(zoom, offset.x, offset.y);
+        bool ok = s_magBridge.setTransform(zoom, offset.x, offset.y);
 
         s_lastZoom = zoom;
         s_lastOffX = offset.x;
         s_lastOffY = offset.y;
+
+        // Phase 5C: publish for main thread (graceful exit, tray tooltip)
+        s_state->currentZoomLevel.store(zoom, std::memory_order_relaxed);
     }
 }
 

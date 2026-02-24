@@ -2,10 +2,6 @@
 
 Native C++17 Win32 full-screen magnifier for Windows. Hold Win+Scroll to smoothly zoom up to 10× with continuous viewport tracking of pointer, keyboard focus, and text cursor. Uses the Windows Magnification API.
 
-## Active Plan
-
-Phase 5 implementation plan (5A done, 5B/5C remaining): `.claude/plans/snoopy-finding-lemur.md`
-
 ## Design Documents — Read Before Implementing
 
 Five docs and a research report fully specify this project. **Always consult the relevant doc before coding. Do not guess—look it up.**
@@ -32,7 +28,7 @@ Single-process, four layers, ten components:
 ## Threading Model — Three Threads
 
 **Main Thread:** Message pump, low-level hooks, TrayUI, app lifecycle.
-**Render Thread:** VSync-locked frame ticks via `DwmFlush()`, calls MagBridge.
+**Render Thread:** VSync-locked frame ticks via `DwmFlush()`, message pump for Mag API internals, calls MagBridge.
 **UIA Thread:** UI Automation subscriptions (focus + caret), isolated COM apartment.
 
 ### Threading Invariants
@@ -41,9 +37,10 @@ These are the rules most likely to cause subtle, hard-to-diagnose bugs if violat
 
 1. **Hook callbacks must be minimal.** Read event, update an atomic or post a message, return. No computation, no I/O, no allocation. The system silently deregisters hooks that exceed ~300ms. (R-05)
 2. **Render thread: no heap allocation, no mutexes, no I/O on the per-frame hot path.** All data comes from pre-allocated shared state via atomics or SeqLock.
-3. **UIA thread is isolated.** Slow UIA providers (Java, some Electron apps) must never block hooks or drop frames. Timeout bounding-rect queries at 100ms. (R-11)
-4. **`MagSetInputTransform` and `MagSetFullscreenTransform` must be called in the same frame tick, same code block, with identical zoom/offset values.** Deferring one to a later frame causes click-targeting bugs. (R-04)
-5. **Settings use atomic pointer swap.** Immutable snapshot struct, copy-on-write. Readers never lock.
+3. **Render thread must pump messages.** `MagSetFullscreenTransform` offsets are silently ignored without a `PeekMessage`/`DispatchMessage` loop on the calling thread. The zoom factor applies but the viewport stays at (0,0). This is undocumented Win32 behavior.
+4. **UIA thread is isolated.** Slow UIA providers (Java, some Electron apps) must never block hooks or drop frames. Timeout bounding-rect queries at 100ms. (R-11)
+5. **`MagSetInputTransform` and `MagSetFullscreenTransform` must be called in the same frame tick, same code block, with identical zoom/offset values.** Deferring one to a later frame causes click-targeting bugs. (R-04)
+6. **Settings use atomic pointer swap.** Immutable snapshot struct, copy-on-write. Readers never lock.
 
 ### Shared State Mechanisms
 
@@ -64,19 +61,25 @@ Violating these causes silent failure or a broken build. Non-negotiable.
 6. **No external frameworks.** Pure Win32 + C++17 + MSVC. Only optional external dep: nlohmann/json (header-only).
 7. **Windows 10 1903+** minimum platform target.
 
+## Known Issues & Debugging
+
+1. **Viewport stuck at (0,0):** If zoom works but the view doesn't follow the cursor, the render thread's message pump is missing or broken. The Magnification API requires a `PeekMessage`/`DispatchMessage` loop on the calling thread for `MagSetFullscreenTransform` offsets to take effect. This is undocumented — the API returns TRUE and `MagGetFullscreenTransform` reads back the correct values, but DWM does not apply the offsets without processing internal messages. See `render-loop.md` and `mag-bridge.md` rules for details.
+
+2. **Diagnostic strategy for Mag API issues:** Add a temporary `MagGetFullscreenTransform` read-back in `MagBridge::setTransform()` to verify the API stored the requested values. Log both set and get values via `OutputDebugStringW` (viewable in DebugView or VS Output). Remove after verification.
+
 ## Phased Delivery — Follow Strictly
 
 Do not implement later-phase features prematurely. Each phase produces a runnable, testable build. Check Doc 4 for full exit criteria and AC coverage per phase.
 
-| Phase | Name | Key Delivery |
-|-------|------|-------------|
-| 0 | Foundation & Risk Spike | Test harness validating API float precision, latency, hook reliability |
-| 1 | Core Scroll-Gesture Zoom | Smooth Win+Scroll zoom, proportional viewport tracking, Start Menu suppression |
-| 2 | Keyboard Shortcuts & Animation | Win+Plus/Minus/Esc with ease-out, target retargeting, scroll-interrupts-animation |
-| 3 | Accessibility Tracking | UIA thread, focus following, caret following, source priority arbitration |
-| 4 | Temporary Toggle | Ctrl+Alt hold-to-peek, bidirectional, state preservation |
-| 5 | Settings, Tray, Persistence | config.json, settings window, tray icon, configurable modifier/shortcuts |
-| 6 | Polish & Hardening | Color inversion, multi-monitor, crash recovery, conflict detection, perf audit |
+| Phase | Name | Key Delivery | Status |
+|-------|------|-------------|--------|
+| 0 | Foundation & Risk Spike | Test harness validating API float precision, latency, hook reliability | Done |
+| 1 | Core Scroll-Gesture Zoom | Smooth Win+Scroll zoom, proportional viewport tracking, Start Menu suppression | Done |
+| 2 | Keyboard Shortcuts & Animation | Win+Plus/Minus/Esc with ease-out, target retargeting, scroll-interrupts-animation | Done |
+| 3 | Accessibility Tracking | UIA thread, focus following, caret following, source priority arbitration | Done |
+| 4 | Temporary Toggle | Ctrl+Alt hold-to-peek, bidirectional, state preservation | Done |
+| 5 | Settings, Tray, Persistence | config.json, settings window, tray icon, configurable modifier/shortcuts | Current (5A/5B done) |
+| 6 | Polish & Hardening | Color inversion, multi-monitor, crash recovery, conflict detection, perf audit | Planned |
 
 ## Component Boundaries
 

@@ -12,27 +12,32 @@ paths:
 
 Each Mag* function has a required calling thread. Violating these causes undefined behavior or silent failure.
 
+**Message pump requirement:** The calling thread must have a message pump (`PeekMessage`/`DispatchMessage`) for `MagSetFullscreenTransform` offsets to take effect. Without it, the zoom factor applies but viewport offsets are silently ignored. This is undocumented — the API returns TRUE and `MagGetFullscreenTransform` reads back the values, but DWM does not apply the offsets without processing internal messages.
+
 | Function | Thread | Notes |
 |----------|--------|-------|
-| `MagInitialize()` | Main | Must succeed or app exits (AC-ERR.02) |
-| `MagUninitialize()` | Main | Also called from crash handler |
+| `MagInitialize()` | Render | Called at start of threadMain(); thread affinity requires same thread as SetFullscreenTransform |
+| `MagUninitialize()` | Render | Called at end of threadMain() after resetting zoom |
 | `MagSetFullscreenTransform` | Render | Every frame where zoom/offset changed |
 | `MagSetInputTransform` | Render | Same frame tick as SetFullscreenTransform |
-| `MagGetFullscreenTransform` | Main | Startup conflict detection only |
-| `MagShowSystemCursor(TRUE)` | Main | Startup only |
+| `MagGetFullscreenTransform` | Render | Startup conflict detection only |
+| `MagShowSystemCursor(TRUE)` | Render | Called during initialize() |
 
 No other Mag* calls should exist anywhere in the codebase.
 
-## Critical: Input Transform Sync (R-04)
+## Input Transform and Proportional Mapping (R-04)
 
-**Always call `MagSetInputTransform` in the same frame tick, same code block as `MagSetFullscreenTransform`, using identical zoom and offset values.** Never read values separately. Pass as a single parameter set. Desync causes clicks to miss targets — at 5× zoom, a 1px error = 5px miss.
+With proportional viewport mapping (`offset = pos * (1 - 1/zoom)`), `MagSetInputTransform` is **intentionally not called per-frame**. The math guarantees `desktop_under_cursor == screen_position`:
 
 ```
-// Input transform rectangles:
-srcRect  = { xOff, yOff, xOff + screenW/zoom, yOff + screenH/zoom }
-destRect = { 0, 0, screenW, screenH }
-MagSetInputTransform(TRUE, &srcRect, &destRect)
+desktop = offset + screen_x/zoom = screen_x*(1-1/zoom) + screen_x/zoom = screen_x
 ```
+
+Clicks land correctly without input remapping. Enabling `MagSetInputTransform(TRUE)` per-frame causes a feedback loop: `GetCursorPos()` returns remapped desktop coordinates, but `computePointerOffset()` assumes screen coordinates, creating geometric drift with factor `(1 - 1/zoom)` per frame.
+
+**The render loop only calls `MagSetFullscreenTransform`.** `MagBridge::shutdown()` calls `MagSetInputTransform(FALSE)` as a safety net to ensure clean state on exit.
+
+The `setInputTransform` method remains in MagBridge's interface for use by the shutdown sequence.
 
 ## Error Handling
 
@@ -94,7 +99,7 @@ float invertMatrix[5][5] = {
 
 These are specific errors to watch for when writing or reviewing MagBridge code.
 
-1. **Calling `MagSetInputTransform` in a separate function from `MagSetFullscreenTransform`.** These must be in the same code block with the same values. Do not factor them into separate helpers that could be called independently.
+1. **Calling `MagSetInputTransform(TRUE)` per-frame alongside `MagSetFullscreenTransform`.** With proportional viewport mapping, input transform is mathematically redundant and causes a feedback loop with `GetCursorPos()`. Only call `MagSetFullscreenTransform` per-frame. `MagSetInputTransform(FALSE)` is called only during shutdown.
 
 2. **Including `<Magnification.h>` in another component.** If you need magnification behavior elsewhere, add a method to MagBridge's public interface. Never leak Mag* calls outside this file.
 
@@ -104,6 +109,6 @@ These are specific errors to watch for when writing or reviewing MagBridge code.
 
 5. **Computing `srcRect` with integer division.** `screenW/zoom` must be floating-point division. Integer truncation causes the input transform to drift from the display transform, creating click offset errors that worsen at higher zoom levels.
 
-6. **Calling Mag* functions from the wrong thread.** `MagSetFullscreenTransform` and `MagSetInputTransform` must be called from the Render thread. `MagInitialize` and `MagUninitialize` must be called from the Main thread. Cross-thread calls cause silent failures or deadlocks.
+6. **Calling Mag* functions from the wrong thread.** All Mag* functions must be called from the Render thread. The Magnification API has undocumented thread affinity — `MagSetFullscreenTransform` silently ignores offsets if called from a different thread than `MagInitialize`. `RenderLoop::threadMain()` calls `MagBridge::initialize()` first, then runs the frame loop, then calls `MagBridge::shutdown()` — all on the same thread.
 
 7. **Adding Phase 6 features (color inversion, conflict detection, multi-monitor) before Phase 6.** These are gated. Check the phase plan before implementing.

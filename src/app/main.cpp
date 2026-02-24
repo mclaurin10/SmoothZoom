@@ -26,6 +26,7 @@
 #include "smoothzoom/logic/RenderLoop.h"
 #include "smoothzoom/output/MagBridge.h"
 #include "smoothzoom/support/SettingsManager.h"
+#include "smoothzoom/support/TrayUI.h"
 
 #include <memory>
 #include <string>
@@ -39,6 +40,7 @@ static SmoothZoom::RenderLoop g_renderLoop;
 static SmoothZoom::FocusMonitor g_focusMonitor;   // Phase 3: UIA focus tracking
 static SmoothZoom::CaretMonitor g_caretMonitor;    // Phase 3: text caret tracking
 static SmoothZoom::SettingsManager g_settingsManager; // Phase 5: config persistence
+static SmoothZoom::TrayUI g_trayUI;                    // Phase 5C: tray icon + settings
 static std::string g_configPath;                      // Resolved at startup
 
 // Hook watchdog timer ID and interval (R-05, AC-ERR.03)
@@ -47,6 +49,15 @@ static constexpr UINT kWatchdogIntervalMs = 5000;
 
 // Phase 5B: Application-defined message for settings window (AC-2.8.11)
 static constexpr UINT WM_OPEN_SETTINGS = WM_APP + 1;
+// Phase 5C: Tray icon callback and graceful exit messages
+static constexpr UINT WM_TRAYICON = WM_APP + 2;
+static constexpr UINT WM_GRACEFUL_EXIT = WM_APP + 3;
+// Phase 5C: Context menu command IDs (must match TrayUI.cpp)
+static constexpr UINT IDM_SETTINGS    = 40001;
+static constexpr UINT IDM_TOGGLE_ZOOM = 40002;
+static constexpr UINT IDM_EXIT        = 40003;
+// Explorer restart detection
+static UINT WM_TASKBAR_CREATED = 0;
 
 // Phase 5B: Observer callback — publishes settings changes to SharedState.
 // Runs on main thread. Render thread detects via settingsVersion atomic.
@@ -92,12 +103,33 @@ static LRESULT CALLBACK msgWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lP
                 g_inputInterceptor.reinstall();
             }
         }
+        // Phase 5C: Graceful exit polling
+        else if (g_trayUI.isExitPending() && g_trayUI.checkExitPoll())
+        {
+            PostQuitMessage(0);
+        }
         return 0;
 
     case WM_OPEN_SETTINGS:
-        // Phase 5B: Win+Ctrl+M received — settings window stub (Phase 5C implements UI)
-        OutputDebugStringW(L"SmoothZoom: Win+Ctrl+M — open settings (Phase 5C)\n");
+        g_trayUI.showSettingsWindow();
         return 0;
+
+    case WM_TRAYICON:
+        g_trayUI.onTrayMessage(lParam);
+        return 0;
+
+    case WM_GRACEFUL_EXIT:
+        g_trayUI.requestGracefulExit();
+        return 0;
+
+    case WM_COMMAND:
+        switch (LOWORD(wParam))
+        {
+        case IDM_SETTINGS:    g_trayUI.showSettingsWindow(); return 0;
+        case IDM_TOGGLE_ZOOM: g_sharedState.commandQueue.push(SmoothZoom::ZoomCommand::TrayToggle); return 0;
+        case IDM_EXIT:        g_trayUI.requestGracefulExit(); return 0;
+        }
+        break;
 
     case WM_ENDSESSION:
         if (wParam)
@@ -122,8 +154,15 @@ static LRESULT CALLBACK msgWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lP
         return 0;
 
     default:
+        // Explorer restart: re-add tray icon
+        if (WM_TASKBAR_CREATED && msg == WM_TASKBAR_CREATED)
+        {
+            g_trayUI.recreateTrayIcon();
+            return 0;
+        }
         return DefWindowProcW(hWnd, msg, wParam, lParam);
     }
+    return DefWindowProcW(hWnd, msg, wParam, lParam);
 }
 
 static HWND createMessageWindow(HINSTANCE hInstance)
@@ -217,17 +256,39 @@ int WINAPI wWinMain(
         SmoothZoom::InputInterceptor::setMessageWindow(g_msgWindow);
     }
 
+    // Phase 5C: Register TaskbarCreated for Explorer restart detection
+    WM_TASKBAR_CREATED = RegisterWindowMessageW(L"TaskbarCreated");
+
+    // ── 2d. Create tray icon (Phase 5C: AC-2.9.13–16) ──────────────────────
+    g_trayUI.create(hInstance, g_msgWindow, g_sharedState, g_settingsManager,
+                    g_configPath.c_str());
+
+    // ── 2e. Start-zoomed (Phase 5C: AC-2.9.18–19) ──────────────────────────
+    {
+        auto snap = g_settingsManager.snapshot();
+        if (snap && snap->startZoomed && snap->defaultZoomLevel > 1.0f)
+            g_sharedState.commandQueue.push(SmoothZoom::ZoomCommand::TrayToggle);
+    }
+
     // ── 3. Run Win32 message pump ───────────────────────────────────────────
     // Low-level hooks require a message pump on the installing thread.
     // The pump runs until WM_QUIT is posted (by Ctrl+Q via InputInterceptor).
     MSG msg;
     while (GetMessageW(&msg, nullptr, 0, 0) > 0)
     {
+        // Phase 5C: Tab navigation in settings window
+        HWND hSettings = g_trayUI.settingsHwnd();
+        if (hSettings && IsDialogMessage(hSettings, &msg))
+            continue;
+
         TranslateMessage(&msg);
         DispatchMessageW(&msg);
     }
 
     // ── 4. Shutdown sequence ────────────────────────────────────────────────
+
+    // Phase 5C: Remove tray icon promptly
+    g_trayUI.destroy();
 
     // Phase 5B: Save settings on clean exit (AC-2.9.02)
     if (!g_configPath.empty())
@@ -252,7 +313,7 @@ int WINAPI wWinMain(
         Sleep(10);
     }
 
-    // Finalize shutdown on main thread (MagUninitialize must be main thread)
+    // No-op — MagUninitialize now happens on the render thread (thread affinity).
     g_renderLoop.finalizeShutdown();
 
     g_inputInterceptor.uninstall();

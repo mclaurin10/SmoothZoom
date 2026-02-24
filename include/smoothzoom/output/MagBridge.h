@@ -27,8 +27,12 @@ public:
     // Color inversion (Phase 6)
     bool setColorInversion(bool enabled);
 
+    // Last Win32 error code from a failed Mag* call (diagnostic aid)
+    unsigned long lastError() const { return lastError_; }
+
 private:
     bool initialized_ = false;
+    unsigned long lastError_ = 0;
 };
 
 } // namespace SmoothZoom

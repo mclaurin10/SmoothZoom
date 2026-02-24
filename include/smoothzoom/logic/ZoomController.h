@@ -37,6 +37,9 @@ public:
     void releaseToggle();
     bool isToggled() const { return isToggled_; }
 
+    // Phase 5C: One-shot tray toggle (AC-2.9.15) — permanent switch, not hold-to-peek
+    void trayToggle();
+
     // Phase 5: Apply settings from snapshot. Called by render thread when it
     // detects a new settings version. Triggers animation if zoom is out of new
     // bounds (AC-2.9.05, AC-2.9.06).

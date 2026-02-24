@@ -40,6 +40,7 @@ enum class ZoomCommand : uint8_t
     ToggleEngage,   // Ctrl+Alt press
     ToggleRelease,  // Ctrl+Alt release
     OpenSettings,   // Win+Ctrl+M (Phase 5, AC-2.8.11)
+    TrayToggle,     // Phase 5C: one-shot tray toggle (AC-2.9.15)
     ToggleInvert,   // Win+I (Phase 6)
 };
 

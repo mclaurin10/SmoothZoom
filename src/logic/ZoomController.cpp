@@ -143,6 +143,22 @@ void ZoomController::animateToZoom(float target)
     mode_ = Mode::Animating;
 }
 
+void ZoomController::trayToggle()
+{
+    if (std::abs(currentZoom_ - 1.0f) < kSnapEpsilon)
+    {
+        // At 1.0×: animate to last-used/default zoom
+        animateToZoom(lastUsedZoom_);
+    }
+    else
+    {
+        // Zoomed: save as last-used, animate to 1.0×
+        lastUsedZoom_ = currentZoom_;
+        animateToZoom(1.0f);
+    }
+    // Does NOT set isToggled_ — permanent switch, not hold-to-peek
+}
+
 void ZoomController::engageToggle()
 {
     if (isToggled_)

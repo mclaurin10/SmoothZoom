@@ -31,6 +31,9 @@ struct SharedState
     SeqLock<ScreenRect>  caretRect;
     std::atomic<int64_t> lastFocusChangeTime{0};
 
+    // -- Written by render thread, read by main thread --
+    std::atomic<float> currentZoomLevel{1.0f};
+
     // -- Command queue: main thread → render thread --
     LockFreeQueue<ZoomCommand> commandQueue;
 

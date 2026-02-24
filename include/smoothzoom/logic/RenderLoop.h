@@ -22,8 +22,7 @@ public:
     void requestShutdown();
     bool isRunning() const;
 
-    // Must be called from main thread after render thread has stopped.
-    // Calls MagUninitialize() which requires main thread context.
+    // Legacy no-op. MagUninitialize now happens on the render thread.
     void finalizeShutdown();
 
     // Called by the render thread function — public so the static trampoline
@@ -35,6 +34,7 @@ private:
 
     std::atomic<bool> shutdownRequested_{false};
     std::atomic<bool> running_{false};
+    std::atomic<bool> initComplete_{false};
 };
 
 } // namespace SmoothZoom

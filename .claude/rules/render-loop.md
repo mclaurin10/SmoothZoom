@@ -23,20 +23,39 @@ frameTick():
     2. Drain keyboard commands   — lock-free queue tryPop() loop
     3. Apply scroll to zoom      — ZoomController.applyScrollDelta() if delta ≠ 0
     4. Interpolate zoom          — if ANIMATING or TOGGLING mode, ease-out toward target
-    5. Compute viewport offset   — ViewportTracker.computeOffset(source, zoom)
+    5. Compute viewport offset   — GetCursorPos() for pointer, SeqLock for focus/caret
     6. Call MagBridge             — only if zoom or offset changed since last frame
-    7. Update input transform    — same call block, same values as step 6
 ```
 
-Steps 6 and 7 **must** use identical zoom/offset values. See MagBridge rules on R-04.
+## Message Pump Requirement
 
-## Frame Pacing
+The render thread's frame loop includes a `PeekMessage`/`DispatchMessage` pump between `frameTick()` and `DwmFlush()`. This is **required** for `MagSetFullscreenTransform` viewport offsets to take effect. The Magnification API uses internal DWM messages to apply offsets; without a message pump on the calling thread, offsets are silently ignored while the zoom factor still applies correctly.
+
+```
+while not shutdownRequested:
+    frameTick()
+    PeekMessage / TranslateMessage / DispatchMessage loop
+    DwmFlush()
+```
+
+**Hot path safety:** `PeekMessage` with no pending messages is ~1µs, no heap allocation, no mutex. The render thread has no windows and no hooks, so unexpected messages are not a concern.
+
+**Note:** `MagSetInputTransform` is intentionally not called per-frame. With proportional mapping (`offset = pos * (1 - 1/zoom)`), `desktop_under_cursor == screen_position`, so clicks land correctly without input remapping. Enabling it causes a feedback loop when combined with `GetCursorPos()` (which returns remapped coords when input transform is active).
+
+## Thread Lifecycle
+
+MagBridge initialization and shutdown happen inside `threadMain()` so all Mag* API calls share the same thread (thread affinity requirement). The main thread spin-waits on `initComplete_` to detect init failure.
 
 ```
 renderThreadMain():
+    MagBridge.initialize()       // Thread affinity: same thread as SetFullscreenTransform
+    signal initComplete
     while not shutdownRequested:
         frameTick()
-        DwmFlush()    // Blocks until next VSync
+        PeekMessage / DispatchMessage loop   // Required for Mag* offset processing
+        DwmFlush()               // Blocks until next VSync
+    MagBridge.setTransform(1.0)  // Reset zoom
+    MagBridge.shutdown()         // MagUninitialize on same thread as MagInitialize
 ```
 
 `DwmFlush()` ties the loop to the display's refresh rate. 60Hz → 60 ticks/s. 144Hz → 144 ticks/s.
@@ -52,7 +71,7 @@ This handles mid-animation retargeting naturally: when `target` changes, the gap
 
 ## Optimization: Skip Redundant API Calls
 
-- If zoom and offset are identical to last frame's values, skip `MagBridge.setTransform()` and `MagBridge.setInputTransform()`. Only `DwmFlush()` runs.
+- If zoom and offset are identical to last frame's values, skip `MagBridge.setTransform()`. Only `DwmFlush()` runs.
 - At zoom 1.0× with no active animation: skip all computation. The loop is effectively idle. (AC-2.3.13)
 - This is critical for meeting the <2% CPU target when zoomed but pointer stationary.
 
@@ -87,7 +106,7 @@ These are specific errors to watch for when writing or reviewing RenderLoop code
 
 3. **Acquiring a mutex to read settings.** Settings use copy-on-write with atomic pointer swap. The render thread reads through the atomic snapshot pointer. Never lock a mutex to read configuration values during `frameTick()`.
 
-4. **Calling `MagBridge.setTransform()` and `MagBridge.setInputTransform()` with separately computed values.** Compute zoom and offset once, store in local variables, and pass the same locals to both calls. Do not re-read shared state between the two calls.
+4. **Calling `MagSetInputTransform` per-frame alongside `setTransform`.** With proportional viewport mapping, input transform is mathematically redundant and causes a feedback loop with `GetCursorPos()`. The render loop only calls `setTransform()`. `MagBridge::shutdown()` handles disabling input transform on exit.
 
 5. **Forgetting to check `shutdownRequested` before `DwmFlush()`.** `DwmFlush()` blocks until VSync. If shutdown is requested mid-frame, the thread should exit promptly, not wait for the next VSync.
 
@@ -98,3 +117,7 @@ These are specific errors to watch for when writing or reviewing RenderLoop code
 8. **Logging every frame.** Even a lightweight log call per frame at 144Hz = 144 writes/second. Log only on state transitions (zoom started, zoom ended, source changed, error detected).
 
 9. **Not skipping the MagBridge call when values haven't changed.** At idle (zoomed, pointer stationary), the frame tick should cost nearly zero. Redundant API calls waste CPU and may add latency.
+
+10. **Reading pointer position from SharedState atomics instead of `GetCursorPos()`.** The low-level mouse hook's `WM_MOUSEMOVE` events are not reliably delivered when the fullscreen magnifier is active. `GetCursorPos()` is a fast shared-memory read (~1µs) that always returns the true cursor position.
+
+11. **Not pumping messages on the render thread.** `MagSetFullscreenTransform` offsets are silently ignored if the calling thread has no message pump. The zoom factor applies but the viewport stays anchored at (0,0). The `PeekMessage`/`DispatchMessage` loop after `frameTick()` is not optional — it enables the Magnification API's internal DWM message processing.

@@ -113,6 +113,14 @@ target_link_libraries(smoothzoom_support PUBLIC
     smoothzoom_common
     nlohmann_json
 )
+if(WIN32)
+    target_link_libraries(smoothzoom_support PRIVATE
+        Shell32.lib
+        User32.lib
+        Advapi32.lib
+        Comctl32.lib
+    )
+endif()
 
 # ---------------------------------------------------------------------------
 # Main executable
