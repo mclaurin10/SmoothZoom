@@ -443,3 +443,207 @@ TEST_CASE("Animation duration similar at 60Hz and 144Hz", "[ZoomController][Phas
     REQUIRE(ratio > 0.8f);
     REQUIRE(ratio < 1.2f);
 }
+
+// =============================================================================
+// Phase 4: Temporary Toggle tests (AC-2.7.01–AC-2.7.10)
+// =============================================================================
+
+// Helper: run animation to completion
+static void runToIdle(ZoomController& zc, int maxFrames = 300)
+{
+    for (int i = 0; i < maxFrames && zc.mode() != ZoomController::Mode::Idle; ++i)
+        zc.tick(1.0f / 60.0f);
+}
+
+TEST_CASE("Toggle from zoomed → animates to 1.0x (AC-2.7.01)", "[ZoomController][Phase4]")
+{
+    ZoomController zc;
+
+    // Zoom to ~4.0x
+    for (int i = 0; i < 15; ++i)
+        zc.applyScrollDelta(120);
+    float zoomedLevel = zc.currentZoom();
+    REQUIRE(zoomedLevel > 3.0f);
+
+    zc.engageToggle();
+    REQUIRE(zc.isToggled());
+    REQUIRE(zc.targetZoom() == Approx(1.0f));
+    REQUIRE(zc.mode() == ZoomController::Mode::Animating);
+
+    runToIdle(zc);
+    REQUIRE(zc.currentZoom() == Approx(1.0f));
+}
+
+TEST_CASE("Toggle release → animates back to saved level (AC-2.7.03)", "[ZoomController][Phase4]")
+{
+    ZoomController zc;
+
+    // Zoom to ~4.0x
+    for (int i = 0; i < 15; ++i)
+        zc.applyScrollDelta(120);
+    float zoomedLevel = zc.currentZoom();
+
+    zc.engageToggle();
+    runToIdle(zc);
+    REQUIRE(zc.currentZoom() == Approx(1.0f));
+
+    zc.releaseToggle();
+    REQUIRE(!zc.isToggled());
+    REQUIRE(zc.targetZoom() == Approx(zoomedLevel));
+    REQUIRE(zc.mode() == ZoomController::Mode::Animating);
+
+    runToIdle(zc);
+    REQUIRE(zc.currentZoom() == Approx(zoomedLevel).margin(0.01f));
+}
+
+TEST_CASE("Toggle at 1.0x with prior zoom → animates to lastUsedZoom (AC-2.7.04)", "[ZoomController][Phase4]")
+{
+    ZoomController zc;
+
+    // Zoom to ~3.0x, then back to 1.0x to set lastUsedZoom
+    for (int i = 0; i < 12; ++i)
+        zc.applyScrollDelta(120);
+    float usedLevel = zc.currentZoom();
+    REQUIRE(usedLevel > 2.0f);
+
+    zc.animateToZoom(1.0f);
+    runToIdle(zc);
+    REQUIRE(zc.currentZoom() == Approx(1.0f));
+
+    // Now toggle from 1.0x — should go to lastUsedZoom
+    zc.engageToggle();
+    REQUIRE(zc.targetZoom() == Approx(usedLevel).margin(0.01f));
+
+    runToIdle(zc);
+    REQUIRE(zc.currentZoom() == Approx(usedLevel).margin(0.01f));
+}
+
+TEST_CASE("Toggle at 1.0x first use → animates to 2.0x default (AC-2.7.05)", "[ZoomController][Phase4]")
+{
+    ZoomController zc;
+
+    // Fresh controller, never zoomed — lastUsedZoom defaults to 2.0
+    zc.engageToggle();
+    REQUIRE(zc.targetZoom() == Approx(2.0f));
+
+    runToIdle(zc);
+    REQUIRE(zc.currentZoom() == Approx(2.0f).margin(0.01f));
+}
+
+TEST_CASE("Toggle release from 1.0x toggle → returns to 1.0x (AC-2.7.06)", "[ZoomController][Phase4]")
+{
+    ZoomController zc;
+
+    // At 1.0x, engage toggle (goes to 2.0x default)
+    zc.engageToggle();
+    runToIdle(zc);
+    REQUIRE(zc.currentZoom() == Approx(2.0f).margin(0.01f));
+
+    // Release → should return to 1.0x (the saved zoom)
+    zc.releaseToggle();
+    REQUIRE(zc.targetZoom() == Approx(1.0f));
+
+    runToIdle(zc);
+    REQUIRE(zc.currentZoom() == Approx(1.0f));
+}
+
+TEST_CASE("Brief tap: engage then immediate release → both animations play (AC-2.7.07)", "[ZoomController][Phase4]")
+{
+    ZoomController zc;
+
+    // Zoom to 4.0x
+    for (int i = 0; i < 15; ++i)
+        zc.applyScrollDelta(120);
+    float zoomedLevel = zc.currentZoom();
+
+    // Engage (targets 1.0x)
+    zc.engageToggle();
+    REQUIRE(zc.targetZoom() == Approx(1.0f));
+
+    // Immediately release before animation completes
+    zc.releaseToggle();
+    REQUIRE(zc.targetZoom() == Approx(zoomedLevel));
+
+    // Animation should settle back at the original zoom
+    runToIdle(zc);
+    REQUIRE(zc.currentZoom() == Approx(zoomedLevel).margin(0.01f));
+}
+
+TEST_CASE("Scroll during toggle updates restore target (AC-2.7.09 / E4.5)", "[ZoomController][Phase4]")
+{
+    ZoomController zc;
+
+    // Start at 1.0x, engage toggle (goes to 2.0x default)
+    zc.engageToggle();
+    runToIdle(zc);
+    REQUIRE(zc.currentZoom() == Approx(2.0f).margin(0.01f));
+
+    // Scroll during toggle to ~3.0x
+    for (int i = 0; i < 5; ++i)
+        zc.applyScrollDelta(120);
+    float scrolledLevel = zc.currentZoom();
+    REQUIRE(scrolledLevel > 2.0f);
+
+    // Release — should return to scrolled level, not original 1.0x
+    zc.releaseToggle();
+    runToIdle(zc);
+    REQUIRE(zc.currentZoom() == Approx(scrolledLevel).margin(0.01f));
+}
+
+TEST_CASE("Toggle during animation captures mid-animation level (AC-2.7.10 / E4.6)", "[ZoomController][Phase4]")
+{
+    ZoomController zc;
+
+    // Start keyboard animation (target 1.25x)
+    zc.applyKeyboardStep(+1);
+    REQUIRE(zc.mode() == ZoomController::Mode::Animating);
+
+    // Advance a few frames to get mid-animation
+    for (int i = 0; i < 3; ++i)
+        zc.tick(1.0f / 60.0f);
+
+    float midZoom = zc.currentZoom();
+    REQUIRE(midZoom > 1.0f);
+    REQUIRE(midZoom < 1.25f);
+
+    // Engage toggle mid-animation — captures current (mid) level
+    zc.engageToggle();
+    REQUIRE(zc.isToggled());
+    REQUIRE(zc.targetZoom() == Approx(1.0f)); // Toggling to 1.0x
+
+    // Release should restore to the mid-animation level
+    zc.releaseToggle();
+    REQUIRE(zc.targetZoom() == Approx(midZoom).margin(0.01f));
+
+    runToIdle(zc);
+    REQUIRE(zc.currentZoom() == Approx(midZoom).margin(0.01f));
+}
+
+TEST_CASE("Double engage is idempotent", "[ZoomController][Phase4]")
+{
+    ZoomController zc;
+
+    for (int i = 0; i < 15; ++i)
+        zc.applyScrollDelta(120);
+    float zoomedLevel = zc.currentZoom();
+
+    zc.engageToggle();
+    REQUIRE(zc.isToggled());
+    float savedTarget = zc.targetZoom();
+
+    // Second engage — should be no-op
+    zc.engageToggle();
+    REQUIRE(zc.isToggled());
+    REQUIRE(zc.targetZoom() == Approx(savedTarget));
+}
+
+TEST_CASE("Release when not toggled is idempotent", "[ZoomController][Phase4]")
+{
+    ZoomController zc;
+
+    // Should be a safe no-op
+    zc.releaseToggle();
+    REQUIRE(!zc.isToggled());
+    REQUIRE(zc.currentZoom() == Approx(1.0f));
+    REQUIRE(zc.mode() == ZoomController::Mode::Idle);
+}

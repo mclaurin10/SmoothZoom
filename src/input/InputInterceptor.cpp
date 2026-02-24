@@ -85,6 +85,13 @@ static LRESULT CALLBACK mouseHookProc(int nCode, WPARAM wParam, LPARAM lParam)
 
 // ─── Keyboard Hook Callback ─────────────────────────────────────────────────
 // Tracks Win key via WinKeyManager. Observe-only (never consumes). (AC-2.1.18)
+// Phase 4: Tracks Ctrl+Alt for temporary toggle (AC-2.7.01–AC-2.7.10).
+
+// Phase 4: Ctrl+Alt toggle state — minimal (3 bools + 1 queue push), R-05 safe.
+static bool s_toggleCtrlHeld = false;
+static bool s_toggleAltHeld = false;
+static bool s_toggleEngaged = false;
+
 static LRESULT CALLBACK keyboardHookProc(int nCode, WPARAM wParam, LPARAM lParam)
 {
     if (nCode < 0 || s_state == nullptr)
@@ -108,6 +115,25 @@ static LRESULT CALLBACK keyboardHookProc(int nCode, WPARAM wParam, LPARAM lParam
             s_winKeyMgr.onWinKeyUp();
             s_state->modifierHeld.store(false, std::memory_order_relaxed);
         }
+    }
+
+    // Phase 4: Ctrl+Alt toggle tracking (AC-2.7.01–AC-2.7.10)
+    bool isCtrl = (info->vkCode == VK_LCONTROL || info->vkCode == VK_RCONTROL);
+    bool isAlt  = (info->vkCode == VK_LMENU    || info->vkCode == VK_RMENU);
+
+    if (isCtrl) s_toggleCtrlHeld = isDown;
+    if (isAlt)  s_toggleAltHeld  = isDown;
+
+    bool bothHeld = s_toggleCtrlHeld && s_toggleAltHeld;
+    if (bothHeld && !s_toggleEngaged)
+    {
+        s_toggleEngaged = true;
+        s_state->commandQueue.push(ZoomCommand::ToggleEngage);
+    }
+    if (!bothHeld && s_toggleEngaged)
+    {
+        s_toggleEngaged = false;
+        s_state->commandQueue.push(ZoomCommand::ToggleRelease);
     }
 
     if (isDown)

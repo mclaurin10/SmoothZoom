@@ -175,8 +175,14 @@ void RenderLoop::frameTick()
         case ZoomCommand::ResetZoom:
             s_zoomController.animateToZoom(1.0f);
             break;
+        case ZoomCommand::ToggleEngage:
+            s_zoomController.engageToggle();
+            break;
+        case ZoomCommand::ToggleRelease:
+            s_zoomController.releaseToggle();
+            break;
         default:
-            break; // Phase 4+: ToggleEngage, ToggleRelease
+            break;
         }
     }
 
@@ -241,9 +247,13 @@ void RenderLoop::frameTick()
     ScreenRect focusRect = s_state->focusRect.read();
     ScreenRect caretRect = s_state->caretRect.read();
 
-    // Validate rects (non-zero area means valid data has been written)
-    bool focusValid = (focusRect.width() > 0 && focusRect.height() > 0);
-    bool caretValid = (caretRect.width() >= 0 && caretRect.height() > 0); // Caret can be 0-width
+    // Validate rects: non-zero area + bounds check (defense-in-depth for R-09)
+    bool focusValid = (focusRect.width() > 0 && focusRect.height() > 0
+        && focusRect.left > -5000 && focusRect.top > -5000
+        && focusRect.width() <= 10000 && focusRect.height() <= 10000);
+    bool caretValid = (caretRect.width() >= 0 && caretRect.height() > 0 // Caret can be 0-width
+        && caretRect.left > -5000 && caretRect.top > -5000
+        && caretRect.height() <= 5000);
 
     // 5c. Determine active tracking source
     TrackingSource newSource = s_viewportTracker.determineActiveSource(

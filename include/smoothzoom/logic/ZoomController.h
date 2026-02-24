@@ -16,8 +16,7 @@ public:
     {
         Idle,       // At rest, no animation
         Scrolling,  // Actively receiving scroll input
-        Animating,  // Keyboard-initiated ease-out in progress
-        Toggling,   // Temporary toggle animation in progress
+        Animating,  // Ease-out in progress (keyboard step, toggle, or animateToZoom)
     };
 
     // Scroll-gesture zoom: consume accumulated delta, compute new level
@@ -32,6 +31,11 @@ public:
 
     // Animate to an arbitrary target zoom (Win+Esc → 1.0×, Phase 4 toggle, etc.)
     void animateToZoom(float target);
+
+    // Phase 4: Temporary toggle (hold-to-peek) — AC-2.7.01 through AC-2.7.10
+    void engageToggle();
+    void releaseToggle();
+    bool isToggled() const { return isToggled_; }
 
     // Reset to 1.0× instantly (shutdown path)
     void reset();
@@ -48,6 +52,11 @@ private:
     float maxZoom_ = 10.0f;
     float keyboardStep_ = 0.25f;
     Mode mode_ = Mode::Idle;
+
+    // Phase 4: Toggle state
+    bool isToggled_ = false;
+    float savedZoomForToggle_ = 1.0f;
+    float lastUsedZoom_ = 2.0f;  // Default per AC-2.7.05
 };
 
 } // namespace SmoothZoom

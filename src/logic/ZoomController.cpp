@@ -4,7 +4,7 @@
 //
 // Phase 1: Logarithmic scroll model (AC-2.1.06), soft bounds (AC-2.1.15).
 // Phase 2: ANIMATING mode with ease-out (AC-2.2.04–AC-2.2.07).
-// Phase 4: TOGGLING mode (AC-2.7.01–AC-2.7.12).
+// Phase 4: Temporary toggle via engageToggle/releaseToggle (AC-2.7.01–AC-2.7.10).
 // =============================================================================
 
 #include "smoothzoom/logic/ZoomController.h"
@@ -83,6 +83,14 @@ void ZoomController::applyScrollDelta(int32_t accumulatedDelta)
 
     currentZoom_ = newZoom;
     targetZoom_ = newZoom;
+
+    // Phase 4: Update toggle restore target if scrolling during toggle (AC-2.7.09 / E4.5)
+    if (isToggled_)
+        savedZoomForToggle_ = currentZoom_;
+
+    // Track last-used zoom for "toggle from 1.0×" (AC-2.7.04)
+    if (currentZoom_ > 1.0f + kSnapEpsilon)
+        lastUsedZoom_ = currentZoom_;
 }
 
 void ZoomController::applyKeyboardStep(int direction)
@@ -104,6 +112,14 @@ void ZoomController::applyKeyboardStep(int direction)
 
     targetZoom_ = newTarget;
     mode_ = Mode::Animating;
+
+    // Phase 4: Update toggle restore target if keyboard step during toggle (AC-2.7.09)
+    if (isToggled_)
+        savedZoomForToggle_ = targetZoom_;
+
+    // Track last-used zoom for "toggle from 1.0×" (AC-2.7.04)
+    if (targetZoom_ > 1.0f + kSnapEpsilon)
+        lastUsedZoom_ = targetZoom_;
 }
 
 void ZoomController::animateToZoom(float target)
@@ -125,6 +141,36 @@ void ZoomController::animateToZoom(float target)
 
     targetZoom_ = target;
     mode_ = Mode::Animating;
+}
+
+void ZoomController::engageToggle()
+{
+    if (isToggled_)
+        return; // Idempotent (AC-2.7.07 edge case)
+
+    savedZoomForToggle_ = currentZoom_;
+    isToggled_ = true;
+
+    if (std::abs(currentZoom_ - 1.0f) < kSnapEpsilon)
+    {
+        // At 1.0×: toggle to last-used zoom (AC-2.7.04), default 2.0× (AC-2.7.05)
+        animateToZoom(lastUsedZoom_);
+    }
+    else
+    {
+        // Zoomed in: save as last-used, toggle to 1.0× (AC-2.7.01)
+        lastUsedZoom_ = currentZoom_;
+        animateToZoom(1.0f);
+    }
+}
+
+void ZoomController::releaseToggle()
+{
+    if (!isToggled_)
+        return; // Idempotent
+
+    isToggled_ = false;
+    animateToZoom(savedZoomForToggle_); // AC-2.7.03
 }
 
 bool ZoomController::tick(float dtSeconds)
@@ -168,7 +214,6 @@ bool ZoomController::tick(float dtSeconds)
         return true;
     }
 
-    // Mode::Toggling — Phase 4
     return false;
 }
 
