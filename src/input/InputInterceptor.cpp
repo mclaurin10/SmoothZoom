@@ -14,6 +14,7 @@
 #include "smoothzoom/input/InputInterceptor.h"
 #include "smoothzoom/input/WinKeyManager.h"
 #include "smoothzoom/input/ModifierUtils.h"
+#include "smoothzoom/common/AppMessages.h"
 #include "smoothzoom/common/SharedState.h"
 #include "smoothzoom/common/Types.h"
 #include "smoothzoom/support/SettingsManager.h"
@@ -51,8 +52,7 @@ static void onSettingsChanged(const SettingsSnapshot& s, void* /*userData*/)
     s_toggleKey2VK  = s.toggleKey2VK;
 }
 
-// Named constant for settings window message (AC-2.8.11)
-static constexpr UINT WM_OPEN_SETTINGS = WM_APP + 1;
+// WM_OPEN_SETTINGS defined in common/AppMessages.h
 
 // ─── Mouse Hook Callback ────────────────────────────────────────────────────
 // Minimal: read event, check modifier via WinKeyManager, update atomics, return.
@@ -203,13 +203,24 @@ static LRESULT CALLBACK keyboardHookProc(int nCode, WPARAM wParam, LPARAM lParam
             }
         }
 
+        // Ctrl+Alt+I → toggle color inversion (Phase 6: AC-2.10.01)
+        if (info->vkCode == 'I')
+        {
+            bool ctrlHeld = (GetAsyncKeyState(VK_CONTROL) & 0x8000) != 0;
+            bool altHeld  = (GetAsyncKeyState(VK_MENU)    & 0x8000) != 0;
+            if (ctrlHeld && altHeld)
+            {
+                s_state->commandQueue.push(ZoomCommand::ToggleInvert);
+            }
+        }
+
         // Ctrl+Q → graceful exit (Phase 5C: AC-2.9.16)
         if (info->vkCode == 'Q')
         {
             bool ctrlHeld = (GetAsyncKeyState(VK_CONTROL) & 0x8000) != 0;
             if (ctrlHeld && s_msgWindow)
             {
-                PostMessageW(s_msgWindow, WM_APP + 3, 0, 0); // WM_GRACEFUL_EXIT
+                PostMessageW(s_msgWindow, WM_GRACEFUL_EXIT, 0, 0);
             }
         }
     }

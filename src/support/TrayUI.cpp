@@ -5,6 +5,7 @@
 // =============================================================================
 
 #include "smoothzoom/support/TrayUI.h"
+#include "smoothzoom/common/AppMessages.h"
 #include "smoothzoom/common/SharedState.h"
 #include "smoothzoom/common/Types.h"
 #include "smoothzoom/support/SettingsManager.h"
@@ -32,14 +33,8 @@ namespace SmoothZoom
 {
 
 // ── Constants ───────────────────────────────────────────────────────────────
-
-static constexpr UINT WM_TRAYICON      = WM_APP + 2;
-static constexpr UINT WM_GRACEFUL_EXIT = WM_APP + 3;
-
-// Context menu IDs
-static constexpr UINT IDM_SETTINGS     = 40001;
-static constexpr UINT IDM_TOGGLE_ZOOM  = 40002;
-static constexpr UINT IDM_EXIT         = 40003;
+// WM_TRAYICON, WM_GRACEFUL_EXIT, IDM_SETTINGS, IDM_TOGGLE_ZOOM, IDM_EXIT
+// are defined in common/AppMessages.h (included above).
 
 // Settings window control IDs
 static constexpr int IDC_MODIFIER_COMBO  = 1001;
@@ -290,6 +285,22 @@ void TrayUI::recreateTrayIcon()
     addTrayIcon();
 }
 
+void TrayUI::showBalloonNotification(const wchar_t* title, const wchar_t* message)
+{
+    if (!msgWindow_)
+        return;
+
+    NOTIFYICONDATAW nid = {};
+    nid.cbSize = sizeof(NOTIFYICONDATAW);
+    nid.hWnd = msgWindow_;
+    nid.uID = kTrayIconId;
+    nid.uFlags = NIF_INFO;
+    nid.dwInfoFlags = NIIF_WARNING;
+    wcsncpy_s(nid.szInfoTitle, title ? title : L"", _TRUNCATE);
+    wcsncpy_s(nid.szInfo, message ? message : L"", _TRUNCATE);
+    Shell_NotifyIconW(NIM_MODIFY, &nid);
+}
+
 void TrayUI::onTrayMessage(LPARAM lParam)
 {
     UINT event = LOWORD(lParam);
@@ -493,7 +504,7 @@ void TrayUI::createSettingsWindow()
     curY += gap;
 
     // Checkboxes
-    createCheck(L"Image Smoothing (Phase 6)", IDC_SMOOTHING_CHECK, curY, false);
+    createCheck(L"Image Smoothing (Coming soon)", IDC_SMOOTHING_CHECK, curY, false);
     curY += checkGap;
 
     createCheck(L"Follow Keyboard Focus", IDC_FOLLOW_FOCUS_CHECK, curY);
@@ -502,7 +513,7 @@ void TrayUI::createSettingsWindow()
     createCheck(L"Follow Text Cursor", IDC_FOLLOW_CARET_CHECK, curY);
     curY += checkGap;
 
-    createCheck(L"Color Inversion (Phase 6)", IDC_INVERT_CHECK, curY, false);
+    createCheck(L"Color Inversion", IDC_INVERT_CHECK, curY);
     curY += checkGap;
 
     createCheck(L"Start with Windows", IDC_AUTOSTART_CHECK, curY);

@@ -670,7 +670,7 @@ TEST_CASE("applySettings: reduce max while above it → animate down (AC-2.9.05,
         zc.applyScrollDelta(120);
     REQUIRE(zc.currentZoom() > 7.0f);
 
-    zc.applySettings(1.0f, 5.0f, 0.25f, 2.0f);
+    zc.applySettings(1.0f, 5.0f, 0.25f, 2.0f, 1);
     REQUIRE(zc.targetZoom() == Approx(5.0f));
     REQUIRE(zc.mode() == ZoomController::Mode::Animating);
 
@@ -683,7 +683,7 @@ TEST_CASE("applySettings: raise min while below it → animate up (AC-2.9.06)", 
     ZoomController zc;
     REQUIRE(zc.currentZoom() == Approx(1.0f));
 
-    zc.applySettings(2.0f, 10.0f, 0.25f, 2.0f);
+    zc.applySettings(2.0f, 10.0f, 0.25f, 2.0f, 1);
     REQUIRE(zc.targetZoom() == Approx(2.0f));
     REQUIRE(zc.mode() == ZoomController::Mode::Animating);
 
@@ -702,7 +702,7 @@ TEST_CASE("applySettings: idle within bounds → no spurious animation", "[ZoomC
     REQUIRE(level > 2.0f);
 
     // Change settings but keep bounds that contain current zoom
-    zc.applySettings(1.0f, 8.0f, 0.5f, 3.0f);
+    zc.applySettings(1.0f, 8.0f, 0.5f, 3.0f, 1);
 
     // No animation triggered — zoom is within new bounds
     REQUIRE(zc.currentZoom() == Approx(level));
@@ -714,7 +714,7 @@ TEST_CASE("applySettings: new keyboard step takes effect (AC-2.9.04)", "[ZoomCon
     ZoomController zc;
 
     // Apply settings with large step
-    zc.applySettings(1.0f, 10.0f, 0.5f, 2.0f);
+    zc.applySettings(1.0f, 10.0f, 0.5f, 2.0f, 1);
 
     zc.applyKeyboardStep(+1);
     // 1.0 * (1 + 0.5) = 1.5 (not 1.25 as with default 0.25 step)

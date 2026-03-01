@@ -143,6 +143,7 @@ if(WIN32)
         Ole32.lib
         OleAut32.lib
         UIAutomationCore.lib
+        Wtsapi32.lib
     )
 endif()
 

@@ -43,8 +43,9 @@ public:
     // Phase 5: Apply settings from snapshot. Called by render thread when it
     // detects a new settings version. Triggers animation if zoom is out of new
     // bounds (AC-2.9.05, AC-2.9.06).
+    // animationSpeed: 0=slow, 1=normal, 2=fast
     void applySettings(float minZoom, float maxZoom, float keyboardStep,
-                       float defaultZoomLevel);
+                       float defaultZoomLevel, int animationSpeed);
 
     // Reset to 1.0× instantly (shutdown path)
     void reset();
@@ -61,6 +62,9 @@ private:
     float maxZoom_ = 10.0f;
     float keyboardStep_ = 0.25f;
     Mode mode_ = Mode::Idle;
+
+    // Animation ease-out rate (configurable via animationSpeed setting)
+    double easeOutRate_ = 0.15;  // Default: normal speed
 
     // Phase 4: Toggle state
     bool isToggled_ = false;

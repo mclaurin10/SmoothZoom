@@ -31,6 +31,14 @@ struct SharedState
     SeqLock<ScreenRect>  caretRect;
     std::atomic<int64_t> lastFocusChangeTime{0};
 
+    // -- Written by main thread on WM_DISPLAYCHANGE, read by render thread --
+    // Virtual screen dimensions (SM_CXVIRTUALSCREEN / SM_CYVIRTUALSCREEN)
+    std::atomic<int32_t> screenWidth{0};
+    std::atomic<int32_t> screenHeight{0};
+    // Virtual screen origin (SM_XVIRTUALSCREEN / SM_YVIRTUALSCREEN — can be negative)
+    std::atomic<int32_t> screenOriginX{0};
+    std::atomic<int32_t> screenOriginY{0};
+
     // -- Written by render thread, read by main thread --
     std::atomic<float> currentZoomLevel{1.0f};
 

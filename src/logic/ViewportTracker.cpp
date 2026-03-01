@@ -24,7 +24,8 @@ namespace SmoothZoom
 
 ViewportTracker::Offset ViewportTracker::computePointerOffset(
     int32_t pointerX, int32_t pointerY,
-    float zoom, int32_t screenW, int32_t screenH)
+    float zoom, int32_t screenW, int32_t screenH,
+    int32_t originX, int32_t originY)
 {
     if (zoom <= 1.0f)
         return {0.0f, 0.0f};
@@ -34,19 +35,22 @@ ViewportTracker::Offset ViewportTracker::computePointerOffset(
     float xOff = static_cast<float>(pointerX) * (1.0f - invZoom);
     float yOff = static_cast<float>(pointerY) * (1.0f - invZoom);
 
-    // Clamp to valid offset range (viewport cannot pan past desktop edges)
-    float maxOffX = static_cast<float>(screenW) * (1.0f - invZoom);
-    float maxOffY = static_cast<float>(screenH) * (1.0f - invZoom);
+    // Clamp to valid offset range (viewport cannot pan past virtual desktop edges)
+    float minOffX = static_cast<float>(originX);
+    float minOffY = static_cast<float>(originY);
+    float maxOffX = static_cast<float>(originX) + static_cast<float>(screenW) * (1.0f - invZoom);
+    float maxOffY = static_cast<float>(originY) + static_cast<float>(screenH) * (1.0f - invZoom);
 
-    xOff = std::clamp(xOff, 0.0f, maxOffX);
-    yOff = std::clamp(yOff, 0.0f, maxOffY);
+    xOff = std::clamp(xOff, minOffX, maxOffX);
+    yOff = std::clamp(yOff, minOffY, maxOffY);
 
     return {xOff, yOff};
 }
 
 ViewportTracker::Offset ViewportTracker::computeElementOffset(
     const ScreenRect& elementRect,
-    float zoom, int32_t screenW, int32_t screenH)
+    float zoom, int32_t screenW, int32_t screenH,
+    int32_t originX, int32_t originY)
 {
     if (zoom <= 1.0f)
         return {0.0f, 0.0f};
@@ -60,12 +64,14 @@ ViewportTracker::Offset ViewportTracker::computeElementOffset(
     float xOff = static_cast<float>(center.x) - viewportW / 2.0f;
     float yOff = static_cast<float>(center.y) - viewportH / 2.0f;
 
-    // Clamp to desktop bounds
-    float maxOffX = static_cast<float>(screenW) - viewportW;
-    float maxOffY = static_cast<float>(screenH) - viewportH;
+    // Clamp to virtual desktop bounds
+    float minOffX = static_cast<float>(originX);
+    float minOffY = static_cast<float>(originY);
+    float maxOffX = static_cast<float>(originX) + static_cast<float>(screenW) - viewportW;
+    float maxOffY = static_cast<float>(originY) + static_cast<float>(screenH) - viewportH;
 
-    xOff = std::clamp(xOff, 0.0f, maxOffX);
-    yOff = std::clamp(yOff, 0.0f, maxOffY);
+    xOff = std::clamp(xOff, minOffX, maxOffX);
+    yOff = std::clamp(yOff, minOffY, maxOffY);
 
     return {xOff, yOff};
 }
@@ -75,7 +81,8 @@ ViewportTracker::Offset ViewportTracker::computeElementOffset(
 // can see upcoming text. Assumes LTR typing direction (positive X shift).
 ViewportTracker::Offset ViewportTracker::computeCaretOffset(
     const ScreenRect& caretRect,
-    float zoom, int32_t screenW, int32_t screenH)
+    float zoom, int32_t screenW, int32_t screenH,
+    int32_t originX, int32_t originY)
 {
     if (zoom <= 1.0f)
         return {0.0f, 0.0f};
@@ -90,12 +97,14 @@ ViewportTracker::Offset ViewportTracker::computeCaretOffset(
     float xOff = static_cast<float>(center.x) + lookahead - viewportW / 2.0f;
     float yOff = static_cast<float>(center.y) - viewportH / 2.0f;
 
-    // Clamp to desktop bounds
-    float maxOffX = static_cast<float>(screenW) - viewportW;
-    float maxOffY = static_cast<float>(screenH) - viewportH;
+    // Clamp to virtual desktop bounds
+    float minOffX = static_cast<float>(originX);
+    float minOffY = static_cast<float>(originY);
+    float maxOffX = static_cast<float>(originX) + static_cast<float>(screenW) - viewportW;
+    float maxOffY = static_cast<float>(originY) + static_cast<float>(screenH) - viewportH;
 
-    xOff = std::clamp(xOff, 0.0f, maxOffX);
-    yOff = std::clamp(yOff, 0.0f, maxOffY);
+    xOff = std::clamp(xOff, minOffX, maxOffX);
+    yOff = std::clamp(yOff, minOffY, maxOffY);
 
     return {xOff, yOff};
 }

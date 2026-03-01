@@ -23,9 +23,12 @@ static constexpr float kScrollZoomBase = 1.1f;
 // Epsilon for snapping to 1.0× and maxZoom (R-17)
 static constexpr float kSnapEpsilon = 0.005f;
 
-// Exponential ease-out rate: ~0.15 per frame at 60fps (render-loop.md, AC-2.2.05)
-// Used as: alpha = 1.0 - pow(1.0 - kEaseOutRate, dt * kReferenceHz)
-static constexpr double kEaseOutRate = 0.15;
+// Exponential ease-out reference rate (render-loop.md, AC-2.2.05)
+// Used as: alpha = 1.0 - pow(1.0 - easeOutRate_, dt * kReferenceHz)
+// Speed variants: slow=0.08, normal=0.15, fast=0.25
+static constexpr double kEaseOutRateSlow   = 0.08;
+static constexpr double kEaseOutRateNormal = 0.15;
+static constexpr double kEaseOutRateFast   = 0.25;
 static constexpr double kReferenceHz = 60.0;
 
 // Soft-approach margin as fraction of log-range near bounds (AC-2.1.15)
@@ -212,7 +215,7 @@ bool ZoomController::tick(float dtSeconds)
         if (dt > 0.1)
             dt = 0.1; // Clamp to avoid huge jumps (debugger break, system sleep)
 
-        double alpha = 1.0 - std::pow(1.0 - kEaseOutRate, dt * kReferenceHz);
+        double alpha = 1.0 - std::pow(1.0 - easeOutRate_, dt * kReferenceHz);
 
         double current = static_cast<double>(currentZoom_);
         double target = static_cast<double>(targetZoom_);
@@ -234,12 +237,21 @@ bool ZoomController::tick(float dtSeconds)
 }
 
 void ZoomController::applySettings(float minZoom, float maxZoom,
-                                    float keyboardStep, float defaultZoomLevel)
+                                    float keyboardStep, float defaultZoomLevel,
+                                    int animationSpeed)
 {
     minZoom_ = minZoom;
     maxZoom_ = maxZoom;
     keyboardStep_ = keyboardStep;
     lastUsedZoom_ = defaultZoomLevel; // Update default for toggle-from-1.0× (AC-2.7.05)
+
+    // Wire animation speed: 0=slow, 1=normal, 2=fast
+    switch (animationSpeed)
+    {
+    case 0:  easeOutRate_ = kEaseOutRateSlow;   break;
+    case 2:  easeOutRate_ = kEaseOutRateFast;   break;
+    default: easeOutRate_ = kEaseOutRateNormal; break;
+    }
 
     // AC-2.9.05: zoomed above new max → animate down
     if (currentZoom_ > maxZoom_)

@@ -41,7 +41,7 @@ enum class ZoomCommand : uint8_t
     ToggleRelease,  // Ctrl+Alt release
     OpenSettings,   // Win+Ctrl+M (Phase 5, AC-2.8.11)
     TrayToggle,     // Phase 5C: one-shot tray toggle (AC-2.9.15)
-    ToggleInvert,   // Win+I (Phase 6)
+    ToggleInvert,   // Ctrl+Alt+I (Phase 6, AC-2.10.01)
 };
 
 // Viewport tracking source priority (Doc 3 §3.6 — ViewportTracker)

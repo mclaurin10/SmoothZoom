@@ -375,3 +375,94 @@ TEST_CASE("Caret offset at 1.0x returns (0,0)", "[ViewportTracker][Phase3]")
     REQUIRE(off.x == Approx(0.0f));
     REQUIRE(off.y == Approx(0.0f));
 }
+
+// ─── Multi-monitor (Phase 6: E6.4–E6.7) ─────────────────────────────────
+
+// Dual-monitor layout: left monitor at (-1920,0), primary at (0,0)
+// Virtual screen: origin=(-1920, 0), size=(3840, 1080)
+static constexpr int kDualW = 3840;
+static constexpr int kDualH = 1080;
+static constexpr int kDualOriginX = -1920;
+static constexpr int kDualOriginY = 0;
+
+TEST_CASE("Multi-monitor: pointer on left monitor produces negative-range offset",
+          "[ViewportTracker][Phase6]")
+{
+    // Pointer at center of left monitor: (-960, 540)
+    auto off = ViewportTracker::computePointerOffset(
+        -960, 540, 2.0f, kDualW, kDualH, kDualOriginX, kDualOriginY);
+
+    // xOff = -960 * (1 - 0.5) = -480
+    // Clamp min = -1920, max = -1920 + 3840*0.5 = 0
+    // -480 is within [-1920, 0] → valid
+    REQUIRE(off.x == Approx(-480.0f));
+    REQUIRE(off.y == Approx(270.0f));
+}
+
+TEST_CASE("Multi-monitor: clamp min respects negative origin",
+          "[ViewportTracker][Phase6]")
+{
+    // Pointer far to the left of virtual desktop — should clamp to origin
+    auto off = ViewportTracker::computePointerOffset(
+        -5000, 0, 2.0f, kDualW, kDualH, kDualOriginX, kDualOriginY);
+
+    REQUIRE(off.x == Approx(static_cast<float>(kDualOriginX)));
+    REQUIRE(off.y == Approx(0.0f));
+}
+
+TEST_CASE("Multi-monitor: clamp max covers right monitor edge",
+          "[ViewportTracker][Phase6]")
+{
+    // Pointer at far right of virtual desktop
+    float invZoom = 1.0f / 2.0f;
+    float expectedMax = static_cast<float>(kDualOriginX) +
+                        static_cast<float>(kDualW) * (1.0f - invZoom);
+
+    auto off = ViewportTracker::computePointerOffset(
+        5000, 5000, 2.0f, kDualW, kDualH, kDualOriginX, kDualOriginY);
+
+    REQUIRE(off.x == Approx(expectedMax));
+}
+
+TEST_CASE("Multi-monitor: desktop-under-pointer invariant holds with negative origin",
+          "[ViewportTracker][Phase6]")
+{
+    // Pointer on left monitor at (-800, 300)
+    int px = -800, py = 300;
+    float zoom = 3.0f;
+    auto off = ViewportTracker::computePointerOffset(
+        px, py, zoom, kDualW, kDualH, kDualOriginX, kDualOriginY);
+
+    // Key property: desktopX = offset + pointerX / zoom == pointerX
+    float desktopX = off.x + static_cast<float>(px) / zoom;
+    float desktopY = off.y + static_cast<float>(py) / zoom;
+
+    REQUIRE(desktopX == Approx(static_cast<float>(px)).margin(0.5f));
+    REQUIRE(desktopY == Approx(static_cast<float>(py)).margin(0.5f));
+}
+
+TEST_CASE("Multi-monitor: element offset respects negative origin",
+          "[ViewportTracker][Phase6]")
+{
+    // Element on left monitor
+    ScreenRect rect{-1000, 400, -900, 450};
+    auto off = ViewportTracker::computeElementOffset(
+        rect, 2.0f, kDualW, kDualH, kDualOriginX, kDualOriginY);
+
+    // Offset should be >= origin
+    REQUIRE(off.x >= static_cast<float>(kDualOriginX));
+    REQUIRE(off.y >= static_cast<float>(kDualOriginY));
+}
+
+TEST_CASE("Multi-monitor: default origin (0,0) matches single-monitor behavior",
+          "[ViewportTracker][Phase6]")
+{
+    // With default origin, results should be identical to the old API
+    auto withOrigin = ViewportTracker::computePointerOffset(
+        960, 540, 2.0f, kScreenW, kScreenH, 0, 0);
+    auto withoutOrigin = ViewportTracker::computePointerOffset(
+        960, 540, 2.0f, kScreenW, kScreenH);
+
+    REQUIRE(withOrigin.x == Approx(withoutOrigin.x));
+    REQUIRE(withOrigin.y == Approx(withoutOrigin.y));
+}

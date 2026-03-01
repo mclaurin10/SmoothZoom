@@ -35,6 +35,7 @@ public:
     bool isExitPending() const;
     HWND settingsHwnd() const;          // For IsDialogMessage in message pump
     void recreateTrayIcon();            // Re-add after Explorer restart
+    void showBalloonNotification(const wchar_t* title, const wchar_t* message); // AC-ERR.03
 
 private:
     HINSTANCE hInstance_ = nullptr;

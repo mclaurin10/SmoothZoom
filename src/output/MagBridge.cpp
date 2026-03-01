@@ -28,8 +28,8 @@ static int s_screenHeight = 0;
 
 static void cacheScreenDimensions()
 {
-    s_screenWidth = GetSystemMetrics(SM_CXSCREEN);
-    s_screenHeight = GetSystemMetrics(SM_CYSCREEN);
+    s_screenWidth = GetSystemMetrics(SM_CXVIRTUALSCREEN);
+    s_screenHeight = GetSystemMetrics(SM_CYVIRTUALSCREEN);
 }
 
 bool MagBridge::initialize()
@@ -58,12 +58,18 @@ void MagBridge::shutdown()
     // 1. Reset to unmagnified
     MagSetFullscreenTransform(1.0f, 0, 0);
 
-    // 2. Disable input transform
-    RECT srcRect = {0, 0, s_screenWidth, s_screenHeight};
-    RECT destRect = {0, 0, s_screenWidth, s_screenHeight};
+    // 2. Disable input transform — re-query metrics directly to avoid stale cache
+    //    (display config may have changed since init)
+    int freshW = GetSystemMetrics(SM_CXVIRTUALSCREEN);
+    int freshH = GetSystemMetrics(SM_CYVIRTUALSCREEN);
+    RECT srcRect = {0, 0, freshW, freshH};
+    RECT destRect = {0, 0, freshW, freshH};
     MagSetInputTransform(FALSE, &srcRect, &destRect);
 
-    // 3. Uninitialize
+    // 3. Remove any color effect (identity matrix)
+    setColorInversion(false);
+
+    // 4. Uninitialize
     MagUninitialize();
 
     initialized_ = false;
@@ -128,10 +134,40 @@ bool MagBridge::getTransform(float& magnification, float& xOffset, float& yOffse
     return true;
 }
 
-bool MagBridge::setColorInversion(bool /*enabled*/)
+bool MagBridge::setColorInversion(bool enabled)
 {
-    // Phase 6 — stub
-    return false;
+    if (!initialized_)
+        return false;
+
+    // AC-2.10.01: 5×5 color matrix. Row-major, [5][5] = 25 floats.
+    // Inversion: new_channel = 1 - old_channel (alpha unchanged)
+    static const float kInvertMatrix[5][5] = {
+        { -1.0f,  0.0f,  0.0f, 0.0f, 0.0f },
+        {  0.0f, -1.0f,  0.0f, 0.0f, 0.0f },
+        {  0.0f,  0.0f, -1.0f, 0.0f, 0.0f },
+        {  0.0f,  0.0f,  0.0f, 1.0f, 0.0f },
+        {  1.0f,  1.0f,  1.0f, 0.0f, 1.0f },
+    };
+
+    // Identity matrix: no color effect
+    static const float kIdentityMatrix[5][5] = {
+        { 1.0f, 0.0f, 0.0f, 0.0f, 0.0f },
+        { 0.0f, 1.0f, 0.0f, 0.0f, 0.0f },
+        { 0.0f, 0.0f, 1.0f, 0.0f, 0.0f },
+        { 0.0f, 0.0f, 0.0f, 1.0f, 0.0f },
+        { 0.0f, 0.0f, 0.0f, 0.0f, 1.0f },
+    };
+
+    const float* matrix = enabled
+        ? &kInvertMatrix[0][0]
+        : &kIdentityMatrix[0][0];
+
+    BOOL ok = MagSetFullscreenColorEffect(reinterpret_cast<PMAGCOLOREFFECT>(
+        const_cast<float*>(matrix)));
+    if (!ok)
+        lastError_ = GetLastError();
+
+    return ok != FALSE;
 }
 
 // Image smoothing note (AC-2.3.07–AC-2.3.09):

@@ -48,9 +48,14 @@ static float s_lastOffY = 0.0f;
 static int64_t s_lastFrameTimeQpc = 0;
 static int64_t s_qpcFrequency = 0;
 
-// Screen dimensions (cached once at start, Phase 6 updates on display change)
+// Screen dimensions — read from SharedState each frame so WM_DISPLAYCHANGE updates apply.
+// Relaxed atomic int loads per frame (~1ns each), safe for hot path.
 static int s_screenW = 0;
 static int s_screenH = 0;
+
+// Virtual screen origin — can be negative with multi-monitor (E6.4–E6.7)
+static int s_screenOriginX = 0;
+static int s_screenOriginY = 0;
 
 // Deadzone filter for pointer micro-jitter suppression (AC-2.4.09–AC-2.4.11).
 // Tracks last "committed" pointer position. Viewport only updates when pointer
@@ -69,6 +74,13 @@ static TrackingSource s_activeSource = TrackingSource::Pointer;
 static uint64_t s_cachedSettingsVersion = 0;
 static bool s_followKeyboardFocus = true;   // Match SettingsSnapshot defaults
 static bool s_followTextCursor = true;
+
+// Phase 6: Color inversion state — toggled by ToggleInvert command, synced from settings.
+// Render thread only (no contention). (AC-2.10.01–AC-2.10.05)
+static bool s_colorInversionActive = false;
+
+// MagBridge error tracking — log on state transitions only (not every frame)
+static bool s_magBridgeLastOk = true;
 
 // Source transition smoothing (200ms ease-out between sources)
 static constexpr float kSourceTransitionDurationMs = 200.0f;
@@ -95,10 +107,6 @@ void RenderLoop::start(SharedState& state)
     s_state = &state;
     shutdownRequested_.store(false, std::memory_order_relaxed);
     initComplete_.store(false, std::memory_order_relaxed);
-
-    // Cache screen dimensions (render thread will use these)
-    s_screenW = GetSystemMetrics(SM_CXSCREEN);
-    s_screenH = GetSystemMetrics(SM_CYSCREEN);
 
     // Initialize frame timing for dt computation
     LARGE_INTEGER freq, now;
@@ -203,12 +211,26 @@ void RenderLoop::frameTick()
         {
             s_zoomController.applySettings(
                 snap->minZoom, snap->maxZoom,
-                snap->keyboardZoomStep, snap->defaultZoomLevel);
+                snap->keyboardZoomStep, snap->defaultZoomLevel,
+                snap->animationSpeed);
             s_followKeyboardFocus = snap->followKeyboardFocus;
             s_followTextCursor = snap->followTextCursor;
+
+            // Phase 6: Sync color inversion from settings (AC-2.10.03, AC-2.10.04)
+            if (snap->colorInversionEnabled != s_colorInversionActive)
+            {
+                s_colorInversionActive = snap->colorInversionEnabled;
+                s_magBridge.setColorInversion(s_colorInversionActive);
+            }
         }
         s_cachedSettingsVersion = ver;
     }
+
+    // 0b. Update screen dimensions from shared state (WM_DISPLAYCHANGE → main thread → atomics)
+    s_screenW = s_state->screenWidth.load(std::memory_order_relaxed);
+    s_screenH = s_state->screenHeight.load(std::memory_order_relaxed);
+    s_screenOriginX = s_state->screenOriginX.load(std::memory_order_relaxed);
+    s_screenOriginY = s_state->screenOriginY.load(std::memory_order_relaxed);
 
     // 1. Consume scroll delta (atomic exchange with 0)
     int32_t scrollDelta = s_state->scrollAccumulator.exchange(0, std::memory_order_acquire);
@@ -235,6 +257,11 @@ void RenderLoop::frameTick()
             break;
         case ZoomCommand::TrayToggle:
             s_zoomController.trayToggle();
+            break;
+        case ZoomCommand::ToggleInvert:
+            // AC-2.10.01: instantaneous toggle, no animation
+            s_colorInversionActive = !s_colorInversionActive;
+            s_magBridge.setColorInversion(s_colorInversionActive);
             break;
         default:
             break;
@@ -280,7 +307,9 @@ void RenderLoop::frameTick()
     int32_t rawPtrX = cursorPos.x;
     int32_t rawPtrY = cursorPos.y;
 
-    int32_t deadzoneThreshold = s_screenH > 0 ? (3 * s_screenH / 1080) : 3;
+    // Use primary monitor height for deadzone scaling (s_screenH is now virtual screen height)
+    int32_t primaryH = GetSystemMetrics(SM_CYSCREEN);
+    int32_t deadzoneThreshold = primaryH > 0 ? (3 * primaryH / 1080) : 3;
     if (deadzoneThreshold < 1) deadzoneThreshold = 1;
 
     if (!s_deadzoneInitialized)
@@ -332,16 +361,17 @@ void RenderLoop::frameTick()
     {
     case TrackingSource::Caret:
         targetOffset = ViewportTracker::computeCaretOffset(
-            caretRect, zoom, s_screenW, s_screenH);
+            caretRect, zoom, s_screenW, s_screenH, s_screenOriginX, s_screenOriginY);
         break;
     case TrackingSource::Focus:
         targetOffset = ViewportTracker::computeElementOffset(
-            focusRect, zoom, s_screenW, s_screenH);
+            focusRect, zoom, s_screenW, s_screenH, s_screenOriginX, s_screenOriginY);
         break;
     case TrackingSource::Pointer:
     default:
         targetOffset = ViewportTracker::computePointerOffset(
-            s_committedPtrX, s_committedPtrY, zoom, s_screenW, s_screenH);
+            s_committedPtrX, s_committedPtrY, zoom, s_screenW, s_screenH,
+            s_screenOriginX, s_screenOriginY);
         break;
     }
 
@@ -382,6 +412,13 @@ void RenderLoop::frameTick()
     if (changed)
     {
         bool ok = s_magBridge.setTransform(zoom, offset.x, offset.y);
+
+        // Log on transition: first failure and recovery (not every frame)
+        if (!ok && s_magBridgeLastOk)
+            OutputDebugStringW(L"SmoothZoom: MagBridge setTransform failed\n");
+        else if (ok && !s_magBridgeLastOk)
+            OutputDebugStringW(L"SmoothZoom: MagBridge setTransform recovered\n");
+        s_magBridgeLastOk = ok;
 
         s_lastZoom = zoom;
         s_lastOffX = offset.x;
