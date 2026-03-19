@@ -25,6 +25,7 @@ struct SharedState
     std::atomic<int32_t> scrollAccumulator{0};
     std::atomic<bool>    toggleState{false};
     std::atomic<int64_t> lastKeyboardInputTime{0};
+    std::atomic<int64_t> lastLLHookScrollTime{0};  // Dedup: LL hook scroll timestamp (GetTickCount64)
 
     // -- Written by UIA thread --
     SeqLock<ScreenRect>  focusRect;

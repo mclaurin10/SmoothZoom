@@ -28,6 +28,8 @@
 #include "smoothzoom/output/MagBridge.h"
 #include "smoothzoom/support/SettingsManager.h"
 #include "smoothzoom/support/TrayUI.h"
+#include "smoothzoom/support/Logger.h"
+#include "smoothzoom/input/ModifierUtils.h"
 
 #include <filesystem>
 #include <fstream>
@@ -37,6 +39,13 @@
 #include <wtsapi32.h>
 
 #pragma comment(lib, "Wtsapi32.lib")
+
+// Precision Touchpad HID report parsing (device-independent via HidP_* APIs)
+extern "C" {
+#include <hidusage.h>
+#include <hidpi.h>
+}
+#pragma comment(lib, "Hid.lib")
 
 // Global shared state — single instance, lifetime = application
 static SmoothZoom::SharedState g_sharedState;
@@ -62,6 +71,37 @@ static bool s_sessionLocked = false;
 
 // Sentinel path for dirty-shutdown detection (R-14, E6.11)
 static std::filesystem::path s_sentinelPath;
+
+// ── Precision Touchpad (PTP) HID Parsing State ──────────────────────────────
+// Parses raw HID contact reports to detect two-finger vertical pan gestures.
+// Needed because PTP drivers deliver scroll via WM_MOUSEWHEEL directly to the
+// foreground window, bypassing LL mouse hooks for Desktop/Edge.
+
+struct PtpContactSlot {
+    USHORT linkCollection;  // HID link collection index for this contact
+};
+
+struct PtpDeviceInfo {
+    PHIDP_PREPARSED_DATA preparsedData = nullptr;
+    bool valid = false;
+    USHORT contactCountLC = 0;     // Link collection for Contact Count (0x0D:0x54)
+    PtpContactSlot slots[5] = {};  // Contact slots (max 5 per PTP spec)
+    int numSlots = 0;
+};
+
+struct PtpContactState {
+    bool active = false;
+    LONG y = 0;
+    LONG prevY = 0;
+    bool hasPrev = false;  // true if previous Y is valid (contact was active last frame)
+};
+
+static PtpDeviceInfo s_ptpDevice = {};
+static HANDLE s_ptpDeviceHandle = nullptr;
+static PtpContactState s_ptpContacts[5] = {};
+static int32_t s_ptpScrollRemainder = 0;
+// Device units of Y movement per WHEEL_DELTA notch (120). Tunable.
+static constexpr int32_t kPtpUnitsPerNotch = 25;
 
 // ── Dirty-Shutdown Sentinel Helpers (R-14) ──────────────────────────────────
 
@@ -179,6 +219,230 @@ static LONG WINAPI crashHandler(EXCEPTION_POINTERS* /*exInfo*/)
     return EXCEPTION_CONTINUE_SEARCH;
 }
 
+// ── PTP HID Device Initialization ────────────────────────────────────────────
+// Called once per device when the first HID report arrives. Parses the device's
+// HID report descriptor to discover contact slot link collections.
+
+static bool initPtpDevice(HANDLE hDevice)
+{
+    UINT ppSize = 0;
+    if (GetRawInputDeviceInfoW(hDevice, RIDI_PREPARSEDDATA, nullptr, &ppSize) != 0)
+        return false;
+    if (ppSize == 0 || ppSize > 65536)
+        return false;
+
+    auto* ppd = static_cast<PHIDP_PREPARSED_DATA>(
+        HeapAlloc(GetProcessHeap(), 0, ppSize));
+    if (!ppd) return false;
+
+    if (GetRawInputDeviceInfoW(hDevice, RIDI_PREPARSEDDATA, ppd, &ppSize) == UINT(-1))
+    {
+        HeapFree(GetProcessHeap(), 0, ppd);
+        return false;
+    }
+
+    HIDP_CAPS caps = {};
+    if (HidP_GetCaps(ppd, &caps) != HIDP_STATUS_SUCCESS)
+    {
+        HeapFree(GetProcessHeap(), 0, ppd);
+        return false;
+    }
+
+    // Enumerate input value caps to find Contact Count and Contact ID locations
+    USHORT numValCaps = caps.NumberInputValueCaps;
+    if (numValCaps == 0 || numValCaps > 256)
+    {
+        HeapFree(GetProcessHeap(), 0, ppd);
+        return false;
+    }
+
+    auto* valCaps = static_cast<HIDP_VALUE_CAPS*>(
+        HeapAlloc(GetProcessHeap(), 0, numValCaps * sizeof(HIDP_VALUE_CAPS)));
+    if (!valCaps)
+    {
+        HeapFree(GetProcessHeap(), 0, ppd);
+        return false;
+    }
+
+    if (HidP_GetValueCaps(HidP_Input, valCaps, &numValCaps, ppd) != HIDP_STATUS_SUCCESS)
+    {
+        HeapFree(GetProcessHeap(), 0, valCaps);
+        HeapFree(GetProcessHeap(), 0, ppd);
+        return false;
+    }
+
+    bool foundCC = false;
+    USHORT contactCountLC = 0;
+    int numSlots = 0;
+    USHORT slotLCs[5] = {};
+
+    for (USHORT i = 0; i < numValCaps; i++)
+    {
+        USAGE usage = valCaps[i].IsRange
+            ? valCaps[i].Range.UsageMin
+            : valCaps[i].NotRange.Usage;
+        USAGE page = valCaps[i].UsagePage;
+
+        if (page == 0x0D && usage == 0x54) // Contact Count
+        {
+            contactCountLC = valCaps[i].LinkCollection;
+            foundCC = true;
+        }
+        if (page == 0x0D && usage == 0x51) // Contact ID — one per contact slot
+        {
+            if (numSlots < 5)
+                slotLCs[numSlots++] = valCaps[i].LinkCollection;
+        }
+    }
+
+    HeapFree(GetProcessHeap(), 0, valCaps);
+
+    if (!foundCC || numSlots == 0)
+    {
+        HeapFree(GetProcessHeap(), 0, ppd);
+        return false;
+    }
+
+    // Store device info (clean up previous if switching devices)
+    if (s_ptpDevice.preparsedData)
+        HeapFree(GetProcessHeap(), 0, s_ptpDevice.preparsedData);
+
+    s_ptpDevice.preparsedData = ppd;
+    s_ptpDevice.valid = true;
+    s_ptpDevice.contactCountLC = contactCountLC;
+    s_ptpDevice.numSlots = numSlots;
+    for (int i = 0; i < numSlots; i++)
+        s_ptpDevice.slots[i].linkCollection = slotLCs[i];
+    s_ptpDeviceHandle = hDevice;
+
+    // Reset tracking state
+    for (auto& c : s_ptpContacts) c = {};
+    s_ptpScrollRemainder = 0;
+
+    SZ_LOG_INFO("Main", L"PTP device initialized: %d contact slot(s), contactCountLC=%u",
+                numSlots, contactCountLC);
+    return true;
+}
+
+// ── PTP HID Report Processing ────────────────────────────────────────────────
+// Extracts contact data from each report, detects two-finger vertical pan,
+// and converts to scroll delta when modifier key is held.
+
+static void handlePtpHidReport(const BYTE* reportData, DWORD reportSize)
+{
+    auto* ppd = s_ptpDevice.preparsedData;
+    // HidP functions take non-const PCHAR — they don't modify the buffer
+    auto* report = reinterpret_cast<PCHAR>(const_cast<BYTE*>(reportData));
+
+    // Extract contact count (present in end-of-frame report, or every report)
+    ULONG contactCount = 0;
+    HidP_GetUsageValue(HidP_Input, 0x0D, s_ptpDevice.contactCountLC, 0x54,
+                       &contactCount, ppd, report, reportSize);
+
+    // Extract data from each contact slot in this report
+    for (int slot = 0; slot < s_ptpDevice.numSlots; slot++)
+    {
+        USHORT lc = s_ptpDevice.slots[slot].linkCollection;
+
+        // Contact ID
+        ULONG contactId = 0;
+        if (HidP_GetUsageValue(HidP_Input, 0x0D, lc, 0x51, &contactId, ppd,
+                               report, reportSize) != HIDP_STATUS_SUCCESS)
+            continue;
+
+        // Tip Switch (button usage 0x42 on digitizer page)
+        USAGE usages[8] = {};
+        ULONG usageLen = 8;
+        bool tipSwitch = false;
+        if (HidP_GetUsages(HidP_Input, 0x0D, lc, usages, &usageLen, ppd,
+                           report, reportSize) == HIDP_STATUS_SUCCESS)
+        {
+            for (ULONG u = 0; u < usageLen; u++)
+            {
+                if (usages[u] == 0x42) { tipSwitch = true; break; }
+            }
+        }
+
+        // Y position (Generic Desktop page 0x01, same link collection as contact)
+        ULONG y = 0;
+        HidP_GetUsageValue(HidP_Input, 0x01, lc, 0x31, &y, ppd, report, reportSize);
+
+        // Update per-contact tracking state (clamped to valid ID range)
+        if (contactId < 5)
+        {
+            auto& cs = s_ptpContacts[contactId];
+            if (tipSwitch)
+            {
+                cs.prevY = cs.y;
+                cs.hasPrev = cs.active; // Valid prev only if was already active
+                cs.y = static_cast<LONG>(y);
+                cs.active = true;
+            }
+            else
+            {
+                cs.active = false;
+                cs.hasPrev = false;
+            }
+        }
+    }
+
+    // Only process when we have a complete frame with 2+ contacts
+    if (contactCount < 2)
+        return;
+
+    // Find first two active contacts with valid Y deltas
+    int scrollFingers = 0;
+    LONG totalDeltaY = 0;
+
+    for (int i = 0; i < 5 && scrollFingers < 2; i++)
+    {
+        auto& c = s_ptpContacts[i];
+        if (c.active && c.hasPrev)
+        {
+            totalDeltaY += (c.y - c.prevY);
+            scrollFingers++;
+        }
+    }
+
+    if (scrollFingers < 2)
+        return;
+
+    LONG avgDeltaY = totalDeltaY / scrollFingers;
+    if (avgDeltaY == 0)
+        return;
+
+    // Dedup with LL hook: skip if hook handled scroll recently
+    int64_t lastLL = g_sharedState.lastLLHookScrollTime.load(std::memory_order_relaxed);
+    int64_t now = static_cast<int64_t>(GetTickCount64());
+    if (now - lastLL < 50)
+        return;
+
+    // Check modifier key
+    auto snap = std::atomic_load(&g_sharedState.settingsSnapshot);
+    int modVK = snap ? snap->modifierKeyVK : VK_LWIN;
+    int genericVK = SmoothZoom::toGenericVK(modVK);
+    bool modHeld = (GetAsyncKeyState(genericVK) & 0x8000) != 0;
+    if (!modHeld)
+        return;
+
+    // Convert PTP device-unit Y delta to WHEEL_DELTA (120) units.
+    // PTP Y increases downward. Fingers moving down = positive avgDeltaY = scroll down.
+    // WHEEL_DELTA positive = scroll up. Negate for traditional Windows scroll direction.
+    s_ptpScrollRemainder += -avgDeltaY;
+
+    int32_t notches = s_ptpScrollRemainder / kPtpUnitsPerNotch;
+    if (notches != 0)
+    {
+        s_ptpScrollRemainder -= notches * kPtpUnitsPerNotch;
+        int16_t delta = static_cast<int16_t>(notches * WHEEL_DELTA);
+
+        SZ_LOG_DEBUG("Main", L"PTP scroll: avgDY=%d notches=%d delta=%d",
+                     avgDeltaY, notches, delta);
+        g_sharedState.scrollAccumulator.fetch_add(delta, std::memory_order_release);
+        g_sharedState.modifierHeld.store(true, std::memory_order_relaxed);
+    }
+}
+
 // Hidden message-only window for receiving WM_TIMER and WM_ENDSESSION
 static HWND g_msgWindow = nullptr;
 
@@ -193,7 +457,7 @@ static LRESULT CALLBACK msgWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lP
             // Check if hooks were silently deregistered and reinstall if needed.
             if (!g_inputInterceptor.isHealthy())
             {
-                OutputDebugStringW(L"SmoothZoom: Hook deregistration detected, reinstalling...\n");
+                SZ_LOG_WARN("Main", L"Hook deregistration detected, reinstalling...");
                 bool restored = g_inputInterceptor.reinstall();
                 if (restored && s_hookFailureNotified)
                 {
@@ -257,12 +521,12 @@ static LRESULT CALLBACK msgWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lP
         if (wParam == WTS_SESSION_LOCK)
         {
             s_sessionLocked = true;
-            OutputDebugStringW(L"SmoothZoom: Session locked — suppressing hook alerts\n");
+            SZ_LOG_INFO("Main", L"Session locked \u2014 suppressing hook alerts");
         }
         else if (wParam == WTS_SESSION_UNLOCK)
         {
             s_sessionLocked = false;
-            OutputDebugStringW(L"SmoothZoom: Session unlocked — checking hook health\n");
+            SZ_LOG_INFO("Main", L"Session unlocked \u2014 checking hook health");
             // Force immediate hook health check after returning from secure desktop
             if (!g_inputInterceptor.isHealthy())
             {
@@ -270,7 +534,7 @@ static LRESULT CALLBACK msgWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lP
                 if (restored)
                 {
                     s_hookFailureNotified = false;
-                    OutputDebugStringW(L"SmoothZoom: Hooks restored after unlock\n");
+                    SZ_LOG_INFO("Main", L"Hooks restored after unlock");
                 }
             }
         }
@@ -298,6 +562,84 @@ static LRESULT CALLBACK msgWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lP
             removeSentinel(s_sentinelPath);
         }
         return 0;
+
+    case WM_INPUT:
+    {
+        // Raw Input fallback for scroll events that bypass LL mouse hooks.
+        // Some touchpad drivers (Precision Touchpad) deliver scroll via WM_POINTER
+        // to pointer-aware foreground windows (Desktop, Edge), skipping LL hooks.
+        UINT dwSize = 0;
+        GetRawInputData(reinterpret_cast<HRAWINPUT>(lParam), RID_INPUT,
+                        nullptr, &dwSize, sizeof(RAWINPUTHEADER));
+        if (dwSize == 0)
+            return DefWindowProcW(hWnd, msg, wParam, lParam);
+
+        // Stack buffer — RAWINPUT is ~48 bytes for mouse, but HID can be larger
+        alignas(8) BYTE buf[512];
+        if (dwSize > sizeof(buf))
+            return DefWindowProcW(hWnd, msg, wParam, lParam);
+        if (GetRawInputData(reinterpret_cast<HRAWINPUT>(lParam), RID_INPUT,
+                            buf, &dwSize, sizeof(RAWINPUTHEADER)) == UINT(-1))
+            return DefWindowProcW(hWnd, msg, wParam, lParam);
+
+        auto* raw = reinterpret_cast<RAWINPUT*>(buf);
+
+        if (raw->header.dwType == RIM_TYPEHID)
+        {
+            // Precision Touchpad HID report — parse for two-finger scroll
+            HANDLE hDevice = raw->header.hDevice;
+
+            // One-time device init: parse report descriptor for contact slots
+            if (hDevice != s_ptpDeviceHandle || !s_ptpDevice.valid)
+            {
+                if (!initPtpDevice(hDevice))
+                    return DefWindowProcW(hWnd, msg, wParam, lParam);
+            }
+
+            // Process each HID report in this WM_INPUT message
+            DWORD count = raw->data.hid.dwCount;
+            DWORD size  = raw->data.hid.dwSizeHid;
+            const BYTE* data = raw->data.hid.bRawData;
+            for (DWORD r = 0; r < count; r++)
+                handlePtpHidReport(data + r * size, size);
+
+            return DefWindowProcW(hWnd, msg, wParam, lParam);
+        }
+
+        if (raw->header.dwType != RIM_TYPEMOUSE)
+            return DefWindowProcW(hWnd, msg, wParam, lParam);
+
+        const RAWMOUSE& rm = raw->data.mouse;
+        int16_t delta = 0;
+        if (rm.usButtonFlags & RI_MOUSE_WHEEL)
+            delta = static_cast<int16_t>(rm.usButtonData);
+        else if (rm.usButtonFlags & RI_MOUSE_HWHEEL)
+            delta = static_cast<int16_t>(rm.usButtonData);
+
+        if (delta == 0)
+            return DefWindowProcW(hWnd, msg, wParam, lParam);
+
+        // Dedup: skip if LL hook already handled a scroll within 50ms
+        int64_t lastLL = g_sharedState.lastLLHookScrollTime.load(std::memory_order_relaxed);
+        int64_t now = static_cast<int64_t>(GetTickCount64());
+        if (now - lastLL < 50)
+            return DefWindowProcW(hWnd, msg, wParam, lParam);
+
+        // Check modifier via GetAsyncKeyState (can't access WinKeyManager from here)
+        auto snap = std::atomic_load(&g_sharedState.settingsSnapshot);
+        int modVK = snap ? snap->modifierKeyVK : VK_LWIN;
+        int genericVK = SmoothZoom::toGenericVK(modVK);
+        bool modHeld = (GetAsyncKeyState(genericVK) & 0x8000) != 0;
+
+        if (modHeld)
+        {
+            SZ_LOG_INFO("Main", L"Raw Input scroll fallback: delta=%d", delta);
+            g_sharedState.scrollAccumulator.fetch_add(delta, std::memory_order_release);
+            g_sharedState.modifierHeld.store(true, std::memory_order_relaxed);
+        }
+
+        return DefWindowProcW(hWnd, msg, wParam, lParam);
+    }
 
     default:
         // Explorer restart: re-add tray icon
@@ -339,12 +681,15 @@ int WINAPI wWinMain(
     // ── 0. Install crash handler (R-14) ──────────────────────────────────────
     SetUnhandledExceptionFilter(crashHandler);
 
+    // Enable debug-level logging for diagnostics
+    SmoothZoom::setLogLevel(SmoothZoom::LogLevel::Debug);
+
     // ── 0a. Dirty-shutdown sentinel check (R-14, E6.11) ─────────────────────
     s_sentinelPath = getSentinelPath();
     if (sentinelExists(s_sentinelPath))
     {
         // Previous session crashed while zoomed — reset magnification
-        OutputDebugStringW(L"SmoothZoom: Stale sentinel detected, resetting magnification...\n");
+        SZ_LOG_WARN("Main", L"Stale sentinel detected, resetting magnification...");
         SmoothZoom::MagBridge recoveryBridge;
         if (recoveryBridge.initialize())
         {
@@ -359,7 +704,16 @@ int WINAPI wWinMain(
     // ── 0c. Load settings (Phase 5B: AC-2.9.01, AC-2.9.02) ─────────────────
     // Register observers BEFORE loading so the initial load triggers them.
     g_settingsManager.addObserver(publishToSharedState, &g_sharedState);
+    SmoothZoom::InputInterceptor::registerSettingsObserver(g_settingsManager);
     g_configPath = SmoothZoom::SettingsManager::getDefaultConfigPath();
+
+    // ── 0c½. Initialize file logging alongside config.json ──────────────────
+    if (!g_configPath.empty())
+    {
+        std::filesystem::path logPath = std::filesystem::path(g_configPath).parent_path() / L"smoothzoom.log";
+        SmoothZoom::initLogFile(logPath.c_str());
+    }
+
     if (!g_configPath.empty())
         g_settingsManager.loadFromFile(g_configPath.c_str());
     // Ensure SharedState has settings even if load failed (defaults apply):
@@ -425,9 +779,6 @@ int WINAPI wWinMain(
         return 1;
     }
 
-    // Phase 5B: Register InputInterceptor for settings changes (AC-2.9.04)
-    SmoothZoom::InputInterceptor::registerSettingsObserver(g_settingsManager);
-
     // ── 2. Start render loop (launches render thread, initializes MagBridge) ─
     g_renderLoop.start(g_sharedState);
 
@@ -463,6 +814,30 @@ int WINAPI wWinMain(
         SmoothZoom::InputInterceptor::setMessageWindow(g_msgWindow);
         // Phase 6: Register for session lock/unlock notifications (AC-ERR.04, E6.10)
         WTSRegisterSessionNotification(g_msgWindow, NOTIFY_FOR_THIS_SESSION);
+
+        // Raw Input fallback: catch touchpad scroll events that bypass LL hooks
+        RAWINPUTDEVICE rids[2] = {};
+        // 1. Generic mouse — catches external mouse wheel events
+        rids[0].usUsagePage = 0x01;  // HID_USAGE_PAGE_GENERIC
+        rids[0].usUsage     = 0x02;  // HID_USAGE_GENERIC_MOUSE
+        rids[0].dwFlags     = RIDEV_INPUTSINK;
+        rids[0].hwndTarget  = g_msgWindow;
+        // 2. Precision Touchpad — HID digitizer page
+        rids[1].usUsagePage = 0x0D;  // HID_USAGE_PAGE_DIGITIZER
+        rids[1].usUsage     = 0x05;  // HID_USAGE_GENERIC_TOUCHPAD
+        rids[1].dwFlags     = RIDEV_INPUTSINK;
+        rids[1].hwndTarget  = g_msgWindow;
+        if (!RegisterRawInputDevices(rids, 2, sizeof(RAWINPUTDEVICE)))
+        {
+            // Touchpad registration may fail if no PTP device — try mouse only
+            SZ_LOG_WARN("Main", L"RegisterRawInputDevices (mouse+touchpad) failed, trying mouse only");
+            if (!RegisterRawInputDevices(rids, 1, sizeof(RAWINPUTDEVICE)))
+                SZ_LOG_WARN("Main", L"RegisterRawInputDevices (mouse only) also failed");
+            else
+                SZ_LOG_INFO("Main", L"RegisterRawInputDevices (mouse only) succeeded");
+        }
+        else
+            SZ_LOG_INFO("Main", L"RegisterRawInputDevices (mouse+touchpad) succeeded");
     }
 
     // Phase 5C: Register TaskbarCreated for Explorer restart detection
@@ -525,7 +900,7 @@ int WINAPI wWinMain(
         {
             if (GetTickCount() - shutdownStart > 3000)
             {
-                OutputDebugStringW(L"SmoothZoom: Render thread shutdown timed out (3s)\n");
+                SZ_LOG_ERROR("Main", L"Render thread shutdown timed out (3s)");
                 break;
             }
             Sleep(10);
@@ -537,7 +912,14 @@ int WINAPI wWinMain(
 
     g_inputInterceptor.uninstall();
 
-    // ── 4b. Remove sentinel on clean exit (R-14) ───────────────────────────
+    // ── 4b. Clean up PTP HID state ──────────────────────────────────────────
+    if (s_ptpDevice.preparsedData)
+    {
+        HeapFree(GetProcessHeap(), 0, s_ptpDevice.preparsedData);
+        s_ptpDevice.preparsedData = nullptr;
+    }
+
+    // ── 4c. Remove sentinel on clean exit (R-14) ───────────────────────────
     removeSentinel(s_sentinelPath);
 
     return 0;

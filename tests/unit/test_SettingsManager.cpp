@@ -10,6 +10,7 @@
 #include "smoothzoom/support/SettingsManager.h"
 
 #include <cstdio>
+#include <filesystem>
 #include <fstream>
 #include <string>
 
@@ -19,20 +20,13 @@ using Catch::Approx;
 // Helper: write a string to a temp file and return the path
 static std::string writeTempFile(const std::string& content, const char* name = "test_config.json")
 {
-    std::string path = std::string("/tmp/smoothzoom_test_") + name;
+    std::string path = (std::filesystem::temp_directory_path() / ("smoothzoom_test_" + std::string(name))).string();
     std::ofstream f(path);
     f << content;
     f.close();
     return path;
 }
 
-// Helper: read a file to string
-static std::string readFileContents(const std::string& path)
-{
-    std::ifstream f(path);
-    return std::string((std::istreambuf_iterator<char>(f)),
-                        std::istreambuf_iterator<char>());
-}
 
 TEST_CASE("SettingsManager starts with defaults", "[SettingsManager][Phase5]")
 {
@@ -51,6 +45,7 @@ TEST_CASE("SettingsManager starts with defaults", "[SettingsManager][Phase5]")
     REQUIRE(snap->followKeyboardFocus == true);
     REQUIRE(snap->followTextCursor == true);
     REQUIRE(snap->colorInversionEnabled == false);
+    REQUIRE(snap->reverseScrollDirection == false);
     REQUIRE(snap->toggleKey1VK == 0xA2);
     REQUIRE(snap->toggleKey2VK == 0xA4);
 }
@@ -70,6 +65,7 @@ TEST_CASE("Load valid JSON → all fields parsed (AC-2.9.01)", "[SettingsManager
         "followKeyboardFocus": false,
         "followTextCursor": false,
         "colorInversionEnabled": true,
+        "reverseScrollDirection": true,
         "toggleKey1VK": 160,
         "toggleKey2VK": 164
     })";
@@ -91,6 +87,7 @@ TEST_CASE("Load valid JSON → all fields parsed (AC-2.9.01)", "[SettingsManager
     REQUIRE(snap->followKeyboardFocus == false);
     REQUIRE(snap->followTextCursor == false);
     REQUIRE(snap->colorInversionEnabled == true);
+    REQUIRE(snap->reverseScrollDirection == true);
     REQUIRE(snap->toggleKey1VK == 160);
     REQUIRE(snap->toggleKey2VK == 164);
 }
@@ -111,13 +108,14 @@ TEST_CASE("Save then load round-trip (AC-2.9.02)", "[SettingsManager][Phase5]")
     custom.followKeyboardFocus = false;
     custom.followTextCursor = false;
     custom.colorInversionEnabled = true;
+    custom.reverseScrollDirection = true;
     custom.toggleKey1VK = 0xA0;
     custom.toggleKey2VK = 0xA5;
 
     SettingsManager mgr1;
     mgr1.applySnapshot(custom);
 
-    std::string path = "/tmp/smoothzoom_test_roundtrip.json";
+    std::string path = (std::filesystem::temp_directory_path() / "smoothzoom_test_roundtrip.json").string();
     REQUIRE(mgr1.saveToFile(path.c_str()));
 
     SettingsManager mgr2;
@@ -136,6 +134,7 @@ TEST_CASE("Save then load round-trip (AC-2.9.02)", "[SettingsManager][Phase5]")
     REQUIRE(snap->followKeyboardFocus == custom.followKeyboardFocus);
     REQUIRE(snap->followTextCursor == custom.followTextCursor);
     REQUIRE(snap->colorInversionEnabled == custom.colorInversionEnabled);
+    REQUIRE(snap->reverseScrollDirection == custom.reverseScrollDirection);
     REQUIRE(snap->toggleKey1VK == custom.toggleKey1VK);
     REQUIRE(snap->toggleKey2VK == custom.toggleKey2VK);
 }
@@ -156,7 +155,7 @@ TEST_CASE("Load corrupt JSON → returns false, defaults intact (AC-2.9.03, E5.5
 TEST_CASE("Load missing file → returns false, defaults intact", "[SettingsManager][Phase5]")
 {
     SettingsManager mgr;
-    REQUIRE_FALSE(mgr.loadFromFile("/tmp/smoothzoom_nonexistent_12345.json"));
+    REQUIRE_FALSE(mgr.loadFromFile((std::filesystem::temp_directory_path() / "smoothzoom_nonexistent_12345.json").string().c_str()));
 
     auto snap = mgr.snapshot();
     REQUIRE(snap->maxZoom == Approx(10.0f));
@@ -247,8 +246,7 @@ TEST_CASE("applySnapshot → observer called", "[SettingsManager][Phase5]")
     SettingsManager mgr;
 
     bool called = false;
-    float observedMax = 0.0f;
-    mgr.addObserver([](const SettingsSnapshot& snap, void* ud) {
+    mgr.addObserver([](const SettingsSnapshot& /*snap*/, void* ud) {
         auto* calledPtr = static_cast<bool*>(ud);
         *calledPtr = true;
     }, &called);

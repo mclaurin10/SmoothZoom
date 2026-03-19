@@ -634,7 +634,7 @@ TEST_CASE("Double engage is idempotent", "[ZoomController][Phase4]")
 
     for (int i = 0; i < 15; ++i)
         zc.applyScrollDelta(120);
-    float zoomedLevel = zc.currentZoom();
+    REQUIRE(zc.currentZoom() > 3.0f);
 
     zc.engageToggle();
     REQUIRE(zc.isToggled());
@@ -719,4 +719,89 @@ TEST_CASE("applySettings: new keyboard step takes effect (AC-2.9.04)", "[ZoomCon
     zc.applyKeyboardStep(+1);
     // 1.0 * (1 + 0.5) = 1.5 (not 1.25 as with default 0.25 step)
     REQUIRE(zc.targetZoom() == Approx(1.5f));
+}
+
+// =============================================================================
+// Phase 5C: Tray Toggle tests (AC-2.9.15)
+// =============================================================================
+
+TEST_CASE("trayToggle from 1.0x (first use) animates to default lastUsedZoom (AC-2.9.15)", "[ZoomController][Phase5C]")
+{
+    ZoomController zc;
+    REQUIRE(zc.currentZoom() == Approx(1.0f));
+
+    zc.trayToggle();
+    // Default lastUsedZoom_ is 2.0 (same as AC-2.7.05)
+    REQUIRE(zc.targetZoom() == Approx(2.0f));
+    REQUIRE(zc.mode() == ZoomController::Mode::Animating);
+
+    runToIdle(zc);
+    REQUIRE(zc.currentZoom() == Approx(2.0f).margin(0.01f));
+}
+
+TEST_CASE("trayToggle from zoomed state animates to 1.0x (AC-2.9.15)", "[ZoomController][Phase5C]")
+{
+    ZoomController zc;
+
+    // Zoom to ~4.0x
+    for (int i = 0; i < 15; ++i)
+        zc.applyScrollDelta(120);
+    REQUIRE(zc.currentZoom() > 3.0f);
+
+    zc.trayToggle();
+    REQUIRE(zc.targetZoom() == Approx(1.0f));
+    REQUIRE(zc.mode() == ZoomController::Mode::Animating);
+
+    runToIdle(zc);
+    REQUIRE(zc.currentZoom() == Approx(1.0f));
+}
+
+TEST_CASE("trayToggle round-trip preserves zoom level (AC-2.9.15)", "[ZoomController][Phase5C]")
+{
+    ZoomController zc;
+
+    // Zoom to ~3.0x
+    for (int i = 0; i < 12; ++i)
+        zc.applyScrollDelta(120);
+    float zoomedLevel = zc.currentZoom();
+    REQUIRE(zoomedLevel > 2.0f);
+
+    // Toggle off (to 1.0x)
+    zc.trayToggle();
+    runToIdle(zc);
+    REQUIRE(zc.currentZoom() == Approx(1.0f));
+
+    // Toggle back on — should restore the saved level
+    zc.trayToggle();
+    REQUIRE(zc.targetZoom() == Approx(zoomedLevel).margin(0.01f));
+
+    runToIdle(zc);
+    REQUIRE(zc.currentZoom() == Approx(zoomedLevel).margin(0.01f));
+}
+
+TEST_CASE("trayToggle does not interfere with hold-to-peek toggle state", "[ZoomController][Phase5C]")
+{
+    ZoomController zc;
+
+    // Zoom to ~3.0x
+    for (int i = 0; i < 12; ++i)
+        zc.applyScrollDelta(120);
+    float zoomedLevel = zc.currentZoom();
+
+    // trayToggle to 1.0x
+    zc.trayToggle();
+    runToIdle(zc);
+    REQUIRE(zc.currentZoom() == Approx(1.0f));
+
+    // isToggled should be false — trayToggle is permanent, not hold-to-peek
+    REQUIRE_FALSE(zc.isToggled());
+
+    // Hold-to-peek should still work independently
+    zc.trayToggle(); // back to zoomed
+    runToIdle(zc);
+    REQUIRE(zc.currentZoom() == Approx(zoomedLevel).margin(0.01f));
+
+    zc.engageToggle();
+    REQUIRE(zc.isToggled());
+    REQUIRE(zc.targetZoom() == Approx(1.0f));
 }

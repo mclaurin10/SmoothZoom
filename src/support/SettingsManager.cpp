@@ -26,10 +26,16 @@ using json = nlohmann::json;
 std::string SettingsManager::getDefaultConfigPath()
 {
 #ifdef _WIN32
-    const char* appdata = std::getenv("APPDATA");
-    if (!appdata || appdata[0] == '\0')
+    char* appdata = nullptr;
+    size_t len = 0;
+    if (_dupenv_s(&appdata, &len, "APPDATA") != 0 || !appdata || appdata[0] == '\0')
+    {
+        free(appdata);
         return {};
-    return std::string(appdata) + "\\SmoothZoom\\config.json";
+    }
+    std::string result = std::string(appdata) + "\\SmoothZoom\\config.json";
+    free(appdata);
+    return result;
 #else
     // Non-Windows fallback (for testing on WSL/Linux)
     const char* home = std::getenv("HOME");
@@ -106,6 +112,7 @@ bool SettingsManager::loadFromFile(const char* path)
     readBool("followKeyboardFocus", settings.followKeyboardFocus);
     readBool("followTextCursor", settings.followTextCursor);
     readBool("colorInversionEnabled", settings.colorInversionEnabled);
+    readBool("reverseScrollDirection", settings.reverseScrollDirection);
 
     // Freeze as const and atomic swap + version bump
     auto snap = std::make_shared<const SettingsSnapshot>(settings);
@@ -138,6 +145,7 @@ bool SettingsManager::saveToFile(const char* path) const
     j["followKeyboardFocus"]   = snap->followKeyboardFocus;
     j["followTextCursor"]      = snap->followTextCursor;
     j["colorInversionEnabled"] = snap->colorInversionEnabled;
+    j["reverseScrollDirection"] = snap->reverseScrollDirection;
     j["toggleKey1VK"]          = snap->toggleKey1VK;
     j["toggleKey2VK"]          = snap->toggleKey2VK;
 

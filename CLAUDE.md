@@ -67,6 +67,8 @@ Violating these causes silent failure or a broken build. Non-negotiable.
 
 2. **Diagnostic strategy for Mag API issues:** Add a temporary `MagGetFullscreenTransform` read-back in `MagBridge::setTransform()` to verify the API stored the requested values. Log both set and get values via `OutputDebugStringW` (viewable in DebugView or VS Output). Remove after verification.
 
+3. **Image Smoothing is always on (API limitation).** `MagSetFullscreenTransform` provides no filtering parameter. `MagSetImageScalingCallback` is deprecated and windowed-mode only. The Magnification API always uses bilinear filtering. AC-2.3.07 is inherently satisfied (smoothing is always on). AC-2.3.08 (nearest-neighbor) and AC-2.3.09 (toggle) are deferred to the Desktop Duplication API migration (R-01, out of scope). The `imageSmoothingEnabled` field is retained in SettingsSnapshot for forward-compatibility.
+
 ## Phased Delivery — Follow Strictly
 
 Do not implement later-phase features prematurely. Each phase produces a runnable, testable build. Check Doc 4 for full exit criteria and AC coverage per phase.
@@ -78,8 +80,8 @@ Do not implement later-phase features prematurely. Each phase produces a runnabl
 | 2 | Keyboard Shortcuts & Animation | Win+Plus/Minus/Esc with ease-out, target retargeting, scroll-interrupts-animation | Done |
 | 3 | Accessibility Tracking | UIA thread, focus following, caret following, source priority arbitration | Done |
 | 4 | Temporary Toggle | Ctrl+Alt hold-to-peek, bidirectional, state preservation | Done |
-| 5 | Settings, Tray, Persistence | config.json, settings window, tray icon, configurable modifier/shortcuts | Current (5A/5B done) |
-| 6 | Polish & Hardening | Color inversion, multi-monitor, crash recovery, conflict detection, perf audit | Planned |
+| 5 | Settings, Tray, Persistence | config.json, settings window, tray icon, configurable modifier/shortcuts | Done |
+| 6 | Polish & Hardening | Color inversion, multi-monitor, crash recovery, conflict detection, perf audit | Current (code complete, testing in progress) |
 
 ## Component Boundaries
 

@@ -23,6 +23,7 @@ class SettingsManager;
 
 class TrayUI
 {
+    friend LRESULT CALLBACK settingsWndProc(HWND, UINT, WPARAM, LPARAM);
 public:
     bool create(HINSTANCE hInstance, HWND msgWindow, SharedState& state,
                 SettingsManager& settings, const char* configPath);

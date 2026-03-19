@@ -1,0 +1,28 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(cmake ..:*)",
+      "Bash(cmd.exe:*)",
+      "Bash(cmd:*)",
+      "Bash(\"$CMAKE\" ..:*)",
+      "Bash(\"$CMAKE\":*)",
+      "Bash(\"/c/Program Files/Microsoft Visual Studio/18/Community/Common7/IDE/CommonExtensions/Microsoft/CMake/CMake/bin/cmake.exe\":*)",
+      "Bash(rm:*)",
+      "Bash(\"/c/Program Files/Microsoft Visual Studio/18/Community/Common7/IDE/CommonExtensions/Microsoft/CMake/CMake/bin/ctest.exe\":*)",
+      "Bash(\"./Debug/smoothzoom_tests.exe\":*)",
+      "Bash(\"./Debug/smoothzoom_tests.exe\" [Phase5C]:*)",
+      "Bash(powershell.exe:*)",
+      "Bash(find:*)",
+      "Bash(cmake:*)",
+      "Bash(\"$CMAKE_EXE\":*)",
+      "Bash(\"./build/Debug/smoothzoom_tests.exe\":*)",
+      "Bash(powershell:*)",
+      "Bash(\"/c/Program Files/CMake/bin/cmake.exe\":*)",
+      "Bash(ls:*)",
+      "Bash(\"/c/Program Files/Microsoft Visual Studio/2022/Community/MSBuild/Current/Bin/MSBuild.exe\":*)",
+      "Bash(\"/c/Program Files \\(x86\\)/Microsoft Visual Studio/Installer/vswhere.exe\":*)",
+      "Bash(\"/c/Program Files/Microsoft Visual Studio/18/Community/MSBuild/Current/Bin/MSBuild.exe\":*)",
+      "Bash(build/Debug/smoothzoom_tests.exe:*)"
+    ]
+  }
+}

@@ -26,6 +26,21 @@ endif()
 # ---------------------------------------------------------------------------
 option(SMOOTHZOOM_BUILD_TESTS  "Build unit tests"          ON)
 option(SMOOTHZOOM_SIGN_BINARY  "Sign output with dev cert"  OFF)
+option(SMOOTHZOOM_LOGGING      "Enable diagnostic logging via OutputDebugStringW" OFF)
+
+# Auto-enable logging for Debug builds
+# For multi-config generators (Visual Studio), CMAKE_BUILD_TYPE is empty at
+# configure time, so use a generator expression to add the define for Debug.
+if(CMAKE_BUILD_TYPE STREQUAL "Debug")
+    set(SMOOTHZOOM_LOGGING ON CACHE BOOL "" FORCE)
+endif()
+
+# Propagate logging define to all targets
+if(SMOOTHZOOM_LOGGING)
+    add_compile_definitions(SMOOTHZOOM_LOGGING)
+endif()
+# Always add logging for Debug config in multi-config generators (VS)
+add_compile_definitions($<$<CONFIG:Debug>:SMOOTHZOOM_LOGGING>)
 
 # ---------------------------------------------------------------------------
 # Third-party
@@ -127,6 +142,7 @@ endif()
 # ---------------------------------------------------------------------------
 add_executable(SmoothZoom WIN32
     src/app/main.cpp
+    res/SmoothZoom.rc
 )
 target_link_libraries(SmoothZoom PRIVATE
     smoothzoom_input
@@ -144,6 +160,7 @@ if(WIN32)
         OleAut32.lib
         UIAutomationCore.lib
         Wtsapi32.lib
+        Hid.lib
     )
 endif()
 

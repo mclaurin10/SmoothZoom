@@ -29,6 +29,7 @@ struct SettingsSnapshot
     bool    followKeyboardFocus = true;
     bool    followTextCursor    = true;
     bool    colorInversionEnabled = false;
+    bool    reverseScrollDirection = false;
 
     // Phase 4 toggle combo (hardcoded until Phase 5B wires to InputInterceptor)
     int     toggleKey1VK        = 0xA2;  // VK_LCONTROL

@@ -14,6 +14,7 @@
 #include "smoothzoom/logic/ZoomController.h"
 #include "smoothzoom/logic/ViewportTracker.h"
 #include "smoothzoom/output/MagBridge.h"
+#include "smoothzoom/support/Logger.h"
 
 #ifndef UNICODE
 #define UNICODE
@@ -66,14 +67,20 @@ static int32_t s_committedPtrY = 0;
 static bool s_deadzoneInitialized = false;
 
 // Phase 3: Source tracking state — all pre-allocated, no heap on hot path.
-static int64_t s_lastPointerMoveTimeMs = 0;  // Updated when committed pointer changes
+static int64_t s_lastPointerMoveTimeMs = 0;  // Updated on ANY pointer movement (WS2A fix)
 static TrackingSource s_activeSource = TrackingSource::Pointer;
+
+// Raw pointer position — tracks any movement for timestamp updates (WS2A).
+// Separate from committed position (deadzone-filtered) used for viewport offset.
+static int32_t s_lastRawPtrX = 0;
+static int32_t s_lastRawPtrY = 0;
 
 // Phase 5B: Settings integration — render thread checks version once per frame.
 // Common case cost: one atomic uint64 load + comparison. No heap, no mutex.
 static uint64_t s_cachedSettingsVersion = 0;
 static bool s_followKeyboardFocus = true;   // Match SettingsSnapshot defaults
 static bool s_followTextCursor = true;
+static bool s_reverseScrollDirection = false;
 
 // Phase 6: Color inversion state — toggled by ToggleInvert command, synced from settings.
 // Render thread only (no contention). (AC-2.10.01–AC-2.10.05)
@@ -81,6 +88,17 @@ static bool s_colorInversionActive = false;
 
 // MagBridge error tracking — log on state transitions only (not every frame)
 static bool s_magBridgeLastOk = true;
+
+#ifdef SMOOTHZOOM_PERF_AUDIT
+// Performance instrumentation (E6.12): QPC timing around frameTick().
+// Logs min/max/avg frame cost every ~600 frames (~10s at 60Hz).
+// No per-frame I/O — only OutputDebugStringW on the reporting interval.
+static int64_t s_perfFrameCount = 0;
+static int64_t s_perfTotalTicks = 0;
+static int64_t s_perfMinTicks = INT64_MAX;
+static int64_t s_perfMaxTicks = 0;
+static constexpr int64_t kPerfReportInterval = 600;
+#endif
 
 // Source transition smoothing (200ms ease-out between sources)
 static constexpr float kSourceTransitionDurationMs = 200.0f;
@@ -201,6 +219,11 @@ static void renderThreadMain(RenderLoop* self)
 // =============================================================================
 void RenderLoop::frameTick()
 {
+#ifdef SMOOTHZOOM_PERF_AUDIT
+    LARGE_INTEGER perfStart;
+    QueryPerformanceCounter(&perfStart);
+#endif
+
     // 0. Check for settings changes (Phase 5B: AC-2.9.04–AC-2.9.09)
     //    One atomic uint64 load per frame (common case). shared_ptr load only on change.
     uint64_t ver = s_state->settingsVersion.load(std::memory_order_acquire);
@@ -215,6 +238,7 @@ void RenderLoop::frameTick()
                 snap->animationSpeed);
             s_followKeyboardFocus = snap->followKeyboardFocus;
             s_followTextCursor = snap->followTextCursor;
+            s_reverseScrollDirection = snap->reverseScrollDirection;
 
             // Phase 6: Sync color inversion from settings (AC-2.10.03, AC-2.10.04)
             if (snap->colorInversionEnabled != s_colorInversionActive)
@@ -224,6 +248,7 @@ void RenderLoop::frameTick()
             }
         }
         s_cachedSettingsVersion = ver;
+        SZ_LOG_DEBUG("RenderLoop", L"Settings applied (version %llu)", static_cast<unsigned long long>(ver));
     }
 
     // 0b. Update screen dimensions from shared state (WM_DISPLAYCHANGE → main thread → atomics)
@@ -271,6 +296,8 @@ void RenderLoop::frameTick()
     // 3. Apply scroll delta to zoom (if any)
     if (scrollDelta != 0)
     {
+        if (s_reverseScrollDirection)
+            scrollDelta = -scrollDelta;
         s_zoomController.applyScrollDelta(scrollDelta);
     }
 
@@ -316,9 +343,23 @@ void RenderLoop::frameTick()
     {
         s_committedPtrX = rawPtrX;
         s_committedPtrY = rawPtrY;
+        s_lastRawPtrX = rawPtrX;
+        s_lastRawPtrY = rawPtrY;
         s_deadzoneInitialized = true;
     }
 
+    // WS2A: Update timestamp on ANY raw pointer movement (even sub-deadzone).
+    // This ensures determineActiveSource() correctly favors Pointer when the
+    // user is moving the mouse, even if the movement is within the deadzone.
+    bool rawMoved = (rawPtrX != s_lastRawPtrX || rawPtrY != s_lastRawPtrY);
+    if (rawMoved)
+    {
+        s_lastPointerMoveTimeMs = currentTimeMs();
+        s_lastRawPtrX = rawPtrX;
+        s_lastRawPtrY = rawPtrY;
+    }
+
+    // Deadzone gates the committed position used for viewport offset calculation.
     int32_t dx = rawPtrX - s_committedPtrX;
     int32_t dy = rawPtrY - s_committedPtrY;
     bool pointerMoved = (dx * dx + dy * dy > deadzoneThreshold * deadzoneThreshold);
@@ -326,7 +367,6 @@ void RenderLoop::frameTick()
     {
         s_committedPtrX = rawPtrX;
         s_committedPtrY = rawPtrY;
-        s_lastPointerMoveTimeMs = currentTimeMs();
     }
 
     // 5b. Read timestamps and rects for source priority arbitration
@@ -385,6 +425,19 @@ void RenderLoop::frameTick()
         s_transitionElapsedMs = 0.0f;
         s_sourceTransitionActive = true;
         s_activeSource = newSource;
+        SZ_LOG_DEBUG("RenderLoop", L"Source transition: -> %d", static_cast<int>(newSource));
+    }
+
+    // WS2B: Cancel active transition if pointer moves beyond deadzone.
+    // Prevents viewport drifting toward stale focus/caret target when user moves mouse.
+    if (s_sourceTransitionActive && s_activeSource != TrackingSource::Pointer && pointerMoved)
+    {
+        s_sourceTransitionActive = false;
+        s_activeSource = TrackingSource::Pointer;
+        targetOffset = ViewportTracker::computePointerOffset(
+            s_committedPtrX, s_committedPtrY, zoom, s_screenW, s_screenH,
+            s_screenOriginX, s_screenOriginY);
+        SZ_LOG_DEBUG("RenderLoop", L"Source transition cancelled by pointer movement");
     }
 
     ViewportTracker::Offset offset = targetOffset;
@@ -415,9 +468,9 @@ void RenderLoop::frameTick()
 
         // Log on transition: first failure and recovery (not every frame)
         if (!ok && s_magBridgeLastOk)
-            OutputDebugStringW(L"SmoothZoom: MagBridge setTransform failed\n");
+            SZ_LOG_ERROR("RenderLoop", L"MagBridge setTransform failed (zoom=%.2f, off=%.0f,%.0f)", zoom, offset.x, offset.y);
         else if (ok && !s_magBridgeLastOk)
-            OutputDebugStringW(L"SmoothZoom: MagBridge setTransform recovered\n");
+            SZ_LOG_INFO("RenderLoop", L"MagBridge setTransform recovered");
         s_magBridgeLastOk = ok;
 
         s_lastZoom = zoom;
@@ -427,6 +480,35 @@ void RenderLoop::frameTick()
         // Phase 5C: publish for main thread (graceful exit, tray tooltip)
         s_state->currentZoomLevel.store(zoom, std::memory_order_relaxed);
     }
+
+#ifdef SMOOTHZOOM_PERF_AUDIT
+    LARGE_INTEGER perfEnd;
+    QueryPerformanceCounter(&perfEnd);
+    int64_t elapsed = perfEnd.QuadPart - perfStart.QuadPart;
+    s_perfTotalTicks += elapsed;
+    if (elapsed < s_perfMinTicks) s_perfMinTicks = elapsed;
+    if (elapsed > s_perfMaxTicks) s_perfMaxTicks = elapsed;
+    ++s_perfFrameCount;
+
+    if (s_perfFrameCount >= kPerfReportInterval && s_qpcFrequency > 0)
+    {
+        double toUs = 1000000.0 / static_cast<double>(s_qpcFrequency);
+        double avgUs = (static_cast<double>(s_perfTotalTicks) / s_perfFrameCount) * toUs;
+        double minUs = static_cast<double>(s_perfMinTicks) * toUs;
+        double maxUs = static_cast<double>(s_perfMaxTicks) * toUs;
+
+        wchar_t buf[256];
+        _snwprintf_s(buf, _countof(buf), _TRUNCATE,
+            L"SmoothZoom PERF: %lld frames, avg=%.1fus, min=%.1fus, max=%.1fus\n",
+            s_perfFrameCount, avgUs, minUs, maxUs);
+        OutputDebugStringW(buf);
+
+        s_perfFrameCount = 0;
+        s_perfTotalTicks = 0;
+        s_perfMinTicks = INT64_MAX;
+        s_perfMaxTicks = 0;
+    }
+#endif
 }
 
 } // namespace SmoothZoom

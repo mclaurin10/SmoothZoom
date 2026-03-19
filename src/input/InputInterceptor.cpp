@@ -18,6 +18,7 @@
 #include "smoothzoom/common/SharedState.h"
 #include "smoothzoom/common/Types.h"
 #include "smoothzoom/support/SettingsManager.h"
+#include "smoothzoom/support/Logger.h"
 
 #ifndef UNICODE
 #define UNICODE
@@ -44,15 +45,40 @@ static int s_toggleKey1VK  = VK_LCONTROL;
 static int s_toggleKey2VK  = VK_LMENU;
 static HWND s_msgWindow    = nullptr;
 
+// Tracks non-Win modifier key state via keyboard hook for reliable detection
+// in mouse hook. Both hooks run on the main thread — no synchronization needed.
+static bool s_nonWinModifierHeld = false;
+
 // Phase 5B: Settings observer callback — runs on main thread (same as hooks).
 static void onSettingsChanged(const SettingsSnapshot& s, void* /*userData*/)
 {
     s_modifierKeyVK = s.modifierKeyVK;
     s_toggleKey1VK  = s.toggleKey1VK;
     s_toggleKey2VK  = s.toggleKey2VK;
+    s_nonWinModifierHeld = false;  // Reset on config change to avoid stale state
 }
 
 // WM_OPEN_SETTINGS defined in common/AppMessages.h
+
+// Helper: check if the configured modifier key is currently held.
+// Mirrors the scroll-gesture modifier check (AC-2.1.19, AC-2.1.20).
+// Win modifier → WinKeyManager state machine; others → hook state OR GetAsyncKeyState.
+// GetAsyncKeyState fallback is needed because some touchpad drivers send scroll events
+// without corresponding keyboard hook events for modifier keys (e.g., Shift+touchpad
+// scroll may bypass the LL keyboard hook when certain apps are focused).
+static bool isConfiguredModifierHeld()
+{
+    if (s_modifierKeyVK == VK_LWIN || s_modifierKeyVK == VK_RWIN)
+        return s_winKeyMgr.state() != WinKeyManager::State::Idle;
+    return s_nonWinModifierHeld
+        || (GetAsyncKeyState(toGenericVK(s_modifierKeyVK)) & 0x8000) != 0;
+}
+
+// Helper: check if the configured modifier is the Win key.
+static bool isWinModifier()
+{
+    return s_modifierKeyVK == VK_LWIN || s_modifierKeyVK == VK_RWIN;
+}
 
 // ─── Mouse Hook Callback ────────────────────────────────────────────────────
 // Minimal: read event, check modifier via WinKeyManager, update atomics, return.
@@ -67,17 +93,28 @@ static LRESULT CALLBACK mouseHookProc(int nCode, WPARAM wParam, LPARAM lParam)
     {
     case WM_MOUSEWHEEL:
     {
+#ifdef SMOOTHZOOM_LOGGING
+        {
+            wchar_t dbg[256];
+            swprintf_s(dbg, L"[SZ-DIAG] WM_MOUSEWHEEL: nonWinMod=%d, modVK=0x%X, asyncMod=%d, fg=0x%p\n",
+                s_nonWinModifierHeld ? 1 : 0,
+                s_modifierKeyVK,
+                (GetAsyncKeyState(toGenericVK(s_modifierKeyVK)) & 0x8000) ? 1 : 0,
+                GetForegroundWindow());
+            OutputDebugStringW(dbg);
+        }
+#endif
         // Phase 5B: Configurable modifier key (AC-2.1.19, AC-2.1.20)
-        bool modifierHeld = false;
-        if (s_modifierKeyVK == VK_LWIN || s_modifierKeyVK == VK_RWIN)
-            modifierHeld = s_winKeyMgr.state() != WinKeyManager::State::Idle;
-        else
-            modifierHeld = (GetAsyncKeyState(toGenericVK(s_modifierKeyVK)) & 0x8000) != 0;
+        bool modifierHeld = isConfiguredModifierHeld();
 
         if (modifierHeld)
         {
             // Extract scroll delta from high word of mouseData
             int16_t delta = static_cast<int16_t>(HIWORD(info->mouseData));
+
+            // Record LL hook scroll timestamp for Raw Input dedup
+            s_state->lastLLHookScrollTime.store(
+                static_cast<int64_t>(GetTickCount64()), std::memory_order_relaxed);
 
             // Atomically accumulate delta (render thread will exchange-with-0)
             s_state->scrollAccumulator.fetch_add(delta, std::memory_order_release);
@@ -89,6 +126,43 @@ static LRESULT CALLBACK mouseHookProc(int nCode, WPARAM wParam, LPARAM lParam)
             s_state->modifierHeld.store(true, std::memory_order_relaxed);
 
             // Consume the event — do not pass to next hook or applications (AC-2.1.02)
+            return 1;
+        }
+        break;
+    }
+
+    case WM_MOUSEHWHEEL:
+    {
+        // Some mouse drivers convert Shift+Scroll to horizontal scroll at the
+        // driver level, before low-level hooks see the event. Handle it
+        // identically to vertical scroll when the modifier is held.
+#ifdef SMOOTHZOOM_LOGGING
+        {
+            wchar_t dbg[256];
+            swprintf_s(dbg, L"[SZ-DIAG] WM_MOUSEHWHEEL: nonWinMod=%d, modVK=0x%X, asyncMod=%d, fg=0x%p\n",
+                s_nonWinModifierHeld ? 1 : 0,
+                s_modifierKeyVK,
+                (GetAsyncKeyState(toGenericVK(s_modifierKeyVK)) & 0x8000) ? 1 : 0,
+                GetForegroundWindow());
+            OutputDebugStringW(dbg);
+        }
+#endif
+        bool modifierHeld = isConfiguredModifierHeld();
+
+        if (modifierHeld)
+        {
+            int16_t delta = static_cast<int16_t>(HIWORD(info->mouseData));
+
+            // Record LL hook scroll timestamp for Raw Input dedup
+            s_state->lastLLHookScrollTime.store(
+                static_cast<int64_t>(GetTickCount64()), std::memory_order_relaxed);
+
+            s_state->scrollAccumulator.fetch_add(delta, std::memory_order_release);
+
+            if (s_modifierKeyVK == VK_LWIN || s_modifierKeyVK == VK_RWIN)
+                s_winKeyMgr.markUsedForZoom();
+
+            s_state->modifierHeld.store(true, std::memory_order_relaxed);
             return 1;
         }
         break;
@@ -144,6 +218,22 @@ static LRESULT CALLBACK keyboardHookProc(int nCode, WPARAM wParam, LPARAM lParam
         }
     }
 
+    // Track non-Win modifier state for scroll gesture detection (Issue 1 fix)
+    if (!isWinModifier() && isModifierMatch(static_cast<int>(info->vkCode), s_modifierKeyVK))
+    {
+#ifdef SMOOTHZOOM_LOGGING
+        {
+            wchar_t dbg[128];
+            swprintf_s(dbg, L"[SZ-DIAG] ModifierKey vk=0x%X isDown=%d\n",
+                info->vkCode, isDown ? 1 : 0);
+            OutputDebugStringW(dbg);
+        }
+#endif
+        s_nonWinModifierHeld = isDown;
+        if (isUp && s_state)
+            s_state->modifierHeld.store(false, std::memory_order_relaxed);
+    }
+
     // Phase 4/5B: Configurable toggle key tracking (AC-2.7.01–AC-2.7.10)
     bool isToggle1 = isModifierMatch(info->vkCode, s_toggleKey1VK);
     bool isToggle2 = isModifierMatch(info->vkCode, s_toggleKey2VK);
@@ -166,41 +256,49 @@ static LRESULT CALLBACK keyboardHookProc(int nCode, WPARAM wParam, LPARAM lParam
     if (isDown)
     {
         // Record keyboard activity timestamp (for caret tracking priority — Phase 3)
-        s_state->lastKeyboardInputTime.store(
-            static_cast<int64_t>(info->time), std::memory_order_relaxed);
+        // Filter out modifier keys — holding Ctrl/Alt/Shift/Win alone should not
+        // activate caret tracking (WS2C fix).
+        if (!isModifierVK(static_cast<int>(info->vkCode)))
+        {
+            s_state->lastKeyboardInputTime.store(
+                static_cast<int64_t>(info->time), std::memory_order_relaxed);
+        }
 
-        // Win+key shortcuts (Phase 2: AC-2.8.01 through AC-2.8.10)
-        bool winHeld = s_winKeyMgr.state() != WinKeyManager::State::Idle;
-        if (winHeld)
+        // Modifier+key shortcuts (Phase 2: AC-2.8.01–AC-2.8.10, Phase 5B: AC-2.1.19)
+        // Uses configurable modifier — not hardcoded to Win key.
+        bool modHeld = isConfiguredModifierHeld();
+        if (modHeld)
         {
             switch (info->vkCode)
             {
             case VK_OEM_PLUS:   // '=' / '+' on main keyboard
             case VK_ADD:        // '+' on numpad
                 s_state->commandQueue.push(ZoomCommand::ZoomIn);
-                s_winKeyMgr.markUsedForZoom();
+                if (isWinModifier()) s_winKeyMgr.markUsedForZoom();
                 break;
 
             case VK_OEM_MINUS:  // '-' on main keyboard
             case VK_SUBTRACT:   // '-' on numpad
                 s_state->commandQueue.push(ZoomCommand::ZoomOut);
-                s_winKeyMgr.markUsedForZoom();
+                if (isWinModifier()) s_winKeyMgr.markUsedForZoom();
                 break;
 
             case VK_ESCAPE:
                 s_state->commandQueue.push(ZoomCommand::ResetZoom);
-                s_winKeyMgr.markUsedForZoom();
-                break;
-
-            // Phase 5B: Win+Ctrl+M → open settings (AC-2.8.11)
-            case 'M':
-                if ((GetAsyncKeyState(VK_CONTROL) & 0x8000) && s_msgWindow)
-                {
-                    PostMessageW(s_msgWindow, WM_OPEN_SETTINGS, 0, 0);
-                    s_winKeyMgr.markUsedForZoom();
-                }
+                if (isWinModifier()) s_winKeyMgr.markUsedForZoom();
                 break;
             }
+        }
+
+        // Win+Ctrl+M → open settings (AC-2.8.11)
+        // Always Win-based regardless of configured modifier.
+        if (info->vkCode == 'M'
+            && s_winKeyMgr.state() != WinKeyManager::State::Idle
+            && (GetAsyncKeyState(VK_CONTROL) & 0x8000)
+            && s_msgWindow)
+        {
+            PostMessageW(s_msgWindow, WM_OPEN_SETTINGS, 0, 0);
+            s_winKeyMgr.markUsedForZoom();
         }
 
         // Ctrl+Alt+I → toggle color inversion (Phase 6: AC-2.10.01)

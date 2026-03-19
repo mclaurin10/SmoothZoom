@@ -52,6 +52,7 @@ static constexpr int IDC_FOLLOW_CARET_CHECK = 1012;
 static constexpr int IDC_INVERT_CHECK     = 1013;
 static constexpr int IDC_AUTOSTART_CHECK  = 1014;
 static constexpr int IDC_START_ZOOMED_CHECK = 1015;
+static constexpr int IDC_REVERSE_SCROLL_CHECK = 1018;
 static constexpr int IDC_APPLY_BUTTON     = 1016;
 static constexpr int IDC_CLOSE_BUTTON     = 1017;
 
@@ -169,7 +170,7 @@ static int getEditInt(HWND hEdit, int fallback)
 
 // ── Settings Window WndProc ─────────────────────────────────────────────────
 
-static LRESULT CALLBACK settingsWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
+LRESULT CALLBACK settingsWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
 {
     switch (msg)
     {
@@ -374,7 +375,7 @@ void TrayUI::createSettingsWindow()
     auto scale = [dpi](int v) { return MulDiv(v, dpi, 96); };
 
     int wndW = scale(480);
-    int wndH = scale(580);
+    int wndH = scale(604);
 
     // Center on screen
     int screenW = GetSystemMetrics(SM_CXSCREEN);
@@ -504,7 +505,7 @@ void TrayUI::createSettingsWindow()
     curY += gap;
 
     // Checkboxes
-    createCheck(L"Image Smoothing (Coming soon)", IDC_SMOOTHING_CHECK, curY, false);
+    createCheck(L"Image Smoothing (always on)", IDC_SMOOTHING_CHECK, curY, false);
     curY += checkGap;
 
     createCheck(L"Follow Keyboard Focus", IDC_FOLLOW_FOCUS_CHECK, curY);
@@ -514,6 +515,9 @@ void TrayUI::createSettingsWindow()
     curY += checkGap;
 
     createCheck(L"Color Inversion", IDC_INVERT_CHECK, curY);
+    curY += checkGap;
+
+    createCheck(L"Reverse Scroll Direction", IDC_REVERSE_SCROLL_CHECK, curY);
     curY += checkGap;
 
     createCheck(L"Start with Windows", IDC_AUTOSTART_CHECK, curY);
@@ -591,6 +595,8 @@ void TrayUI::populateFromSnapshot()
                          snap->followTextCursor ? BST_CHECKED : BST_UNCHECKED, 0);
     SendDlgItemMessageW(settingsHwnd_, IDC_INVERT_CHECK, BM_SETCHECK,
                          snap->colorInversionEnabled ? BST_CHECKED : BST_UNCHECKED, 0);
+    SendDlgItemMessageW(settingsHwnd_, IDC_REVERSE_SCROLL_CHECK, BM_SETCHECK,
+                         snap->reverseScrollDirection ? BST_CHECKED : BST_UNCHECKED, 0);
     SendDlgItemMessageW(settingsHwnd_, IDC_AUTOSTART_CHECK, BM_SETCHECK,
                          isAutoStartEnabled() ? BST_CHECKED : BST_UNCHECKED, 0);
     SendDlgItemMessageW(settingsHwnd_, IDC_START_ZOOMED_CHECK, BM_SETCHECK,
@@ -692,9 +698,9 @@ void TrayUI::validateAndApply()
     setEditInt(GetDlgItem(settingsHwnd_, IDC_KB_STEP_EDIT), stepPct);
 
     // Clamp numeric ranges
-    minZoom = std::max(1.0f, std::min(5.0f, minZoom));
-    maxZoom = std::max(2.0f, std::min(10.0f, maxZoom));
-    defaultZoom = std::max(minZoom, std::min(maxZoom, defaultZoom));
+    minZoom = (std::max)(1.0f, (std::min)(5.0f, minZoom));
+    maxZoom = (std::max)(2.0f, (std::min)(10.0f, maxZoom));
+    defaultZoom = (std::max)(minZoom, (std::min)(maxZoom, defaultZoom));
 
     // Build snapshot
     SettingsSnapshot snap;
@@ -718,6 +724,8 @@ void TrayUI::validateAndApply()
         (SendDlgItemMessageW(settingsHwnd_, IDC_START_ZOOMED_CHECK, BM_GETCHECK, 0, 0) == BST_CHECKED);
     snap.startWithWindows =
         (SendDlgItemMessageW(settingsHwnd_, IDC_AUTOSTART_CHECK, BM_GETCHECK, 0, 0) == BST_CHECKED);
+    snap.reverseScrollDirection =
+        (SendDlgItemMessageW(settingsHwnd_, IDC_REVERSE_SCROLL_CHECK, BM_GETCHECK, 0, 0) == BST_CHECKED);
 
     // Apply snapshot — observers fire synchronously
     settings_->applySnapshot(snap);

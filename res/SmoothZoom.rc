@@ -1,0 +1,2 @@
+// SmoothZoom resource script — embeds app icon into the executable
+IDI_ICON1 ICON "SmoothZoom.ico"

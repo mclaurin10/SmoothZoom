@@ -27,6 +27,22 @@
 namespace SmoothZoom
 {
 
+// Returns true if vkCode is any modifier key (Ctrl, Alt, Shift, Win).
+// Used to filter modifier presses from keyboard activity timestamps.
+inline bool isModifierVK(int vkCode)
+{
+    switch (vkCode)
+    {
+    case VK_LCONTROL: case VK_RCONTROL: case VK_CONTROL:
+    case VK_LMENU:    case VK_RMENU:    case VK_MENU:
+    case VK_LSHIFT:   case VK_RSHIFT:   case VK_SHIFT:
+    case VK_LWIN:     case VK_RWIN:
+        return true;
+    default:
+        return false;
+    }
+}
+
 // Returns true if vkCode is an L/R variant of the same modifier family as configuredVK.
 // E.g., isModifierMatch(VK_RCONTROL, VK_LCONTROL) → true.
 inline bool isModifierMatch(int vkCode, int configuredVK)
