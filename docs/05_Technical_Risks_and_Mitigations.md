@@ -57,6 +57,8 @@ These risks concern the Windows Magnification API (`Magnification.dll`), which i
 
 **Contingency:** If the API is removed or broken in a future Windows release, replace MagBridge's internals with a Desktop Duplication API or `Windows.Graphics.Capture` implementation. This replacement would capture the desktop framebuffer each frame, apply scaling and color transforms via Direct3D/Direct2D shaders, and render the result to a full-screen topmost overlay window. The migration is architecturally bounded but represents a significant development effort (estimated: comparable to Phase 0 + Phase 1 combined) because it requires manual handling of input coordinate remapping, cursor rendering, and DWM compositing that the Magnification API currently provides for free.
 
+> **Implementation note:** MagBridge isolation maintained — only MagBridge.cpp includes Magnification.h. One documented exception: main.cpp crash handler calls MagUninitialize() directly for safety. Desktop Duplication API migration deferred to post-v1.
+
 ---
 
 ### R-02: Float-Precision Zoom Quantization
@@ -116,6 +118,8 @@ These risks concern the Windows Magnification API (`Magnification.dll`), which i
 
 **Contingency:** If desynchronization occurs despite same-frame updates: investigate whether the DWM applies the visual transform and the input transform at different points in the compositing pipeline. If so, experiment with applying the input transform one frame ahead of the visual transform (predictive correction).
 
+> **Implementation note:** MagSetInputTransform is intentionally NOT called per-frame. Proportional cursor mapping in ViewportTracker makes it redundant. Only MagSetInputTransform(FALSE) called at shutdown. See Doc 3 §3.8.
+
 ---
 
 ## 3. Category B — Input Interception Risks
@@ -146,6 +150,8 @@ These risks concern the global low-level hooks that intercept mouse and keyboard
 4. Avoid any blocking operation on the main thread's message pump: no synchronous COM calls, no modal dialogs from hook callbacks, no file I/O.
 
 **Contingency:** If hook deregistration becomes frequent in testing (multiple times per hour): investigate alternative input interception mechanisms. Raw Input (`RegisterRawInputDevices` with `RIDEV_INPUTSINK`) can receive mouse scroll events without a hook, though it cannot consume them (prevent forwarding). A hybrid approach — Raw Input for low-latency reading, with the hook only used for consumption of modifier+scroll events — may be more robust.
+
+> **Implementation note:** Implemented. 5-second watchdog timer in main.cpp WM_TIMER handler. Reinstalls hooks and shows tray notification on failure.
 
 ---
 
@@ -361,6 +367,8 @@ These risks concern the Windows UI Automation (UIA) framework used for focus fol
 4. Write a "dirty shutdown" sentinel file when the application starts. Remove it on clean shutdown. On next launch, if the sentinel file exists, force a `MagSetFullscreenTransform(1.0, 0, 0)` call before doing anything else, in case the previous instance left the screen magnified.
 
 **Residual risk:** If the process is killed by `TerminateProcess` (e.g., Task Manager's "End Process" on some Windows versions), no handler runs. The sentinel-file approach handles this on the next launch, but the user's screen remains magnified until then.
+
+> **Implementation note:** Implemented. SetUnhandledExceptionFilter resets zoom to 1.0x. Sentinel file used for crash detection on next launch.
 
 **Contingency:** As a last-resort user recovery mechanism: document that running `Magnify.exe` and then closing it resets the full-screen transform. Alternatively, provide a tiny standalone "SmoothZoom Reset" utility (unsigned, no UIAccess needed — it just calls `MagSetFullscreenTransform(1.0, 0, 0)` from a signed helper) that the user can run from any location.
 

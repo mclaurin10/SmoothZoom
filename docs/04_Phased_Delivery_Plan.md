@@ -9,6 +9,8 @@
 **Last Updated:** February 2026
 **Prerequisites:** Document 1 — Project Scope (v1.1), Document 2 — Behavior Specification (v1.0), Document 3 — Technical Architecture (v1.0)
 
+> **Project Status (2026-03-22):** Phase 6 in progress. Phases 0–5 complete. See per-phase notes below.
+
 ---
 
 ## 1. Phasing Principles
@@ -40,6 +42,8 @@ Phases do not have calendar durations. Each phase is complete when all of its ex
 ---
 
 ## 3. Phase 0 — Foundation and Risk Spike
+
+> **Status:** Complete. All exit criteria met.
 
 ### 3.0.1 Purpose
 
@@ -95,6 +99,8 @@ This harness intentionally omits: animation, proportional viewport tracking, Sta
 ---
 
 ## 4. Phase 1 — Core Scroll-Gesture Zoom
+
+> **Status:** Complete. All exit criteria met.
 
 ### 4.1.1 Purpose
 
@@ -159,6 +165,8 @@ Deliver the complete, polished scroll-gesture zoom experience — the feature th
 
 ## 5. Phase 2 — Keyboard Shortcuts and Animation
 
+> **Status:** Complete. All exit criteria met.
+
 ### 5.2.1 Purpose
 
 Add keyboard-driven zoom control with smooth animated transitions. This phase introduces the animation engine into the RenderLoop and the `ANIMATING` mode into ZoomController. It also adds the keyboard command pathway through InputInterceptor.
@@ -195,6 +203,8 @@ Add keyboard-driven zoom control with smooth animated transitions. This phase in
 ---
 
 ## 6. Phase 3 — Accessibility Tracking
+
+> **Status:** Complete. All exit criteria met.
 
 ### 6.3.1 Purpose
 
@@ -260,6 +270,8 @@ This phase requires the most extensive manual testing of any phase, because UIA 
 
 ## 7. Phase 4 — Temporary Toggle
 
+> **Status:** Complete. All exit criteria met.
+
 ### 7.4.1 Purpose
 
 Add the hold-to-peek interaction. This is a self-contained feature with well-defined state management. It is sequenced after accessibility tracking so that the toggle correctly interacts with all three tracking sources.
@@ -290,6 +302,8 @@ Add the hold-to-peek interaction. This is a self-contained feature with well-def
 ---
 
 ## 8. Phase 5 — Settings, Tray, and Persistence
+
+> **Status:** Complete. All exit criteria met.
 
 ### 8.5.1 Purpose
 
@@ -337,6 +351,8 @@ Make SmoothZoom a proper installed application with user-configurable settings, 
 ---
 
 ## 9. Phase 6 — Polish, Multi-Monitor, and Hardening
+
+> **Status:** In progress. Color inversion (AC-2.10.01, 2.10.03, 2.10.05), multi-monitor basics (AC-MM.01–03), error handling (AC-ERR.01–05), and crash recovery (R-14) are implemented. Performance optimization ongoing — CPU idle measured at ~5% (target <2%), CPU active ~8% (target <5%). Manual testing of Phase 3–5 ACs in progress. 7 items under active investigation.
 
 ### 9.6.1 Purpose
 

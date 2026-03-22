@@ -8,6 +8,8 @@
 **Status:** Draft
 **Last Updated:** February 2026
 
+> **Status (2026-03-22):** All in-scope features implemented. Phase 6 hardening in progress. Image smoothing toggle (AC-2.3.08, 2.3.09, 2.9.07) formally deferred to post-v1 — depends on Desktop Duplication API (R-01). No other scope changes.
+
 ---
 
 ## 1. Project Definition

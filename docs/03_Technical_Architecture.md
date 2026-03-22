@@ -54,7 +54,7 @@ SmoothZoom is structured as a single-process Win32 desktop application consistin
 
 ## 2. Threading Model
 
-SmoothZoom uses three threads. The threading model is deliberately simple — more threads would add synchronization complexity without meaningful performance benefit, because the bottleneck is the single call to `MagSetFullscreenTransform` per frame, which is fast.
+SmoothZoom uses four threads. The threading model is deliberately simple — more threads would add synchronization complexity without meaningful performance benefit, because the bottleneck is the single call to `MagSetFullscreenTransform` per frame, which is fast.
 
 ### 2.1 Main Thread
 
@@ -76,7 +76,6 @@ SmoothZoom uses three threads. The threading model is deliberately simple — mo
   1. Read shared state: current zoom target, viewport target, animation parameters.
   2. Compute interpolated values if an animation is in progress.
   3. Call `MagSetFullscreenTransform(zoomLevel, xOffset, yOffset)` and optionally `MagSetFullscreenColorEffect(matrix)`.
-- Also calls `MagSetInputTransform` when the zoom level or offset changes, to keep input coordinate mapping in sync with the display.
 
 **Timing mechanism:** The render thread uses `DwmFlush()` as its synchronization primitive. `DwmFlush` blocks until the next VSync, providing natural frame pacing tied to the display's actual refresh rate. This avoids both under-shooting (wasted CPU on polling) and over-shooting (rendering frames that will never be displayed). Fallback: if `DwmFlush` is unavailable or unreliable, a multimedia timer (`timeSetEvent` at 1ms resolution) with sleep-to-target-time logic provides an alternative.
 
@@ -85,13 +84,21 @@ SmoothZoom uses three threads. The threading model is deliberately simple — mo
 ### 2.3 UIA Thread
 
 **Responsibilities:**
-- Hosts the UI Automation event subscriptions for the FocusMonitor and CaretMonitor components.
-- UIA event handlers fire on this thread. They extract the relevant data (bounding rectangle, caret position) and post it to the shared state for the ViewportTracker to consume.
+- Hosts the UI Automation event subscriptions for the FocusMonitor component.
+- UIA event handlers fire on this thread. They extract the relevant data (bounding rectangle) and post it to the shared state for the ViewportTracker to consume.
 - Runs its own COM-initialized message pump (`CoInitializeEx` with `COINIT_MULTITHREADED` or `COINIT_APARTMENTTHREADED` as UIA requires).
 
 **Why separate:** UIA event callbacks can be slow or block briefly depending on the accessibility provider implementation of the target application. Isolating them from the main thread prevents a slow UIA callback from delaying hook processing or UI responsiveness. Isolating them from the render thread prevents a slow callback from dropping a frame.
 
-### 2.4 Thread Communication
+### 2.4 Caret Thread
+
+**Responsibilities:**
+- Runs the CaretMonitor's `GetGUIThreadInfo` (GTTI) polling loop at ~30Hz (`Sleep(33)` cadence).
+- Each poll reads the foreground thread's caret rectangle via GTTI, converts client→screen coordinates, and writes the result to shared `caretRect` state (SeqLock).
+
+**Why separate from the UIA thread:** `GetGUIThreadInfo` is a synchronous call that can block briefly on cross-process queries. Running it on the UIA thread would stall the event-driven FocusMonitor, delaying focus-change events. A dedicated thread keeps GTTI polling and UIA event dispatch independent.
+
+### 2.5 Thread Communication
 
 Threads communicate through shared state structures protected by lightweight synchronization:
 
@@ -103,7 +110,8 @@ Threads communicate through shared state structures protected by lightweight syn
 | Keyboard shortcut commands | Main (hook callback) | Render | Lock-free queue |
 | Toggle state | Main (hook callback) | Render | Atomic |
 | Focus target rectangle | UIA | Render | SeqLock |
-| Caret target rectangle | UIA | Render | SeqLock |
+| Caret target rectangle | Caret | Render | SeqLock |
+| Last LL hook scroll timestamp | Main (hook callback) | Main (Raw Input handler) | Atomic |
 | Last keyboard input timestamp | Main (hook callback) | Render | Atomic |
 | Last focus change timestamp | UIA | Render | Atomic |
 | Settings snapshot | Main (SettingsManager) | All | Copy-on-write (atomic pointer swap) |
@@ -148,6 +156,19 @@ The keyboard hook callback:
 4. For recognized shortcuts (zoom in/out, toggle, settings, color inversion): posts a command to the keyboard command queue.
 5. For all keyboard events: records timestamp to `lastKeyboardInputTime`.
 6. Returns `CallNextHookEx(...)` for all keyboard events (never consumes keyboard events, only observes them — except see WinKeyManager below for the suppression case).
+
+**Precision Touchpad (PTP) support via Raw Input:**
+
+Precision Touchpad devices deliver scroll gestures as HID reports through Raw Input (`WM_INPUT`) rather than synthesized `WM_MOUSEWHEEL` messages. InputInterceptor registers for Raw Input from HID touchpad devices and parses the reports to detect two-finger vertical scroll:
+
+1. On `WM_INPUT`, the HID preparsed data is queried via `HidP_GetCaps` and `HidP_GetValueCaps` to locate Contact Count (usage 0x54) and per-contact link collections.
+2. Each frame's report is walked contact-by-contact, extracting Contact ID, Tip Switch state, and Y position via `HidP_GetUsageValue` / `HidP_GetUsages`.
+3. When exactly two contacts are active, the average Y delta is computed and converted to `WHEEL_DELTA` units (120 per notch) using a tunable device-units-per-notch constant.
+4. The resulting delta is accumulated to the shared scroll accumulator atomically, following the same path as LL hook scroll events.
+
+**LL Hook vs. Raw Input scroll deduplication:**
+
+Some Precision Touchpad drivers deliver scroll events through both the low-level mouse hook (`WM_MOUSEWHEEL`) and Raw Input (`WM_INPUT`) simultaneously. To prevent double-counting, the LL hook callback records a timestamp (`lastLLHookScrollTime`) on every scroll event. The Raw Input and PTP HID handlers check this timestamp and discard their event if an LL hook scroll was processed within the last 50ms.
 
 **Hook health monitoring:** A watchdog timer on the main thread periodically verifies that the hooks are still installed by checking the hook handles. If a handle becomes invalid (the system unregistered the hook), it re-installs the hook and logs a warning (AC-ERR.03).
 
@@ -398,7 +419,7 @@ When a focus change is reported by FocusMonitor, CaretMonitor checks whether the
 
 **Technique 2 — GetGUIThreadInfo polling (fallback):**
 
-Many applications do not implement UIA TextPattern. As a fallback, CaretMonitor polls `GetGUIThreadInfo` at 30Hz on the UIA thread:
+Many applications do not implement UIA TextPattern. As a fallback, CaretMonitor polls `GetGUIThreadInfo` at 30Hz on its own dedicated Caret Thread (see §2.4):
 
 ```cpp
 GUITHREADINFO gti = { sizeof(gti) };
@@ -417,7 +438,7 @@ if (GetGUIThreadInfo(0, &gti)) {
 }
 ```
 
-**Polling rate:** 30Hz is sufficient because caret position changes are driven by human typing speed (typically 5–15 characters/second). Polling faster would waste CPU. The 30Hz poll is a simple `Sleep(33)` loop on the UIA thread, interleaved with the UIA message pump.
+**Polling rate:** 30Hz is sufficient because caret position changes are driven by human typing speed (typically 5–15 characters/second). Polling faster would waste CPU. The 30Hz poll is a simple `Sleep(33)` loop on the dedicated Caret Thread. Running GTTI on a separate thread from the UIA thread prevents synchronous cross-process queries from blocking FocusMonitor's event-driven UIA subscriptions.
 
 ### 3.7 RenderLoop
 
@@ -468,13 +489,14 @@ function frameTick():
             viewportOffset.y
         )
 
-    // 6. Update input transform (keeps click coordinates accurate)
-    if zoomChanged or offsetChanged:
-        magBridge.setInputTransform(
-            zoomController.currentZoom,
-            viewportOffset.x,
-            viewportOffset.y
-        )
+    // Note: MagSetInputTransform is NOT called per-frame. With proportional
+    // cursor mapping in ViewportTracker, the desktop point under the pointer
+    // always equals the pointer's screen position (see §3.4), making per-frame
+    // input transform mathematically redundant. Furthermore, enabling
+    // MagSetInputTransform(TRUE) causes a GetCursorPos feedback loop: the
+    // remapped cursor position feeds back into the next viewport calculation,
+    // producing oscillation. MagSetInputTransform(FALSE) is called only at
+    // shutdown and in the crash handler to ensure clean state.
 ```
 
 **Interpolation function (ease-out):**
@@ -513,7 +535,7 @@ function renderThreadMain():
 | `MagSetFullscreenTransform(level, xOff, yOff)` | Every render frame where zoom or offset changed | Apply magnification level and viewport position. |
 | `MagGetFullscreenTransform(...)` | Startup (to check for existing magnifier) | Query current state to detect conflicts. |
 | `MagSetFullscreenColorEffect(pMatrix)` | When color inversion is toggled | Apply or remove the 5×5 inversion matrix. |
-| `MagSetInputTransform(enabled, srcRect, destRect)` | Every render frame where zoom or offset changed | Map input coordinates so clicks hit the correct elements. |
+| `MagSetInputTransform(FALSE, srcRect, destRect)` | Shutdown and crash handler only | Disable input coordinate remapping to restore clean state. Not called per-frame — proportional viewport mapping (§3.4) makes it redundant, and enabling it causes a `GetCursorPos` feedback loop. |
 | `MagShowSystemCursor(show)` | Startup | Ensure the system cursor remains visible while magnified. |
 
 **Color inversion matrix:**
@@ -533,25 +555,16 @@ float invertMatrix[5][5] = {
 // Row 5 (translation) shifts RGB by +1 to invert: new_r = -r + 1 = 1-r
 ```
 
-**Input transform calculation:**
+**Input transform — shutdown only:**
+
+`MagSetInputTransform` is **not** called per-frame. With proportional viewport mapping (§3.4), the desktop coordinate under any screen position is mathematically invariant — click accuracy is maintained without input-coordinate remapping. Calling `MagSetInputTransform(TRUE, ...)` per-frame causes a `GetCursorPos` feedback loop: the API remaps cursor coordinates, which then feed back into the next `computePointerOffset()` call, producing oscillation. The input transform is only disabled at shutdown:
 
 ```
-function setInputTransform(zoom, xOff, yOff):
-    // Source rect: the portion of the desktop being displayed
-    srcRect = {
-        left   = xOff,
-        top    = yOff,
-        right  = xOff + screenWidth / zoom,
-        bottom = yOff + screenHeight / zoom
-    }
-    // Dest rect: the full screen
-    destRect = {
-        left   = 0,
-        top    = 0,
-        right  = screenWidth,
-        bottom = screenHeight
-    }
-    MagSetInputTransform(TRUE, &srcRect, &destRect)
+function disableInputTransform():
+    // Called during shutdown and in the crash handler
+    srcRect  = { 0, 0, screenWidth, screenHeight }
+    destRect = { 0, 0, screenWidth, screenHeight }
+    MagSetInputTransform(FALSE, &srcRect, &destRect)
 ```
 
 **Error handling:** If any Magnification API call fails (returns `FALSE`), MagBridge logs the error via `GetLastError()` and sets an internal error state. The RenderLoop checks this state and, on persistent failure, displays a tray notification and falls back to a degraded state (zoom remains at its last successful level).
@@ -600,6 +613,8 @@ struct SettingsSnapshot {
 
 **Implementation:** Standard Win32 tray icon using `Shell_NotifyIcon` with `NIF_ICON | NIF_TIP | NIF_MESSAGE`. The tray message handler responds to `WM_RBUTTONUP` (show context menu) and `WM_LBUTTONDBLCLK` (open settings).
 
+**Explorer restart detection:** At startup, TrayUI registers for the `TaskbarCreated` window message via `RegisterWindowMessageW(L"TaskbarCreated")`. Windows broadcasts this message when `explorer.exe` restarts (e.g., after a crash or Shell update). On receipt, TrayUI calls `Shell_NotifyIcon` to re-add the tray icon, ensuring the icon remains visible without requiring a manual application restart.
+
 **Settings window:** A lightweight modal dialog or modeless window built with either Win32 dialogs or a minimal WinUI 3 / WPF UI. The window displays all settings from the SettingsSnapshot and writes changes back through SettingsManager. Complexity is intentionally low — this is a single-page settings panel, not a multi-tab wizard.
 
 ---
@@ -632,7 +647,7 @@ User holds Win + scrolls mouse wheel
             ▼
  ┌─────────────────────┐
  │  MagBridge           │  MagSetFullscreenTransform(zoom, x, y)
- │  (Render Thread)     │  MagSetInputTransform(...)
+ │  (Render Thread)     │
  └─────────────────────┘
             │
             ▼

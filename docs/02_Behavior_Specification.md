@@ -133,10 +133,6 @@ Where a criterion involves timing, distances, or thresholds, the stated value is
 
 **AC-2.3.07** — With image smoothing ON (the default): magnified text edges appear smooth. At 4× zoom, individual characters are large but their edges are anti-aliased, not pixelated.
 
-**AC-2.3.08** — With image smoothing OFF: magnified content shows hard pixel edges. At 4× zoom, individual screen pixels are visible as sharp squares. This is useful for users doing pixel-level inspection work.
-
-**AC-2.3.09** — Toggling image smoothing in settings changes the rendering on the next display frame. No restart or re-zoom is required.
-
 ### 4D. Rendering Quality
 
 **AC-2.3.10** — The magnified view renders at the display's native refresh rate (e.g., 60fps, 120fps, 144fps) with no visible tearing.
@@ -305,11 +301,11 @@ Where a criterion involves timing, distances, or thresholds, the stated value is
 
 ### 9A. Zoom In / Zoom Out
 
-**AC-2.8.01** — Pressing `Win+Plus` increases the zoom level by the configured step size (default: 25%). The step is additive: at 2.0×, a 25% step targets 2.25×. At 4.0×, it targets 4.25×.
+**AC-2.8.01** — Pressing `Win+Plus` increases the zoom level by the configured step size (default: 25%). The step is multiplicative: target = current × (1 + step). At 2.0×, a 25% step targets 2.5×. At 4.0×, it targets 5.0×. This ensures perceptually uniform zoom increments across the range.
 
-**AC-2.8.02** — Pressing `Win+Minus` decreases the zoom level by the configured step size. At 2.0×, a 25% step targets 1.75×. At 1.25×, it targets 1.0×.
+**AC-2.8.02** — Pressing `Win+Minus` decreases the zoom level by the configured step size. At 2.0×, a 25% step targets 1.6× (2.0 ÷ 1.25). At 1.25×, it targets 1.0× (1.25 ÷ 1.25).
 
-**AC-2.8.03** — If a zoom-in step would exceed the configured maximum (10.0×), the zoom level animates to exactly the maximum. For example: at 9.90×, pressing `Win+Plus` with a 25% step targets 10.15×, which is clamped to 10.0×.
+**AC-2.8.03** — If a zoom-in step would exceed the configured maximum (10.0×), the zoom level animates to exactly the maximum. For example: at 9.90×, pressing `Win+Plus` with a 25% step targets 12.375× (9.90 × 1.25), which is clamped to 10.0×.
 
 **AC-2.8.04** — If a zoom-out step would go below the configured minimum (1.0×), the zoom level animates to exactly the minimum.
 
@@ -354,8 +350,6 @@ Where a criterion involves timing, distances, or thresholds, the stated value is
 **AC-2.9.05** — Changing the maximum zoom level while currently zoomed above the new maximum causes the zoom level to smoothly animate down to the new maximum.
 
 **AC-2.9.06** — Changing the minimum zoom level while currently zoomed below the new minimum causes the zoom level to smoothly animate up to the new minimum. (This scenario only arises if the minimum is raised above 1.0×.)
-
-**AC-2.9.07** — Toggling image smoothing on or off takes effect on the next display frame.
 
 **AC-2.9.08** — Toggling keyboard focus following off stops viewport panning in response to focus changes immediately. Other tracking (pointer, caret) is unaffected.
 
@@ -447,7 +441,19 @@ When multiple tracking sources (pointer, focus, caret) compete, the following pr
 
 ---
 
-## 15. Acceptance Criteria Index
+## 15. Deferred — Post-v1
+
+The following acceptance criteria depend on the Desktop Duplication API migration (R-01) and are deferred beyond v1. The Magnification API's `MagSetFullscreenTransform` provides no filtering parameter; `MagSetImageScalingCallback` is deprecated and windowed-mode only. Bilinear filtering is always applied.
+
+**AC-2.3.08** — With image smoothing OFF: magnified content shows hard pixel edges. At 4× zoom, individual screen pixels are visible as sharp squares. This is useful for users doing pixel-level inspection work.
+
+**AC-2.3.09** — Toggling image smoothing in settings changes the rendering on the next display frame. No restart or re-zoom is required.
+
+**AC-2.9.07** — Toggling image smoothing on or off takes effect on the next display frame.
+
+---
+
+## 16. Acceptance Criteria Index
 
 For quick reference, all acceptance criteria organized by ID prefix:
 
@@ -455,14 +461,15 @@ For quick reference, all acceptance criteria organized by ID prefix:
 |--------|-------------|-------|
 | AC-2.1 | Scroll-Gesture Zoom | 21 |
 | AC-2.2 | Smooth Zoom Animation | 10 |
-| AC-2.3 | Full-Screen Magnification | 13 |
+| AC-2.3 | Full-Screen Magnification | 11 |
 | AC-2.4 | Continuous Viewport Tracking | 13 |
 | AC-2.5 | Keyboard Focus Following | 14 |
 | AC-2.6 | Text Cursor Following | 11 |
 | AC-2.7 | Temporary Zoom Toggle | 12 |
 | AC-2.8 | Keyboard Shortcuts | 12 |
-| AC-2.9 | Settings and Configuration | 19 |
+| AC-2.9 | Settings and Configuration | 18 |
 | AC-2.10 | Color Inversion | 5 |
 | AC-MM | Multi-Monitor Basics | 4 |
 | AC-ERR | Conflict and Error Handling | 5 |
+| Deferred | Post-v1 (R-01) | 3 |
 | **Total** | | **139** |

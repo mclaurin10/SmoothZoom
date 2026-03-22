@@ -1,5 +1,7 @@
 # SmoothZoom
 
+**Current Status:** Phase 6 — Polish & Hardening (in progress). Phases 0–5 complete.
+
 Native C++17 Win32 full-screen magnifier for Windows. Hold Win+Scroll to smoothly zoom up to 10× with continuous viewport tracking of pointer, keyboard focus, and text cursor. Uses the Windows Magnification API.
 
 ## Design Documents — Read Before Implementing
@@ -25,11 +27,12 @@ Single-process, four layers, ten components:
 - **Output Layer:** MagBridge (sole Magnification API wrapper — no other component calls Mag* functions)
 - **Support Layer:** SettingsManager (config.json + snapshots), TrayUI (tray icon + settings window)
 
-## Threading Model — Three Threads
+## Threading Model — Four Threads
 
 **Main Thread:** Message pump, low-level hooks, TrayUI, app lifecycle.
 **Render Thread:** VSync-locked frame ticks via `DwmFlush()`, message pump for Mag API internals, calls MagBridge.
-**UIA Thread:** UI Automation subscriptions (focus + caret), isolated COM apartment.
+**UIA Thread:** FocusMonitor event-driven UI Automation subscriptions, isolated COM apartment.
+**Caret Thread:** CaretMonitor GTTI polling at ~30Hz. Separate from UIA thread because UIA caret events are unreliable and polling must not block event-driven FocusMonitor.
 
 ### Threading Invariants
 
@@ -39,7 +42,7 @@ These are the rules most likely to cause subtle, hard-to-diagnose bugs if violat
 2. **Render thread: no heap allocation, no mutexes, no I/O on the per-frame hot path.** All data comes from pre-allocated shared state via atomics or SeqLock.
 3. **Render thread must pump messages.** `MagSetFullscreenTransform` offsets are silently ignored without a `PeekMessage`/`DispatchMessage` loop on the calling thread. The zoom factor applies but the viewport stays at (0,0). This is undocumented Win32 behavior.
 4. **UIA thread is isolated.** Slow UIA providers (Java, some Electron apps) must never block hooks or drop frames. Timeout bounding-rect queries at 100ms. (R-11)
-5. **`MagSetInputTransform` and `MagSetFullscreenTransform` must be called in the same frame tick, same code block, with identical zoom/offset values.** Deferring one to a later frame causes click-targeting bugs. (R-04)
+5. **`MagSetInputTransform` is not called per-frame.** Only `MagSetFullscreenTransform` is called each frame tick. Proportional viewport mapping makes per-frame input transform redundant; enabling it causes a `GetCursorPos` feedback loop. `MagSetInputTransform(FALSE)` is called only at shutdown and in the crash handler to ensure clean state. (R-04)
 6. **Settings use atomic pointer swap.** Immutable snapshot struct, copy-on-write. Readers never lock.
 
 ### Shared State Mechanisms
@@ -96,14 +99,14 @@ Each component has a single responsibility. No component reaches into another's 
 ## Top Risks Affecting Daily Coding
 
 1. **R-05 (Hook Deregistration)** — Will happen. Watchdog timer every 5s detects and reinstalls. Keep hook callbacks absolutely minimal.
-2. **R-04 (Input Transform Desync)** — Same-frame API calls are the only defense. Test click accuracy at 5× zoom across screen positions.
+2. **R-04 (Input Transform Desync)** — Proportional viewport mapping is the defense. Click accuracy depends on correct offset math. Test at 5× zoom across screen positions.
 3. **R-14 (Crash Leaves Screen Magnified)** — Install `SetUnhandledExceptionFilter` to reset zoom. Write dirty-shutdown sentinel file. Handle `WM_ENDSESSION`.
 4. **R-01 (API Deprecation)** — MagBridge isolation bounds the migration. Monitor Windows Insider builds.
 5. **R-09 (UIA Inconsistency)** — Validate every bounding rectangle from UIA. Reject zero-area, negative, off-screen. Degrade gracefully.
 
 ## Build Requirements
 
-- C++17, MSVC (VS 2022+), CMake or MSBuild, x64 only.
-- Link: `Magnification.lib`, `Dwmapi.lib`, `UIAutomationCore.lib`, `User32.lib`, `Shell32.lib`.
+- C++17, MSVC (VS 2022+), CMake, x64 only.
+- Link: `Magnification.lib`, `Dwmapi.lib`, `UIAutomationCore.lib`, `User32.lib`, `Shell32.lib`, `Ole32.lib`, `OleAut32.lib`, `Wtsapi32.lib`, `Hid.lib`, `Advapi32.lib`, `Comctl32.lib`.
 - All builds signed. Self-signed cert installed to Trusted Root CA for dev.
 - Run from secure folder (e.g., `C:\Program Files\SmoothZoom\`).
