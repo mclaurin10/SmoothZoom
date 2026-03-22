@@ -72,6 +72,16 @@ bool SettingsManager::loadFromFile(const char* path)
     };
 
     readInt("modifierKeyVK", settings.modifierKeyVK, 0, 0xFF);
+
+    // Ctrl removed as modifier option — silently revert to Win (default)
+    // Raw VK values to avoid #include <windows.h>: LCONTROL=0xA2, RCONTROL=0xA3, CONTROL=0x11, LWIN=0x5B
+    if (settings.modifierKeyVK == 0xA2
+        || settings.modifierKeyVK == 0xA3
+        || settings.modifierKeyVK == 0x11)
+    {
+        settings.modifierKeyVK = 0x5B;
+    }
+
     readInt("animationSpeed", settings.animationSpeed, 0, 2);
     readInt("toggleKey1VK", settings.toggleKey1VK, 0, 0xFF);
     readInt("toggleKey2VK", settings.toggleKey2VK, 0, 0xFF);

@@ -272,6 +272,8 @@ These are conditions the team is treating as true without further validation. If
 
 4. **Secure desktop inaccessible.** The Magnification API does not function on the Windows secure desktop (Ctrl+Alt+Delete screen, UAC elevation prompts, lock screen). SmoothZoom's magnification will be unavailable on these surfaces. This matches the native Magnifier's behavior.
 
+5. **Ctrl excluded as scroll-gesture modifier.** Ctrl+Scroll is a near-universal convention for zoom in browsers, IDEs, and document viewers. To avoid consuming these events, Ctrl is intentionally not offered as a scroll-gesture modifier option. It remains available for toggle key combinations (e.g., Ctrl+Alt hold-to-peek).
+
 5. **DRM-protected content.** Some DRM-protected media content (e.g., Netflix in Edge, Blu-ray playback) may render as black in the magnified view due to hardware content protection. This is a platform-level restriction, not a defect in SmoothZoom.
 
 6. **Win key interception scope.** When `Win` is used as the scroll-gesture modifier, SmoothZoom must intercept the `Win` key-up event to suppress the Start Menu. In the rare case that another application or utility also intercepts or remaps the `Win` key (e.g., certain gaming overlays, custom shell replacements), there may be conflicts. The user can switch to an alternative modifier key to resolve this.

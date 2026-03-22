@@ -31,7 +31,7 @@ Where a criterion involves timing, distances, or thresholds, the stated value is
 
 **AC-2.1.03** — When the user releases the `Win` key, the zoom level remains at whatever value it had reached. It does not snap back to 1.0× or to any other level.
 
-**AC-2.1.04** — Both the left `Win` key (`VK_LWIN`) and the right `Win` key (`VK_RWIN`) function identically as the modifier.
+**AC-2.1.04** — The scroll-gesture modifier key is configurable: `Win` (default), `Alt`, or `Shift`. Both left and right variants of the configured modifier function identically (e.g., `VK_LWIN`/`VK_RWIN`, `VK_LMENU`/`VK_RMENU`, `VK_LSHIFT`/`VK_RSHIFT`).
 
 **AC-2.1.05** — Two-finger vertical scroll on a Windows Precision Touchpad, while `Win` is held, produces the same zoom behavior as the mouse wheel. The continuous (non-notched) nature of touchpad scroll input produces correspondingly smooth, continuous zoom changes.
 
@@ -75,7 +75,7 @@ Where a criterion involves timing, distances, or thresholds, the stated value is
 
 **AC-2.1.20** — When a non-`Win` modifier is configured (e.g., `Ctrl`), Start Menu suppression logic is not active (it is not needed).
 
-**AC-2.1.21** — When `Ctrl` is configured as the modifier, `Ctrl+Scroll` is consumed by SmoothZoom. Applications that normally respond to `Ctrl+Scroll` (e.g., browser zoom) will NOT receive those scroll events. This is a documented and expected trade-off, noted in the settings UI.
+**AC-2.1.21** — [RETIRED — Ctrl removed as modifier option. Ctrl conflicts with Ctrl+Scroll conventions in browsers/IDEs and is no longer offered in the settings UI. Existing config files with Ctrl as modifier silently revert to Win on load.]
 
 ---
 

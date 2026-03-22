@@ -346,7 +346,7 @@ Make SmoothZoom a proper installed application with user-configurable settings, 
 | E5.9 | Enable "Start zoomed" with default level 3.0×, exit and re-launch: screen zooms to 3.0× shortly after the application starts. | AC-2.9.18 |
 | E5.10 | Attempt to set toggle key combo to the same key as the scroll-gesture modifier: settings UI prevents this and explains the conflict. | AC-2.9.11, AC-2.7.12 |
 | E5.11 | Press `Win+Ctrl+M`: settings window opens. Press again: settings window comes to foreground. | AC-2.8.11 |
-| E5.12 | With Ctrl configured as modifier, the settings UI notes that Ctrl+Scroll will be consumed and won't reach applications like browsers. | AC-2.1.21 |
+| E5.12 | [RETIRED — Ctrl removed as modifier option. See AC-2.1.21.] | AC-2.1.21 |
 
 ---
 

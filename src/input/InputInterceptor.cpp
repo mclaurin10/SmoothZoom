@@ -56,6 +56,7 @@ static void onSettingsChanged(const SettingsSnapshot& s, void* /*userData*/)
     s_toggleKey1VK  = s.toggleKey1VK;
     s_toggleKey2VK  = s.toggleKey2VK;
     s_nonWinModifierHeld = false;  // Reset on config change to avoid stale state
+    s_winKeyMgr.reset();  // BF-2: Clear stale Win key state on modifier change
 }
 
 // WM_OPEN_SETTINGS defined in common/AppMessages.h
@@ -216,9 +217,12 @@ static LRESULT CALLBACK keyboardHookProc(int nCode, WPARAM wParam, LPARAM lParam
         }
         else if (isUp)
         {
-            // WinKeyManager injects Ctrl if used for zoom (Start Menu suppression)
             s_winKeyMgr.onWinKeyUp();
-            s_state->modifierHeld.store(false, std::memory_order_relaxed);
+            // BF-3: Only clear modifierHeld on Win key-up when Win IS the modifier.
+            // Otherwise, releasing Win while Alt/Shift is held would incorrectly
+            // clear the modifier state.
+            if (isWinModifier())
+                s_state->modifierHeld.store(false, std::memory_order_relaxed);
         }
     }
 

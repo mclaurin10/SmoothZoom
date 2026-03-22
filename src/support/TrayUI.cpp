@@ -63,10 +63,15 @@ static constexpr UINT kTrayIconId = 1;
 static constexpr DWORD kExitTimeoutMs = 5000;
 static constexpr float kExitZoomThreshold = 1.005f;
 
-// VK mapping for modifier/toggle combos
-static const int kModifierVKs[] = { VK_LWIN, VK_LCONTROL, VK_LMENU, VK_LSHIFT };
-static const wchar_t* kModifierNames[] = { L"Win", L"Ctrl", L"Alt", L"Shift" };
-static constexpr int kModifierCount = 4;
+// Modifier options (Ctrl removed — conflicts with Ctrl+Scroll in browsers/IDEs)
+static const int kModifierVKs[] = { VK_LWIN, VK_LMENU, VK_LSHIFT };
+static const wchar_t* kModifierNames[] = { L"Win", L"Alt", L"Shift" };
+static constexpr int kModifierCount = 3;
+
+// Toggle key options (Ctrl still valid — default toggle is Ctrl+Alt)
+static const int kToggleVKs[] = { VK_LWIN, VK_LCONTROL, VK_LMENU, VK_LSHIFT };
+static const wchar_t* kToggleNames[] = { L"Win", L"Ctrl", L"Alt", L"Shift" };
+static constexpr int kToggleCount = 4;
 
 // Static instance pointer for WndProc routing (only one TrayUI exists)
 static TrayUI* s_instance = nullptr;
@@ -127,6 +132,23 @@ static int vkFromComboIndex(int idx)
 {
     if (idx >= 0 && idx < kModifierCount)
         return kModifierVKs[idx];
+    return VK_LWIN;
+}
+
+static int toggleComboIndexFromVK(int vk)
+{
+    for (int i = 0; i < kToggleCount; ++i)
+    {
+        if (kToggleVKs[i] == vk)
+            return i;
+    }
+    return 0;
+}
+
+static int vkFromToggleComboIndex(int idx)
+{
+    if (idx >= 0 && idx < kToggleCount)
+        return kToggleVKs[idx];
     return VK_LWIN;
 }
 
@@ -456,15 +478,15 @@ void TrayUI::createSettingsWindow()
     // Row 2: Toggle Key 1
     createLabel(L"Toggle Key 1", curY);
     HWND hTog1 = createCombo(IDC_TOGGLE1_COMBO, curY);
-    for (int i = 0; i < kModifierCount; ++i)
-        SendMessageW(hTog1, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(kModifierNames[i]));
+    for (int i = 0; i < kToggleCount; ++i)
+        SendMessageW(hTog1, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(kToggleNames[i]));
     curY += gap;
 
     // Row 3: Toggle Key 2
     createLabel(L"Toggle Key 2", curY);
     HWND hTog2 = createCombo(IDC_TOGGLE2_COMBO, curY);
-    for (int i = 0; i < kModifierCount; ++i)
-        SendMessageW(hTog2, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(kModifierNames[i]));
+    for (int i = 0; i < kToggleCount; ++i)
+        SendMessageW(hTog2, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(kToggleNames[i]));
     curY += gap;
 
     // Validation text (hidden initially)
@@ -568,9 +590,9 @@ void TrayUI::populateFromSnapshot()
 
     // Toggle combos
     SendDlgItemMessageW(settingsHwnd_, IDC_TOGGLE1_COMBO, CB_SETCURSEL,
-                         comboIndexFromVK(snap->toggleKey1VK), 0);
+                         toggleComboIndexFromVK(snap->toggleKey1VK), 0);
     SendDlgItemMessageW(settingsHwnd_, IDC_TOGGLE2_COMBO, CB_SETCURSEL,
-                         comboIndexFromVK(snap->toggleKey2VK), 0);
+                         toggleComboIndexFromVK(snap->toggleKey2VK), 0);
 
     // Numeric edits
     setEditFloat(GetDlgItem(settingsHwnd_, IDC_MIN_ZOOM_EDIT), snap->minZoom);
@@ -620,8 +642,8 @@ void TrayUI::updateValidationState()
     int tog2Idx = static_cast<int>(SendDlgItemMessageW(settingsHwnd_, IDC_TOGGLE2_COMBO, CB_GETCURSEL, 0, 0));
 
     int modVK = vkFromComboIndex(modIdx);
-    int tog1VK = vkFromComboIndex(tog1Idx);
-    int tog2VK = vkFromComboIndex(tog2Idx);
+    int tog1VK = vkFromToggleComboIndex(tog1Idx);
+    int tog2VK = vkFromToggleComboIndex(tog2Idx);
 
     std::wstring message;
 
@@ -629,11 +651,6 @@ void TrayUI::updateValidationState()
     if (tog1VK == modVK || tog2VK == modVK)
     {
         message = L"Toggle keys cannot use the same key as the scroll modifier.";
-    }
-    // AC-2.1.21: Ctrl as modifier warning
-    else if (modVK == VK_LCONTROL)
-    {
-        message = L"Note: Ctrl+Scroll will be consumed and won't reach apps.";
     }
 
     if (!message.empty())
@@ -665,8 +682,8 @@ void TrayUI::validateAndApply()
     int tog2Idx = static_cast<int>(SendDlgItemMessageW(settingsHwnd_, IDC_TOGGLE2_COMBO, CB_GETCURSEL, 0, 0));
 
     int modVK  = vkFromComboIndex(modIdx);
-    int tog1VK = vkFromComboIndex(tog1Idx);
-    int tog2VK = vkFromComboIndex(tog2Idx);
+    int tog1VK = vkFromToggleComboIndex(tog1Idx);
+    int tog2VK = vkFromToggleComboIndex(tog2Idx);
 
     // AC-2.9.11: Block apply if toggle key conflicts with modifier
     if (tog1VK == modVK || tog2VK == modVK)

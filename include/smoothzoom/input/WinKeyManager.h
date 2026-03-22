@@ -21,6 +21,8 @@ public:
     void onWinKeyUp();
     void markUsedForZoom();
 
+    void reset() { state_ = State::Idle; }
+
     State state() const { return state_; }
     bool shouldSuppressStartMenu() const { return state_ == State::HeldUsed; }
 
