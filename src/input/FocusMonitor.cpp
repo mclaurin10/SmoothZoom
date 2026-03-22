@@ -23,6 +23,7 @@
 #include <windows.h>
 #include <uiautomation.h>
 #include <chrono>
+#include <future>
 #include <thread>
 
 #pragma comment(lib, "Ole32.lib")
@@ -85,8 +86,21 @@ public:
     {
         if (!sender || !state_) return S_OK;
 
+        // Timeout bounding-rect query at 100ms (R-11: slow UIA providers).
+        // Use std::async to bound the COM proxy call duration.
         RECT boundingRect{};
-        HRESULT hr = sender->get_CurrentBoundingRectangle(&boundingRect);
+        auto future = std::async(std::launch::async, [sender]() {
+            RECT r{};
+            HRESULT h = sender->get_CurrentBoundingRectangle(&r);
+            return std::pair<HRESULT, RECT>{h, r};
+        });
+
+        auto status = future.wait_for(std::chrono::milliseconds(100));
+        if (status == std::future_status::timeout)
+            return S_OK; // Skip update — UIA provider too slow (R-11)
+
+        auto [hr, result] = future.get();
+        boundingRect = result;
         if (FAILED(hr)) return S_OK; // Silent degradation (AC-2.5.14)
 
         if (!isValidRect(boundingRect)) return S_OK; // Reject bad rects (R-09)

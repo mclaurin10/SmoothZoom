@@ -124,7 +124,11 @@ bool CaretMonitor::start(SharedState& state)
     impl_->state = &state;
     impl_->stopRequested.store(false);
 
-    // Start GTTI polling thread
+    // Start GTTI polling thread.
+    // Spec deviation: Doc 3 §2.1 specifies three threads (Main, Render, UIA).
+    // CaretMonitor adds a fourth thread for GTTI polling because UIA caret
+    // events are unreliable across apps, and polling must not block the UIA
+    // event-driven FocusMonitor thread. This is an intentional deviation.
     impl_->pollThread = std::thread([this]() { impl_->pollLoop(); });
 
     running_.store(true, std::memory_order_release);

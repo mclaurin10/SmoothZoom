@@ -133,46 +133,50 @@ static LRESULT CALLBACK mouseHookProc(int nCode, WPARAM wParam, LPARAM lParam)
 
     case WM_MOUSEHWHEEL:
     {
-        // Some mouse drivers convert Shift+Scroll to horizontal scroll at the
-        // driver level, before low-level hooks see the event. Handle it
-        // identically to vertical scroll when the modifier is held.
+        // Windows (and some mouse drivers) convert Shift+Scroll into horizontal
+        // scroll (WM_MOUSEHWHEEL) before it reaches low-level hooks. Only
+        // intercept when Shift IS the configured modifier — otherwise let
+        // horizontal scroll pass through to applications normally (AC-2.1.02).
+        // R-07: Shift+Scroll conflict mitigation.
+        bool isShiftMod = (s_modifierKeyVK == VK_LSHIFT || s_modifierKeyVK == VK_RSHIFT
+                           || s_modifierKeyVK == VK_SHIFT);
+
+        if (isShiftMod)
+        {
 #ifdef SMOOTHZOOM_LOGGING
-        {
-            wchar_t dbg[256];
-            swprintf_s(dbg, L"[SZ-DIAG] WM_MOUSEHWHEEL: nonWinMod=%d, modVK=0x%X, asyncMod=%d, fg=0x%p\n",
-                s_nonWinModifierHeld ? 1 : 0,
-                s_modifierKeyVK,
-                (GetAsyncKeyState(toGenericVK(s_modifierKeyVK)) & 0x8000) ? 1 : 0,
-                GetForegroundWindow());
-            OutputDebugStringW(dbg);
-        }
+            {
+                wchar_t dbg[256];
+                swprintf_s(dbg, L"[SZ-DIAG] WM_MOUSEHWHEEL (Shift mod): nonWinMod=%d, modVK=0x%X, asyncMod=%d, fg=0x%p\n",
+                    s_nonWinModifierHeld ? 1 : 0,
+                    s_modifierKeyVK,
+                    (GetAsyncKeyState(toGenericVK(s_modifierKeyVK)) & 0x8000) ? 1 : 0,
+                    GetForegroundWindow());
+                OutputDebugStringW(dbg);
+            }
 #endif
-        bool modifierHeld = isConfiguredModifierHeld();
+            bool modifierHeld = isConfiguredModifierHeld();
 
-        if (modifierHeld)
-        {
-            int16_t delta = static_cast<int16_t>(HIWORD(info->mouseData));
+            if (modifierHeld)
+            {
+                int16_t delta = static_cast<int16_t>(HIWORD(info->mouseData));
 
-            // Record LL hook scroll timestamp for Raw Input dedup
-            s_state->lastLLHookScrollTime.store(
-                static_cast<int64_t>(GetTickCount64()), std::memory_order_relaxed);
+                // Negate: WM_MOUSEHWHEEL uses opposite sign convention from
+                // WM_MOUSEWHEEL (positive = right, not up). Restores vertical
+                // scroll semantics so scroll-up = zoom-in (AC-2.1.01).
+                delta = -delta;
 
-            s_state->scrollAccumulator.fetch_add(delta, std::memory_order_release);
+                // Record LL hook scroll timestamp for Raw Input dedup
+                s_state->lastLLHookScrollTime.store(
+                    static_cast<int64_t>(GetTickCount64()), std::memory_order_relaxed);
 
-            if (s_modifierKeyVK == VK_LWIN || s_modifierKeyVK == VK_RWIN)
-                s_winKeyMgr.markUsedForZoom();
+                s_state->scrollAccumulator.fetch_add(delta, std::memory_order_release);
 
-            s_state->modifierHeld.store(true, std::memory_order_relaxed);
-            return 1;
+                s_state->modifierHeld.store(true, std::memory_order_relaxed);
+
+                // Consume — prevent horizontal scroll reaching applications
+                return 1;
+            }
         }
-        break;
-    }
-
-    case WM_MOUSEMOVE:
-    {
-        // Update pointer position for viewport tracking
-        s_state->pointerX.store(info->pt.x, std::memory_order_relaxed);
-        s_state->pointerY.store(info->pt.y, std::memory_order_relaxed);
         break;
     }
 

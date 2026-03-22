@@ -5,6 +5,12 @@
 // Writer is infrequent (UIA thread), reader is frequent (render thread).
 // Reader retries on concurrent write — no mutex contention on hot path.
 // Doc 3 §2.4
+//
+// Platform assumption: x86-64 / MSVC only. The non-atomic read of data_ in
+// read() relies on x86-64 TSO (Total Store Order) guaranteeing that loads
+// are not reordered past the acquire fence on sequence_. On ARM64 or other
+// weakly-ordered architectures, data_ would need to be read through atomic
+// operations or explicit barriers to prevent torn reads.
 // =============================================================================
 
 #include <atomic>

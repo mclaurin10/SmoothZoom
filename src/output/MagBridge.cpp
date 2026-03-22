@@ -15,6 +15,7 @@
 
 #include <windows.h>
 #include <magnification.h>
+#include <atomic>
 
 #pragma comment(lib, "Magnification.lib")
 
@@ -23,13 +24,16 @@ namespace SmoothZoom
 
 // Screen dimensions cached at init — used for input transform rectangles.
 // Updated via refreshScreenDimensions() on WM_DISPLAYCHANGE (Phase 6).
-static int s_screenWidth = 0;
-static int s_screenHeight = 0;
+// Atomic: written by cacheScreenDimensions (render thread init), read by
+// setInputTransform (render thread) — safe with relaxed ordering since
+// both are currently same-thread, but atomic guards against future callers.
+static std::atomic<int> s_screenWidth{0};
+static std::atomic<int> s_screenHeight{0};
 
 static void cacheScreenDimensions()
 {
-    s_screenWidth = GetSystemMetrics(SM_CXVIRTUALSCREEN);
-    s_screenHeight = GetSystemMetrics(SM_CYVIRTUALSCREEN);
+    s_screenWidth.store(GetSystemMetrics(SM_CXVIRTUALSCREEN), std::memory_order_relaxed);
+    s_screenHeight.store(GetSystemMetrics(SM_CYVIRTUALSCREEN), std::memory_order_relaxed);
 }
 
 bool MagBridge::initialize()
@@ -96,17 +100,20 @@ bool MagBridge::setInputTransform(float magnification, float xOffset, float yOff
     if (!initialized_)
         return false;
 
+    int sw = s_screenWidth.load(std::memory_order_relaxed);
+    int sh = s_screenHeight.load(std::memory_order_relaxed);
+
     if (magnification <= 1.0f + 0.001f)
     {
         // At 1.0× or below, disable input transform
-        RECT srcRect = {0, 0, s_screenWidth, s_screenHeight};
-        RECT destRect = {0, 0, s_screenWidth, s_screenHeight};
+        RECT srcRect = {0, 0, sw, sh};
+        RECT destRect = {0, 0, sw, sh};
         return MagSetInputTransform(FALSE, &srcRect, &destRect) != FALSE;
     }
 
     // Source rect: the portion of the desktop being displayed (R-04: float division!)
-    float viewW = static_cast<float>(s_screenWidth) / magnification;
-    float viewH = static_cast<float>(s_screenHeight) / magnification;
+    float viewW = static_cast<float>(sw) / magnification;
+    float viewH = static_cast<float>(sh) / magnification;
 
     RECT srcRect;
     srcRect.left = static_cast<LONG>(xOffset);
@@ -115,7 +122,7 @@ bool MagBridge::setInputTransform(float magnification, float xOffset, float yOff
     srcRect.bottom = static_cast<LONG>(yOffset + viewH);
 
     // Dest rect: the full screen
-    RECT destRect = {0, 0, s_screenWidth, s_screenHeight};
+    RECT destRect = {0, 0, sw, sh};
 
     return MagSetInputTransform(TRUE, &srcRect, &destRect) != FALSE;
 }

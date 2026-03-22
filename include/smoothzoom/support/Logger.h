@@ -199,12 +199,6 @@ inline void initLogFile(const wchar_t*) {}
 
 #ifdef SMOOTHZOOM_LOGGING
 
-#define SZ_LOG_IMPL_(level, component, fmt, ...)                               \
-    do {                                                                        \
-        va_list _sz_args;                                                       \
-        SmoothZoom::detail::logMessage(level, L##component, fmt, _sz_args);     \
-    } while (0)
-
 // Variadic logging using a helper that accepts ... directly
 namespace SmoothZoom { namespace detail {
 inline void logFmt(LogLevel level, const wchar_t* component,

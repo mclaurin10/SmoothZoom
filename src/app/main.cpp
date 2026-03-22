@@ -18,6 +18,11 @@
 #endif
 
 #include <windows.h>
+// Exception: direct Magnification API include for crash handler (Fix 1).
+// Normally only MagBridge.cpp includes this (R-01 isolation rule), but the
+// crash handler cannot safely construct a MagBridge on an arbitrary thread.
+#include <magnification.h>
+#pragma comment(lib, "Magnification.lib")
 
 #include "smoothzoom/common/AppMessages.h"
 #include "smoothzoom/common/SharedState.h"
@@ -200,17 +205,26 @@ static void publishToSharedState(const SmoothZoom::SettingsSnapshot& s, void* ud
     state->settingsVersion.fetch_add(1, std::memory_order_release);
 }
 
-// Crash handler (R-14): reset magnification on unhandled exception
+// Crash handler (R-14): reset magnification on unhandled exception.
+// IMPORTANT: Cannot use MagBridge here — it allocates on the heap and may run on
+// a thread different from the one that called MagInitialize (thread affinity).
+// Direct Mag* calls are the only safe option in an exception filter.
 static LONG WINAPI crashHandler(EXCEPTION_POINTERS* /*exInfo*/)
 {
-    // Best-effort zoom reset — MagBridge::shutdown() resets to 1.0× and uninitializes.
-    // We create a temporary MagBridge here because the crash may have corrupted
-    // our main MagBridge state. The Magnification API is global per-process,
-    // so resetting from any valid instance works.
-    SmoothZoom::MagBridge emergencyBridge;
-    if (emergencyBridge.initialize())
+    // Best-effort zoom reset — direct API calls, no heap allocation.
+    // MagSetFullscreenTransform has process-global effect regardless of thread.
+    MagSetFullscreenTransform(1.0f, 0, 0);
+
+    // Best-effort input transform reset — may fail if Mag state is corrupted.
+    __try
     {
-        emergencyBridge.shutdown();
+        RECT r = {0, 0, GetSystemMetrics(SM_CXVIRTUALSCREEN),
+                         GetSystemMetrics(SM_CYVIRTUALSCREEN)};
+        MagSetInputTransform(FALSE, &r, &r);
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER)
+    {
+        // Swallow — we're already in a crash handler
     }
 
     // Best-effort sentinel removal (may fail if heap is corrupted — next launch catches it)
@@ -225,25 +239,51 @@ static LONG WINAPI crashHandler(EXCEPTION_POINTERS* /*exInfo*/)
 
 static bool initPtpDevice(HANDLE hDevice)
 {
+    // One-shot guard: log detailed diagnostics only on first failure per device
+    static bool s_ptpInitDiagLogged = false;
+
     UINT ppSize = 0;
     if (GetRawInputDeviceInfoW(hDevice, RIDI_PREPARSEDDATA, nullptr, &ppSize) != 0)
+    {
+        if (!s_ptpInitDiagLogged)
+            SZ_LOG_WARN("PTP", L"initPtpDevice: GetRawInputDeviceInfoW size query failed (GetLastError=%lu)", GetLastError());
+        s_ptpInitDiagLogged = true;
         return false;
+    }
     if (ppSize == 0 || ppSize > 65536)
+    {
+        if (!s_ptpInitDiagLogged)
+            SZ_LOG_WARN("PTP", L"initPtpDevice: preparsed data size out of range (ppSize=%u)", ppSize);
+        s_ptpInitDiagLogged = true;
         return false;
+    }
 
     auto* ppd = static_cast<PHIDP_PREPARSED_DATA>(
         HeapAlloc(GetProcessHeap(), 0, ppSize));
-    if (!ppd) return false;
+    if (!ppd)
+    {
+        if (!s_ptpInitDiagLogged)
+            SZ_LOG_WARN("PTP", L"initPtpDevice: HeapAlloc for preparsed data failed (size=%u)", ppSize);
+        s_ptpInitDiagLogged = true;
+        return false;
+    }
 
     if (GetRawInputDeviceInfoW(hDevice, RIDI_PREPARSEDDATA, ppd, &ppSize) == UINT(-1))
     {
+        if (!s_ptpInitDiagLogged)
+            SZ_LOG_WARN("PTP", L"initPtpDevice: GetRawInputDeviceInfoW data retrieval failed (GetLastError=%lu)", GetLastError());
+        s_ptpInitDiagLogged = true;
         HeapFree(GetProcessHeap(), 0, ppd);
         return false;
     }
 
     HIDP_CAPS caps = {};
-    if (HidP_GetCaps(ppd, &caps) != HIDP_STATUS_SUCCESS)
+    NTSTATUS capsStatus = HidP_GetCaps(ppd, &caps);
+    if (capsStatus != HIDP_STATUS_SUCCESS)
     {
+        if (!s_ptpInitDiagLogged)
+            SZ_LOG_WARN("PTP", L"initPtpDevice: HidP_GetCaps failed (NTSTATUS=0x%08lX)", static_cast<unsigned long>(capsStatus));
+        s_ptpInitDiagLogged = true;
         HeapFree(GetProcessHeap(), 0, ppd);
         return false;
     }
@@ -252,6 +292,10 @@ static bool initPtpDevice(HANDLE hDevice)
     USHORT numValCaps = caps.NumberInputValueCaps;
     if (numValCaps == 0 || numValCaps > 256)
     {
+        if (!s_ptpInitDiagLogged)
+            SZ_LOG_WARN("PTP", L"initPtpDevice: NumberInputValueCaps out of range (numValCaps=%u, UsagePage=0x%04X, Usage=0x%04X)",
+                        numValCaps, caps.UsagePage, caps.Usage);
+        s_ptpInitDiagLogged = true;
         HeapFree(GetProcessHeap(), 0, ppd);
         return false;
     }
@@ -260,15 +304,28 @@ static bool initPtpDevice(HANDLE hDevice)
         HeapAlloc(GetProcessHeap(), 0, numValCaps * sizeof(HIDP_VALUE_CAPS)));
     if (!valCaps)
     {
+        if (!s_ptpInitDiagLogged)
+            SZ_LOG_WARN("PTP", L"initPtpDevice: HeapAlloc for value caps failed (count=%u)", numValCaps);
+        s_ptpInitDiagLogged = true;
         HeapFree(GetProcessHeap(), 0, ppd);
         return false;
     }
 
-    if (HidP_GetValueCaps(HidP_Input, valCaps, &numValCaps, ppd) != HIDP_STATUS_SUCCESS)
+    NTSTATUS valStatus = HidP_GetValueCaps(HidP_Input, valCaps, &numValCaps, ppd);
+    if (valStatus != HIDP_STATUS_SUCCESS)
     {
+        if (!s_ptpInitDiagLogged)
+            SZ_LOG_WARN("PTP", L"initPtpDevice: HidP_GetValueCaps failed (NTSTATUS=0x%08lX)", static_cast<unsigned long>(valStatus));
+        s_ptpInitDiagLogged = true;
         HeapFree(GetProcessHeap(), 0, valCaps);
         HeapFree(GetProcessHeap(), 0, ppd);
         return false;
+    }
+
+    if (!s_ptpInitDiagLogged)
+    {
+        SZ_LOG_INFO("PTP", L"initPtpDevice: HID caps — UsagePage=0x%04X, Usage=0x%04X, InputValueCaps=%u, InputButtonCaps=%u",
+                    caps.UsagePage, caps.Usage, caps.NumberInputValueCaps, caps.NumberInputButtonCaps);
     }
 
     bool foundCC = false;
@@ -282,6 +339,13 @@ static bool initPtpDevice(HANDLE hDevice)
             ? valCaps[i].Range.UsageMin
             : valCaps[i].NotRange.Usage;
         USAGE page = valCaps[i].UsagePage;
+
+        // Log each value cap on first attempt for diagnostics
+        if (!s_ptpInitDiagLogged)
+        {
+            SZ_LOG_INFO("PTP", L"  ValCap[%u]: UsagePage=0x%04X, Usage=0x%04X, LinkCollection=%u, IsRange=%d, BitSize=%u",
+                        i, page, usage, valCaps[i].LinkCollection, valCaps[i].IsRange, valCaps[i].BitSize);
+        }
 
         if (page == 0x0D && usage == 0x54) // Contact Count
         {
@@ -299,6 +363,10 @@ static bool initPtpDevice(HANDLE hDevice)
 
     if (!foundCC || numSlots == 0)
     {
+        if (!s_ptpInitDiagLogged)
+            SZ_LOG_WARN("PTP", L"initPtpDevice: No Contact Count (foundCC=%d) or Contact ID (numSlots=%d) found in %u value caps — device is not a PTP or uses unexpected descriptor",
+                        foundCC ? 1 : 0, numSlots, numValCaps);
+        s_ptpInitDiagLogged = true;
         HeapFree(GetProcessHeap(), 0, ppd);
         return false;
     }
@@ -315,9 +383,10 @@ static bool initPtpDevice(HANDLE hDevice)
         s_ptpDevice.slots[i].linkCollection = slotLCs[i];
     s_ptpDeviceHandle = hDevice;
 
-    // Reset tracking state
+    // Reset tracking state and diagnostics flag (allow logging for future device changes)
     for (auto& c : s_ptpContacts) c = {};
     s_ptpScrollRemainder = 0;
+    s_ptpInitDiagLogged = false;
 
     SZ_LOG_INFO("Main", L"PTP device initialized: %d contact slot(s), contactCountLC=%u",
                 numSlots, contactCountLC);
@@ -336,8 +405,11 @@ static void handlePtpHidReport(const BYTE* reportData, DWORD reportSize)
 
     // Extract contact count (present in end-of-frame report, or every report)
     ULONG contactCount = 0;
-    HidP_GetUsageValue(HidP_Input, 0x0D, s_ptpDevice.contactCountLC, 0x54,
-                       &contactCount, ppd, report, reportSize);
+    [[maybe_unused]] NTSTATUS ccStatus =
+        HidP_GetUsageValue(HidP_Input, 0x0D, s_ptpDevice.contactCountLC, 0x54,
+                           &contactCount, ppd, report, reportSize);
+    SZ_LOG_DEBUG("PTP", L"handlePtpHidReport: contactCount=%lu (status=0x%08lX, reportSize=%lu)",
+                 contactCount, static_cast<unsigned long>(ccStatus), reportSize);
 
     // Extract data from each contact slot in this report
     for (int slot = 0; slot < s_ptpDevice.numSlots; slot++)
@@ -388,7 +460,10 @@ static void handlePtpHidReport(const BYTE* reportData, DWORD reportSize)
 
     // Only process when we have a complete frame with 2+ contacts
     if (contactCount < 2)
+    {
+        SZ_LOG_DEBUG("PTP", L"handlePtpHidReport: skipping, contactCount=%lu < 2", contactCount);
         return;
+    }
 
     // Find first two active contacts with valid Y deltas
     int scrollFingers = 0;
@@ -405,9 +480,15 @@ static void handlePtpHidReport(const BYTE* reportData, DWORD reportSize)
     }
 
     if (scrollFingers < 2)
+    {
+        SZ_LOG_DEBUG("PTP", L"handlePtpHidReport: scrollFingers=%d < 2 (contactCount=%lu)",
+                     scrollFingers, contactCount);
         return;
+    }
 
     LONG avgDeltaY = totalDeltaY / scrollFingers;
+    SZ_LOG_DEBUG("PTP", L"handlePtpHidReport: scrollFingers=%d, totalDeltaY=%ld, avgDeltaY=%ld",
+                 scrollFingers, totalDeltaY, avgDeltaY);
     if (avgDeltaY == 0)
         return;
 
@@ -415,13 +496,20 @@ static void handlePtpHidReport(const BYTE* reportData, DWORD reportSize)
     int64_t lastLL = g_sharedState.lastLLHookScrollTime.load(std::memory_order_relaxed);
     int64_t now = static_cast<int64_t>(GetTickCount64());
     if (now - lastLL < 50)
+    {
+        SZ_LOG_DEBUG("PTP", L"handlePtpHidReport: dedup suppressed (now-lastLL=%lld ms)",
+                     now - lastLL);
         return;
+    }
 
     // Check modifier key
     auto snap = std::atomic_load(&g_sharedState.settingsSnapshot);
     int modVK = snap ? snap->modifierKeyVK : VK_LWIN;
     int genericVK = SmoothZoom::toGenericVK(modVK);
     bool modHeld = (GetAsyncKeyState(genericVK) & 0x8000) != 0;
+    SZ_LOG_DEBUG("PTP", L"handlePtpHidReport: modVK=0x%X, genericVK=0x%X, modHeld=%d, asyncState=0x%04X",
+                 modVK, genericVK, modHeld ? 1 : 0,
+                 static_cast<unsigned>(GetAsyncKeyState(genericVK) & 0xFFFF));
     if (!modHeld)
         return;
 
@@ -431,6 +519,8 @@ static void handlePtpHidReport(const BYTE* reportData, DWORD reportSize)
     s_ptpScrollRemainder += -avgDeltaY;
 
     int32_t notches = s_ptpScrollRemainder / kPtpUnitsPerNotch;
+    SZ_LOG_DEBUG("PTP", L"handlePtpHidReport: remainder=%d, notches=%d (kPtpUnitsPerNotch=%d)",
+                 s_ptpScrollRemainder, notches, kPtpUnitsPerNotch);
     if (notches != 0)
     {
         s_ptpScrollRemainder -= notches * kPtpUnitsPerNotch;
@@ -568,11 +658,16 @@ static LRESULT CALLBACK msgWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lP
         // Raw Input fallback for scroll events that bypass LL mouse hooks.
         // Some touchpad drivers (Precision Touchpad) deliver scroll via WM_POINTER
         // to pointer-aware foreground windows (Desktop, Edge), skipping LL hooks.
+        SZ_LOG_DEBUG("PTP", L"WM_INPUT received (wParam=0x%X)", static_cast<unsigned>(wParam));
+
         UINT dwSize = 0;
         GetRawInputData(reinterpret_cast<HRAWINPUT>(lParam), RID_INPUT,
                         nullptr, &dwSize, sizeof(RAWINPUTHEADER));
         if (dwSize == 0)
+        {
+            SZ_LOG_DEBUG("PTP", L"WM_INPUT: dwSize=0, skipping");
             return DefWindowProcW(hWnd, msg, wParam, lParam);
+        }
 
         // Stack buffer — RAWINPUT is ~48 bytes for mouse, but HID can be larger
         alignas(8) BYTE buf[512];
@@ -584,10 +679,15 @@ static LRESULT CALLBACK msgWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lP
 
         auto* raw = reinterpret_cast<RAWINPUT*>(buf);
 
+        SZ_LOG_DEBUG("PTP", L"WM_INPUT: dwType=%lu, dwSize=%u",
+                     raw->header.dwType, dwSize);
+
         if (raw->header.dwType == RIM_TYPEHID)
         {
             // Precision Touchpad HID report — parse for two-finger scroll
             HANDLE hDevice = raw->header.hDevice;
+            SZ_LOG_DEBUG("PTP", L"RIM_TYPEHID: hDevice=0x%p, count=%lu, sizeHid=%lu",
+                         hDevice, raw->data.hid.dwCount, raw->data.hid.dwSizeHid);
 
             // One-time device init: parse report descriptor for contact slots
             if (hDevice != s_ptpDeviceHandle || !s_ptpDevice.valid)
