@@ -116,6 +116,36 @@ static int32_t s_ptpScrollRemainder = 0;
 // Device units of Y movement per WHEEL_DELTA notch (120). Tunable.
 static constexpr int32_t kPtpUnitsPerNotch = 25;
 
+// Windows touchpad "natural scrolling" direction setting.
+// When true, the OS flips WM_MOUSEWHEEL deltas for touchpad gestures before
+// they reach the LL hook — but raw HID reports are unaffected. The PTP path
+// must compensate to match the LL hook's (already-flipped) convention.
+// Registry: HKCU\SOFTWARE\Microsoft\Windows\CurrentVersion\PrecisionTouchPad
+//   ScrollDirection = 0 → natural (reverse), 1 or absent → traditional.
+static bool s_ptpNaturalScrolling = false;
+
+static bool queryTouchpadNaturalScrolling()
+{
+    HKEY hKey = nullptr;
+    if (RegOpenKeyExW(HKEY_CURRENT_USER,
+                      L"SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\PrecisionTouchPad",
+                      0, KEY_READ, &hKey) != ERROR_SUCCESS)
+        return false;
+
+    DWORD value = 1;
+    DWORD size = sizeof(value);
+    DWORD type = 0;
+    bool natural = false;
+    if (RegQueryValueExW(hKey, L"ScrollDirection", nullptr, &type,
+                         reinterpret_cast<LPBYTE>(&value), &size) == ERROR_SUCCESS
+        && type == REG_DWORD)
+    {
+        natural = (value == 0);
+    }
+    RegCloseKey(hKey);
+    return natural;
+}
+
 // ── Dirty-Shutdown Sentinel Helpers (R-14) ──────────────────────────────────
 
 static std::filesystem::path getSentinelPath()
@@ -525,7 +555,15 @@ static void handlePtpHidReport(const BYTE* reportData, DWORD reportSize)
     // Convert PTP device-unit Y delta to WHEEL_DELTA (120) units.
     // PTP Y increases downward. Fingers moving down = positive avgDeltaY = scroll down.
     // WHEEL_DELTA positive = scroll up. Negate for traditional Windows scroll direction.
-    s_ptpScrollRemainder += -avgDeltaY;
+    //
+    // Natural scrolling compensation: when the OS "natural scrolling" setting is ON,
+    // the LL hook's WM_MOUSEWHEEL delta is pre-flipped by Windows — but raw HID data
+    // is not. Without this check, the PTP path produces the opposite direction from
+    // the LL hook path when natural scrolling is enabled.
+    // Natural OFF: negate (traditional: fingers down → scroll up → positive WHEEL_DELTA)
+    // Natural ON:  don't negate (OS already flips LL hook; match that convention)
+    int32_t adjustedDeltaY = s_ptpNaturalScrolling ? avgDeltaY : -avgDeltaY;
+    s_ptpScrollRemainder += adjustedDeltaY;
 
     int32_t notches = s_ptpScrollRemainder / kPtpUnitsPerNotch;
     SZ_LOG_DEBUG("PTP", L"handlePtpHidReport: remainder=%d, notches=%d (kPtpUnitsPerNotch=%d)",
@@ -652,6 +690,14 @@ static LRESULT CALLBACK msgWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lP
                 }
             }
         }
+        return 0;
+
+    case WM_SETTINGCHANGE:
+        // Refresh touchpad natural scrolling setting when user changes it in Windows Settings.
+        // WM_SETTINGCHANGE is broadcast system-wide on control panel / Settings changes.
+        s_ptpNaturalScrolling = queryTouchpadNaturalScrolling();
+        SZ_LOG_DEBUG("Main", L"WM_SETTINGCHANGE: touchpad natural scrolling now %s",
+                     s_ptpNaturalScrolling ? L"ON" : L"OFF");
         return 0;
 
     case WM_ENDSESSION:
@@ -940,6 +986,11 @@ int WINAPI wWinMain(
         SmoothZoom::InputInterceptor::setMessageWindow(g_msgWindow);
         // Phase 6: Register for session lock/unlock notifications (AC-ERR.04, E6.10)
         WTSRegisterSessionNotification(g_msgWindow, NOTIFY_FOR_THIS_SESSION);
+
+        // Query Windows touchpad scroll direction for PTP natural scrolling compensation
+        s_ptpNaturalScrolling = queryTouchpadNaturalScrolling();
+        SZ_LOG_INFO("Main", L"Touchpad natural scrolling: %s",
+                    s_ptpNaturalScrolling ? L"ON" : L"OFF");
 
         // Raw Input fallback: catch touchpad scroll events that bypass LL hooks
         RAWINPUTDEVICE rids[2] = {};

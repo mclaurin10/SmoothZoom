@@ -52,8 +52,10 @@ TEST_CASE("SettingsManager starts with defaults", "[SettingsManager][Phase5]")
 
 TEST_CASE("Load valid JSON → all fields parsed (AC-2.9.01)", "[SettingsManager][Phase5]")
 {
+    // Use VK_LSHIFT (0xA0 = 160) as modifier — VK_LCONTROL (0xA2 = 162) is
+    // blocked by the Ctrl-removal policy (commit c206950) and reverts to VK_LWIN.
     std::string json = R"({
-        "modifierKeyVK": 162,
+        "modifierKeyVK": 160,
         "minZoom": 1.5,
         "maxZoom": 8.0,
         "keyboardZoomStep": 0.5,
@@ -75,7 +77,7 @@ TEST_CASE("Load valid JSON → all fields parsed (AC-2.9.01)", "[SettingsManager
     REQUIRE(mgr.loadFromFile(path.c_str()));
 
     auto snap = mgr.snapshot();
-    REQUIRE(snap->modifierKeyVK == 162);
+    REQUIRE(snap->modifierKeyVK == 160);
     REQUIRE(snap->minZoom == Approx(1.5f));
     REQUIRE(snap->maxZoom == Approx(8.0f));
     REQUIRE(snap->keyboardZoomStep == Approx(0.5f));
@@ -94,9 +96,10 @@ TEST_CASE("Load valid JSON → all fields parsed (AC-2.9.01)", "[SettingsManager
 
 TEST_CASE("Save then load round-trip (AC-2.9.02)", "[SettingsManager][Phase5]")
 {
-    // Set non-default values
+    // Set non-default values — use VK_LSHIFT (0xA0), not VK_LCONTROL (0xA2)
+    // which is blocked by the Ctrl-removal policy and reverts to VK_LWIN.
     SettingsSnapshot custom;
-    custom.modifierKeyVK = 0xA2;
+    custom.modifierKeyVK = 0xA0;
     custom.minZoom = 1.5f;
     custom.maxZoom = 7.0f;
     custom.keyboardZoomStep = 0.1f;
