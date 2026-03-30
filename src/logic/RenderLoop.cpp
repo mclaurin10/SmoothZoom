@@ -343,9 +343,30 @@ void RenderLoop::frameTick()
     int32_t rawPtrX = cursorPos.x;
     int32_t rawPtrY = cursorPos.y;
 
-    // Use primary monitor height for deadzone scaling (s_screenH is now virtual screen height)
-    int32_t primaryH = GetSystemMetrics(SM_CYSCREEN);
-    int32_t deadzoneThreshold = primaryH > 0 ? (3 * primaryH / 1080) : 3;
+    // Per-frame active monitor detection (AC-MM.04, E6.4–E6.7)
+    // MonitorFromPoint and GetMonitorInfo are lightweight shared-memory reads (~1µs),
+    // no heap allocation, no mutex — safe for the hot path.
+    static HMONITOR s_activeMonitor = nullptr;
+    POINT cursorPt = {rawPtrX, rawPtrY};
+    HMONITOR hMon = MonitorFromPoint(cursorPt, MONITOR_DEFAULTTONEAREST);
+    MONITORINFO monInfo = {};
+    monInfo.cbSize = sizeof(monInfo);
+    GetMonitorInfo(hMon, &monInfo);
+
+    int32_t monLeft   = monInfo.rcMonitor.left;
+    int32_t monTop    = monInfo.rcMonitor.top;
+    int32_t monWidth  = monInfo.rcMonitor.right - monInfo.rcMonitor.left;
+    int32_t monHeight = monInfo.rcMonitor.bottom - monInfo.rcMonitor.top;
+
+    // Log on monitor transition (state transition only, not per-frame)
+    if (hMon != s_activeMonitor) {
+        s_activeMonitor = hMon;
+        SZ_LOG_INFO("RenderLoop", L"Monitor transition: rect=(%d,%d %dx%d)",
+                    monLeft, monTop, monWidth, monHeight);
+    }
+
+    // Per-monitor deadzone scaling (AC-MM.04)
+    int32_t deadzoneThreshold = monHeight > 0 ? (3 * monHeight / 1080) : 3;
     if (deadzoneThreshold < 1) deadzoneThreshold = 1;
 
     if (!s_deadzoneInitialized)
@@ -409,12 +430,34 @@ void RenderLoop::frameTick()
     switch (newSource)
     {
     case TrackingSource::Caret:
-        targetOffset = ViewportTracker::computeCaretOffset(
-            caretRect, zoom, s_screenW, s_screenH, s_screenOriginX, s_screenOriginY);
+        // Use caret's monitor for centering (AC-MM.04)
+        {
+            ScreenPoint caretCenter = caretRect.center();
+            POINT cp = {caretCenter.x, caretCenter.y};
+            HMONITOR hElemMon = MonitorFromPoint(cp, MONITOR_DEFAULTTONEAREST);
+            MONITORINFO emi = {}; emi.cbSize = sizeof(emi);
+            GetMonitorInfo(hElemMon, &emi);
+            int32_t eMonL = emi.rcMonitor.left, eMonT = emi.rcMonitor.top;
+            int32_t eMonW = emi.rcMonitor.right - eMonL;
+            int32_t eMonH = emi.rcMonitor.bottom - eMonT;
+            targetOffset = ViewportTracker::computeCaretOffset(
+                caretRect, zoom, eMonW, eMonH, eMonL, eMonT);
+        }
         break;
     case TrackingSource::Focus:
-        targetOffset = ViewportTracker::computeElementOffset(
-            focusRect, zoom, s_screenW, s_screenH, s_screenOriginX, s_screenOriginY);
+        // Use focus element's monitor for centering (AC-MM.04)
+        {
+            ScreenPoint focusCenter = focusRect.center();
+            POINT fp = {focusCenter.x, focusCenter.y};
+            HMONITOR hElemMon = MonitorFromPoint(fp, MONITOR_DEFAULTTONEAREST);
+            MONITORINFO emi = {}; emi.cbSize = sizeof(emi);
+            GetMonitorInfo(hElemMon, &emi);
+            int32_t eMonL = emi.rcMonitor.left, eMonT = emi.rcMonitor.top;
+            int32_t eMonW = emi.rcMonitor.right - eMonL;
+            int32_t eMonH = emi.rcMonitor.bottom - eMonT;
+            targetOffset = ViewportTracker::computeElementOffset(
+                focusRect, zoom, eMonW, eMonH, eMonL, eMonT);
+        }
         break;
     case TrackingSource::Pointer:
     default:

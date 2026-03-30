@@ -444,14 +444,82 @@ TEST_CASE("Multi-monitor: desktop-under-pointer invariant holds with negative or
 TEST_CASE("Multi-monitor: element offset respects negative origin",
           "[ViewportTracker][Phase6]")
 {
-    // Element on left monitor
+    // Element on left monitor, virtual desktop dimensions
     ScreenRect rect{-1000, 400, -900, 450};
     auto off = ViewportTracker::computeElementOffset(
         rect, 2.0f, kDualW, kDualH, kDualOriginX, kDualOriginY);
 
-    // Offset should be >= origin
-    REQUIRE(off.x >= static_cast<float>(kDualOriginX));
-    REQUIRE(off.y >= static_cast<float>(kDualOriginY));
+    // New clamping: minOffX = originX * (1 - 1/Z) = -1920 * 0.5 = -960
+    //               maxOffX = (originX + screenW) * (1 - 1/Z) = 1920 * 0.5 = 960
+    float minOff = static_cast<float>(kDualOriginX) * (1.0f - 1.0f / 2.0f);
+    float maxOff = static_cast<float>(kDualOriginX + kDualW) * (1.0f - 1.0f / 2.0f);
+    REQUIRE(off.x >= minOff - 0.01f);
+    REQUIRE(off.x <= maxOff + 0.01f);
+    REQUIRE(off.y >= 0.0f);
+}
+
+// ─── Per-monitor centering (Phase 6: AC-MM.04) ──────────────────────────
+
+// Secondary monitor: 1920x1080 at origin (1920, 0)
+static constexpr int kMon2OriginX = 1920;
+static constexpr int kMon2OriginY = 0;
+static constexpr int kMon2W = 1920;
+static constexpr int kMon2H = 1080;
+
+TEST_CASE("Per-monitor: element centers on secondary monitor (AC-MM.04)",
+          "[ViewportTracker][Phase6]")
+{
+    // Element at center of monitor 2: (2880, 540)
+    ScreenRect rect{2830, 515, 2930, 565}; // center = (2880, 540)
+    auto off = ViewportTracker::computeElementOffset(
+        rect, 2.0f, kMon2W, kMon2H, kMon2OriginX, kMon2OriginY);
+
+    // monCenterX = 1920 + 1920/2 = 2880, xOff = 2880 - 2880/2 = 1440
+    // monCenterY = 0 + 1080/2 = 540, yOff = 540 - 540/2 = 270
+    REQUIRE(off.x == Approx(1440.0f));
+    REQUIRE(off.y == Approx(270.0f));
+}
+
+TEST_CASE("Per-monitor: caret lookahead on secondary monitor",
+          "[ViewportTracker][Phase6]")
+{
+    // Caret at center of monitor 2
+    ScreenRect caret{2880, 530, 2882, 550}; // center ≈ (2881, 540)
+    auto caretOff = ViewportTracker::computeCaretOffset(
+        caret, 2.0f, kMon2W, kMon2H, kMon2OriginX, kMon2OriginY);
+    auto elemOff = ViewportTracker::computeElementOffset(
+        caret, 2.0f, kMon2W, kMon2H, kMon2OriginX, kMon2OriginY);
+
+    // Caret should be shifted right by lookahead
+    float viewportW = kMon2W / 2.0f;
+    float expectedShift = viewportW * ViewportTracker::kCaretLookaheadFraction;
+    REQUIRE(caretOff.x == Approx(elemOff.x + expectedShift).margin(1.0f));
+}
+
+TEST_CASE("Per-monitor: focus near left edge of secondary monitor clamps correctly",
+          "[ViewportTracker][Phase6]")
+{
+    // Element near left edge of monitor 2
+    ScreenRect rect{1930, 400, 1970, 440}; // center = (1950, 420)
+    auto off = ViewportTracker::computeElementOffset(
+        rect, 3.0f, kMon2W, kMon2H, kMon2OriginX, kMon2OriginY);
+
+    // minOffX = 1920 * (1 - 1/3) = 1920 * 2/3 = 1280
+    float minOff = static_cast<float>(kMon2OriginX) * (1.0f - 1.0f / 3.0f);
+    REQUIRE(off.x >= minOff - 0.01f);
+}
+
+TEST_CASE("Per-monitor: backward compatible — single monitor centering unchanged",
+          "[ViewportTracker][Phase6]")
+{
+    // With originX=0, new formula should match old behavior
+    ScreenRect rect{800, 400, 900, 450}; // center = (850, 425)
+    auto off = ViewportTracker::computeElementOffset(
+        rect, 2.0f, kScreenW, kScreenH, 0, 0);
+
+    // Old formula: xOff = 850 - (1920/2)/2 = 850 - 480 = 370
+    REQUIRE(off.x == Approx(370.0f));
+    REQUIRE(off.y == Approx(155.0f));
 }
 
 TEST_CASE("Multi-monitor: default origin (0,0) matches single-monitor behavior",

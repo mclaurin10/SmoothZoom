@@ -55,20 +55,31 @@ ViewportTracker::Offset ViewportTracker::computeElementOffset(
     if (zoom <= 1.0f)
         return {0.0f, 0.0f};
 
-    // Center the element in the viewport
-    float viewportW = static_cast<float>(screenW) / zoom;
-    float viewportH = static_cast<float>(screenH) / zoom;
+    float invZoom = 1.0f / zoom;
 
+    // Center the element on its physical monitor (AC-MM.04).
+    // Derivation: we want the element at the physical center of the monitor.
+    // Physical center of monitor = originX + screenW/2.
+    // Zoom mapping: physX = (virtualX - offsetX) * zoom.
+    // Setting physX = originX + screenW/2 and virtualX = center.x:
+    //   offsetX = center.x - (originX + screenW/2) / zoom
+    // When originX=0: simplifies to center.x - viewportW/2 (backward compatible).
     ScreenPoint center = elementRect.center();
 
-    float xOff = static_cast<float>(center.x) - viewportW / 2.0f;
-    float yOff = static_cast<float>(center.y) - viewportH / 2.0f;
+    float monCenterX = static_cast<float>(originX) + static_cast<float>(screenW) / 2.0f;
+    float monCenterY = static_cast<float>(originY) + static_cast<float>(screenH) / 2.0f;
+    float xOff = static_cast<float>(center.x) - monCenterX / zoom;
+    float yOff = static_cast<float>(center.y) - monCenterY / zoom;
 
-    // Clamp to virtual desktop bounds
-    float minOffX = static_cast<float>(originX);
-    float minOffY = static_cast<float>(originY);
-    float maxOffX = static_cast<float>(originX) + static_cast<float>(screenW) - viewportW;
-    float maxOffY = static_cast<float>(originY) + static_cast<float>(screenH) - viewportH;
+    // Clamp: keep active monitor's physical display within its virtual area.
+    // Active monitor physical shows virtual columns [offX + originX/Z, offX + (originX+screenW)/Z)
+    // These must stay within [originX, originX+screenW]:
+    //   offX >= originX * (1 - 1/Z)  and  offX <= (originX+screenW) * (1 - 1/Z)
+    // When originX=0: min=0, max=screenW*(1-1/Z) — same as before.
+    float minOffX = static_cast<float>(originX) * (1.0f - invZoom);
+    float minOffY = static_cast<float>(originY) * (1.0f - invZoom);
+    float maxOffX = static_cast<float>(originX + screenW) * (1.0f - invZoom);
+    float maxOffY = static_cast<float>(originY + screenH) * (1.0f - invZoom);
 
     xOff = std::clamp(xOff, minOffX, maxOffX);
     yOff = std::clamp(yOff, minOffY, maxOffY);
@@ -87,21 +98,23 @@ ViewportTracker::Offset ViewportTracker::computeCaretOffset(
     if (zoom <= 1.0f)
         return {0.0f, 0.0f};
 
+    float invZoom = 1.0f / zoom;
     float viewportW = static_cast<float>(screenW) / zoom;
-    float viewportH = static_cast<float>(screenH) / zoom;
 
     ScreenPoint center = caretRect.center();
 
-    // Apply lookahead: shift target ahead of caret in typing direction
+    // Center on physical monitor + lookahead (AC-2.6.06, AC-MM.04)
+    float monCenterX = static_cast<float>(originX) + static_cast<float>(screenW) / 2.0f;
+    float monCenterY = static_cast<float>(originY) + static_cast<float>(screenH) / 2.0f;
     float lookahead = viewportW * kCaretLookaheadFraction;
-    float xOff = static_cast<float>(center.x) + lookahead - viewportW / 2.0f;
-    float yOff = static_cast<float>(center.y) - viewportH / 2.0f;
+    float xOff = static_cast<float>(center.x) + lookahead - monCenterX / zoom;
+    float yOff = static_cast<float>(center.y) - monCenterY / zoom;
 
-    // Clamp to virtual desktop bounds
-    float minOffX = static_cast<float>(originX);
-    float minOffY = static_cast<float>(originY);
-    float maxOffX = static_cast<float>(originX) + static_cast<float>(screenW) - viewportW;
-    float maxOffY = static_cast<float>(originY) + static_cast<float>(screenH) - viewportH;
+    // Clamp: keep active monitor's physical display within its virtual area
+    float minOffX = static_cast<float>(originX) * (1.0f - invZoom);
+    float minOffY = static_cast<float>(originY) * (1.0f - invZoom);
+    float maxOffX = static_cast<float>(originX + screenW) * (1.0f - invZoom);
+    float maxOffY = static_cast<float>(originY + screenH) * (1.0f - invZoom);
 
     xOff = std::clamp(xOff, minOffX, maxOffX);
     yOff = std::clamp(yOff, minOffY, maxOffY);

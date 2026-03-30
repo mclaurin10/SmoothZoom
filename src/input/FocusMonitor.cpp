@@ -10,6 +10,7 @@
 
 #include "smoothzoom/input/FocusMonitor.h"
 #include "smoothzoom/common/SharedState.h"
+#include "smoothzoom/support/Logger.h"
 
 #ifndef SMOOTHZOOM_TESTING
 
@@ -23,7 +24,6 @@
 #include <windows.h>
 #include <uiautomation.h>
 #include <chrono>
-#include <future>
 #include <thread>
 
 #pragma comment(lib, "Ole32.lib")
@@ -86,23 +86,19 @@ public:
     {
         if (!sender || !state_) return S_OK;
 
-        // Timeout bounding-rect query at 100ms (R-11: slow UIA providers).
-        // Use std::async to bound the COM proxy call duration.
+        // Direct call — bounded by IUIAutomation6::ConnectionTimeout (R-11)
+        auto start = std::chrono::steady_clock::now();
         RECT boundingRect{};
-        auto future = std::async(std::launch::async, [sender]() {
-            RECT r{};
-            HRESULT h = sender->get_CurrentBoundingRectangle(&r);
-            return std::pair<HRESULT, RECT>{h, r};
-        });
+        HRESULT hr = sender->get_CurrentBoundingRectangle(&boundingRect);
+        auto elapsed = std::chrono::steady_clock::now() - start;
+        auto elapsedMs = std::chrono::duration_cast<std::chrono::milliseconds>(elapsed).count();
 
-        auto status = future.wait_for(std::chrono::milliseconds(100));
-        if (status == std::future_status::timeout)
-            return S_OK; // Skip update — UIA provider too slow (R-11)
+        // Log slow callbacks (R-11 mitigation item 3)
+        if (elapsedMs > 50) {
+            SZ_LOG_WARN("FocusMonitor", L"Slow UIA bounding rect query: %lldms", elapsedMs);
+        }
 
-        auto [hr, result] = future.get();
-        boundingRect = result;
         if (FAILED(hr)) return S_OK; // Silent degradation (AC-2.5.14)
-
         if (!isValidRect(boundingRect)) return S_OK; // Reject bad rects (R-09)
 
         // Write validated rectangle to shared state via SeqLock
@@ -146,6 +142,19 @@ struct FocusMonitor::Impl
         {
             CoUninitialize();
             return;
+        }
+
+        // Set 100ms timeout for UIA property queries (R-11 mitigation)
+        IUIAutomation6* automation6 = nullptr;
+        HRESULT hrTimeout = automation->QueryInterface(
+            __uuidof(IUIAutomation6),
+            reinterpret_cast<void**>(&automation6));
+        if (SUCCEEDED(hrTimeout) && automation6) {
+            automation6->put_ConnectionTimeout(100);  // 100ms
+            automation6->Release();
+            SZ_LOG_INFO("FocusMonitor", L"UIA connection timeout set to 100ms");
+        } else {
+            SZ_LOG_WARN("FocusMonitor", L"IUIAutomation6 unavailable — no query timeout");
         }
 
         handler = new FocusChangedHandler(state);
