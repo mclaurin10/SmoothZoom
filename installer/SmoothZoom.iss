@@ -40,7 +40,8 @@ PrivilegesRequired=admin
 SetupIconFile=..\res\SmoothZoom.ico
 UninstallDisplayIcon={app}\{#MyAppExeName}
 WizardStyle=modern
-; Prevent installing to a user-chosen non-secure path (UIAccess requires Program Files)
+; UIAccess requires installation to a secure path (Program Files or Windows).
+; Validate the user's choice in NextButtonClick below.
 DisableDirPage=no
 AllowNoIcons=yes
 
@@ -66,6 +67,11 @@ Filename: "{app}\{#MyAppExeName}"; Description: "Launch {#MyAppName}"; Flags: no
 Filename: "taskkill"; Parameters: "/F /IM {#MyAppExeName}"; Flags: runhidden; RunOnceId: "KillApp"
 
 [Code]
+// Expected thumbprint of the SmoothZoom dev certificate (SHA-1, uppercase, no spaces).
+// Update this constant when the certificate is regenerated.
+const
+  ExpectedCertThumbprint = '';  // TODO: Set to actual thumbprint from dev_sign_setup.ps1
+
 // Kill any running SmoothZoom instance before installation begins
 function InitializeSetup(): Boolean;
 var
@@ -76,7 +82,32 @@ begin
   Result := True;
 end;
 
-// After installation: install the dev certificate to Trusted Root CA
+// F-02: Validate that the install directory is a secure path (UIAccess requirement).
+// Program Files or Windows directory required; other paths cause silent API failure.
+function NextButtonClick(CurPageID: Integer): Boolean;
+var
+  Dir, PF, PF86, WinDir: String;
+begin
+  Result := True;
+  if CurPageID = wpSelectDir then
+  begin
+    Dir := Uppercase(WizardDirValue);
+    PF := Uppercase(ExpandConstant('{autopf}'));
+    PF86 := Uppercase(ExpandConstant('{autopf32}'));
+    WinDir := Uppercase(ExpandConstant('{win}'));
+    if (Pos(PF, Dir) <> 1) and (Pos(PF86, Dir) <> 1) and (Pos(WinDir, Dir) <> 1) then
+    begin
+      MsgBox('SmoothZoom requires UIAccess and must be installed to a secure location ' +
+             '(Program Files or Windows directory).' + #13#10 + #13#10 +
+             'Please choose a path under ' + ExpandConstant('{autopf}') + '.',
+             mbError, MB_OK);
+      Result := False;
+    end;
+  end;
+end;
+
+// F-01: After installation, install the dev certificate to Trusted Root CA.
+// Shows a warning dialog so users understand a root CA is being installed.
 procedure CurStepChanged(CurStep: TSetupStep);
 var
   ResultCode: Integer;
@@ -85,21 +116,34 @@ begin
   if CurStep = ssPostInstall then
   begin
     CertPath := ExpandConstant('{app}\SmoothZoomDev.cer');
-    // certutil -addstore adds to LocalMachine\Root (requires admin, which we have)
-    Exec('certutil', '-addstore Root "' + CertPath + '"', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
-    if ResultCode <> 0 then
-      MsgBox('Warning: Could not install the signing certificate. SmoothZoom may not function correctly.' + #13#10 +
-             'You can manually install the certificate from: ' + CertPath, mbInformation, MB_OK);
+    if MsgBox('SmoothZoom needs to install a self-signed root CA certificate to the system trust store. ' +
+              'This is required for the UIAccess privilege that enables screen magnification.' + #13#10 + #13#10 +
+              'The certificate will be removed when SmoothZoom is uninstalled.' + #13#10 + #13#10 +
+              'Install the certificate now?', mbConfirmation, MB_YESNO) = IDYES then
+    begin
+      // certutil -addstore adds to LocalMachine\Root (requires admin, which we have)
+      Exec('certutil', '-addstore Root "' + CertPath + '"', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+      if ResultCode <> 0 then
+        MsgBox('Warning: Could not install the signing certificate. SmoothZoom may not function correctly.' + #13#10 +
+               'You can manually install the certificate from: ' + CertPath, mbInformation, MB_OK);
+    end
+    else
+      MsgBox('Certificate not installed. SmoothZoom may not function correctly without it.' + #13#10 +
+             'You can manually install it later from: ' + CertPath, mbInformation, MB_OK);
   end;
 end;
 
-// On uninstall: remove the dev certificate from Trusted Root CA
+// F-04: On uninstall, remove the dev certificate by thumbprint (not CN) for reliable cleanup.
 procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
 var
   ResultCode: Integer;
 begin
   if CurUninstallStep = usPostUninstall then
   begin
-    Exec('certutil', '-delstore Root "SmoothZoom Dev"', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+    if ExpectedCertThumbprint <> '' then
+      Exec('certutil', '-delstore Root ' + ExpectedCertThumbprint, '', SW_HIDE, ewWaitUntilTerminated, ResultCode)
+    else
+      // Fallback to CN-based removal if thumbprint not configured
+      Exec('certutil', '-delstore Root "SmoothZoom Dev"', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
   end;
 end;

@@ -95,7 +95,8 @@ inline void writeToFile(const wchar_t* line)
         return;
 
     // Convert wide string to UTF-8 for the log file
-    char utf8[1400];
+    // F-06: Sized for worst-case UTF-8 expansion (4 bytes per wchar_t × 640 = 2560)
+    char utf8[2600];
     int len = WideCharToMultiByte(CP_UTF8, 0, line, -1, utf8, sizeof(utf8) - 1, nullptr, nullptr);
     if (len <= 0)
         return;

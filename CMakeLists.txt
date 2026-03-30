@@ -18,7 +18,8 @@ endif()
 # Compiler flags (MSVC)
 # ---------------------------------------------------------------------------
 if(MSVC)
-    add_compile_options(/W4 /WX /permissive- /utf-8)
+    add_compile_options(/W4 /WX /permissive- /utf-8 /sdl /guard:cf)
+    add_link_options(/GUARD:CF /CETCOMPAT)
 endif()
 
 # ---------------------------------------------------------------------------

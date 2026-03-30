@@ -252,7 +252,16 @@ static LONG WINAPI crashHandler(EXCEPTION_POINTERS* /*exInfo*/)
 {
     // Best-effort zoom reset — direct API calls, no heap allocation.
     // MagSetFullscreenTransform has process-global effect regardless of thread.
-    MagSetFullscreenTransform(1.0f, 0, 0);
+    // F-08: Wrap in __try for defense in depth — if Mag state is severely corrupted,
+    // this prevents a structured exception from aborting the rest of the handler.
+    __try
+    {
+        MagSetFullscreenTransform(1.0f, 0, 0);
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER)
+    {
+        // Swallow — zoom reset failed but we still attempt input transform reset below
+    }
 
     // Best-effort input transform reset — may fail if Mag state is corrupted.
     __try

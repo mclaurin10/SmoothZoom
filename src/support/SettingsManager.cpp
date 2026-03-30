@@ -73,13 +73,20 @@ bool SettingsManager::loadFromFile(const char* path)
 
     readInt("modifierKeyVK", settings.modifierKeyVK, 0, 0xFF);
 
-    // Ctrl removed as modifier option — silently revert to Win (default)
-    // Raw VK values to avoid #include <windows.h>: LCONTROL=0xA2, RCONTROL=0xA3, CONTROL=0x11, LWIN=0x5B
-    if (settings.modifierKeyVK == 0xA2
-        || settings.modifierKeyVK == 0xA3
-        || settings.modifierKeyVK == 0x11)
+    // F-09: Whitelist of valid modifier VK codes. Reject everything else to prevent
+    // unusable configurations from crafted config files.
+    // Raw VK values to avoid #include <windows.h>:
+    //   LWIN=0x5B, RWIN=0x5C, LSHIFT=0xA0, RSHIFT=0xA1, LMENU(Alt)=0xA4, RMENU=0xA5,
+    //   SHIFT=0x10, MENU(Alt)=0x12
+    // Ctrl family (0x11, 0xA2, 0xA3) deliberately excluded per Ctrl-removal policy.
     {
-        settings.modifierKeyVK = 0x5B;
+        int vk = settings.modifierKeyVK;
+        bool valid = (vk == 0x5B || vk == 0x5C ||    // LWIN, RWIN
+                      vk == 0xA0 || vk == 0xA1 ||    // LSHIFT, RSHIFT
+                      vk == 0xA4 || vk == 0xA5 ||    // LMENU, RMENU
+                      vk == 0x10 || vk == 0x12);      // SHIFT, MENU
+        if (!valid)
+            settings.modifierKeyVK = 0x5B;  // Default to LWIN
     }
 
     readInt("animationSpeed", settings.animationSpeed, 0, 2);
