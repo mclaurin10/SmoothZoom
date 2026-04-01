@@ -353,16 +353,14 @@ void RenderLoop::frameTick()
     monInfo.cbSize = sizeof(monInfo);
     GetMonitorInfo(hMon, &monInfo);
 
-    int32_t monLeft   = monInfo.rcMonitor.left;
-    int32_t monTop    = monInfo.rcMonitor.top;
-    int32_t monWidth  = monInfo.rcMonitor.right - monInfo.rcMonitor.left;
     int32_t monHeight = monInfo.rcMonitor.bottom - monInfo.rcMonitor.top;
 
     // Log on monitor transition (state transition only, not per-frame)
     if (hMon != s_activeMonitor) {
         s_activeMonitor = hMon;
         SZ_LOG_INFO("RenderLoop", L"Monitor transition: rect=(%d,%d %dx%d)",
-                    monLeft, monTop, monWidth, monHeight);
+                    monInfo.rcMonitor.left, monInfo.rcMonitor.top,
+                    monInfo.rcMonitor.right - monInfo.rcMonitor.left, monHeight);
     }
 
     // Per-monitor deadzone scaling (AC-MM.04)
