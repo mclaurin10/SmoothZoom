@@ -190,7 +190,9 @@ static LRESULT CALLBACK mouseHookProc(int nCode, WPARAM wParam, LPARAM lParam)
 }
 
 // ─── Keyboard Hook Callback ─────────────────────────────────────────────────
-// Tracks Win key via WinKeyManager. Observe-only (never consumes). (AC-2.1.18)
+// Tracks Win key via WinKeyManager. Consumes zoom-in/out keys only when the
+// configured modifier is held (prevents character leak with Shift modifier);
+// all other keyboard events pass through. (AC-2.1.18)
 // Phase 4: Tracks Ctrl+Alt for temporary toggle (AC-2.7.01–AC-2.7.10).
 
 // Phase 4/5B: Toggle key state — configurable keys (3 bools + 1 queue push), R-05 safe.
@@ -331,7 +333,36 @@ static LRESULT CALLBACK keyboardHookProc(int nCode, WPARAM wParam, LPARAM lParam
         }
     }
 
-    // Never consume keyboard events (Doc 3 §3.1) — only observe (AC-2.1.18)
+    // Consume zoom-in/zoom-out action keys when the configured modifier is held.
+    // Required for non-Win modifiers (e.g., Shift) where Shift+= produces '+' and
+    // Shift+- produces '_', leaking into focused text fields. The zoom command was
+    // already posted above (lines 278-299) on key-down; this gate blocks the
+    // keystroke from reaching applications on BOTH key-down and key-up.
+    //
+    // Why only zoom-in/out (not Esc/settings/toggle/inversion):
+    //   - VK_ESCAPE produces no character — safe to pass through (apps may need it).
+    //   - Win+Ctrl+M, Ctrl+Alt+I, Ctrl+Q, Ctrl+Alt toggle — all use Ctrl/Alt/Win
+    //     which never produce printable characters. Consuming them could break
+    //     standard app behavior (e.g., Esc closing dialogs).
+    //
+    // LLKHF_INJECTED guard: let synthesized events (from SendInput, including
+    // WinKeyManager's own Ctrl injection) pass through untouched so we don't
+    // interfere with other hook consumers or our own suppression logic.
+    if ((isDown || isUp)
+        && !(info->flags & LLKHF_INJECTED)
+        && isConfiguredModifierHeld())
+    {
+        switch (info->vkCode)
+        {
+        case VK_OEM_PLUS:   // '=' / '+' on main keyboard
+        case VK_ADD:        // '+' on numpad
+        case VK_OEM_MINUS:  // '-' on main keyboard
+        case VK_SUBTRACT:   // '-' on numpad
+            return 1;       // Consume — prevent character insertion
+        }
+    }
+
+    // Never consume non-zoom keyboard events (Doc 3 §3.1, AC-2.1.18)
     return CallNextHookEx(s_keyboardHook, nCode, wParam, lParam);
 }
 
