@@ -335,9 +335,12 @@ static LRESULT CALLBACK keyboardHookProc(int nCode, WPARAM wParam, LPARAM lParam
 
     // Consume zoom-in/zoom-out action keys when the configured modifier is held.
     // Required for non-Win modifiers (e.g., Shift) where Shift+= produces '+' and
-    // Shift+- produces '_', leaking into focused text fields. The zoom command was
-    // already posted above (lines 278-299) on key-down; this gate blocks the
-    // keystroke from reaching applications on BOTH key-down and key-up.
+    // Shift+- produces '_', leaking into focused text fields. Also required for
+    // peripheral macros (Logitech Options+, AHK, etc.) that send Shift+=/Shift+-
+    // via SendInput — those events have LLKHF_INJECTED set but must still be
+    // consumed, otherwise the character leaks into the focused app. The zoom
+    // command was already posted above (lines 278-299) on key-down; this gate
+    // blocks the keystroke from reaching applications on BOTH key-down and key-up.
     //
     // Why only zoom-in/out (not Esc/settings/toggle/inversion):
     //   - VK_ESCAPE produces no character — safe to pass through (apps may need it).
@@ -345,12 +348,10 @@ static LRESULT CALLBACK keyboardHookProc(int nCode, WPARAM wParam, LPARAM lParam
     //     which never produce printable characters. Consuming them could break
     //     standard app behavior (e.g., Esc closing dialogs).
     //
-    // LLKHF_INJECTED guard: let synthesized events (from SendInput, including
-    // WinKeyManager's own Ctrl injection) pass through untouched so we don't
-    // interfere with other hook consumers or our own suppression logic.
-    if ((isDown || isUp)
-        && !(info->flags & LLKHF_INJECTED)
-        && isConfiguredModifierHeld())
+    // No LLKHF_INJECTED guard: WinKeyManager only injects VK_CONTROL, never any
+    // of the four zoom keys below, so consuming injected variants is safe and
+    // required for peripheral-macro use cases.
+    if ((isDown || isUp) && isConfiguredModifierHeld())
     {
         switch (info->vkCode)
         {
