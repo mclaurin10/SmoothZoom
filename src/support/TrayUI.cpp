@@ -54,6 +54,8 @@ static constexpr int IDC_INVERT_CHECK     = 1013;
 static constexpr int IDC_AUTOSTART_CHECK  = 1014;
 static constexpr int IDC_START_ZOOMED_CHECK = 1015;
 static constexpr int IDC_REVERSE_SCROLL_CHECK = 1018;
+static constexpr int IDC_SCROLL_SENS_EDIT = 1019;
+static constexpr int IDC_MOMENTUM_CHECK   = 1020;
 static constexpr int IDC_APPLY_BUTTON     = 1016;
 static constexpr int IDC_CLOSE_BUTTON     = 1017;
 
@@ -398,7 +400,7 @@ void TrayUI::createSettingsWindow()
     auto scale = [dpi](int v) { return MulDiv(v, dpi, 96); };
 
     int wndW = scale(480);
-    int wndH = scale(604);
+    int wndH = scale(672); // +1 numeric row (scroll sensitivity) +1 checkbox (momentum)
 
     // Center on screen
     int screenW = GetSystemMetrics(SM_CXSCREEN);
@@ -527,6 +529,11 @@ void TrayUI::createSettingsWindow()
     SendMessageW(hAnim, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"Fast"));
     curY += gap;
 
+    // Row 9: Scroll Sensitivity (A3 - multiplier on scroll-gesture zoom rate)
+    createLabel(L"Scroll Sensitivity (0.1-5.0)", curY);
+    createEdit(IDC_SCROLL_SENS_EDIT, curY);
+    curY += gap;
+
     // Checkboxes
     createCheck(L"Image Smoothing (always on)", IDC_SMOOTHING_CHECK, curY, false);
     curY += checkGap;
@@ -541,6 +548,9 @@ void TrayUI::createSettingsWindow()
     curY += checkGap;
 
     createCheck(L"Reverse Scroll Direction", IDC_REVERSE_SCROLL_CHECK, curY);
+    curY += checkGap;
+
+    createCheck(L"Momentum / Inertial Scroll", IDC_MOMENTUM_CHECK, curY);
     curY += checkGap;
 
     createCheck(L"Start with Windows", IDC_AUTOSTART_CHECK, curY);
@@ -604,6 +614,7 @@ void TrayUI::populateFromSnapshot()
     setEditInt(GetDlgItem(settingsHwnd_, IDC_KB_STEP_EDIT), stepPct);
 
     setEditFloat(GetDlgItem(settingsHwnd_, IDC_DEFAULT_ZOOM_EDIT), snap->defaultZoomLevel);
+    setEditFloat(GetDlgItem(settingsHwnd_, IDC_SCROLL_SENS_EDIT), snap->scrollSensitivity);
 
     // Animation speed combo
     SendDlgItemMessageW(settingsHwnd_, IDC_ANIM_SPEED_COMBO, CB_SETCURSEL,
@@ -620,6 +631,8 @@ void TrayUI::populateFromSnapshot()
                          snap->colorInversionEnabled ? BST_CHECKED : BST_UNCHECKED, 0);
     SendDlgItemMessageW(settingsHwnd_, IDC_REVERSE_SCROLL_CHECK, BM_SETCHECK,
                          snap->reverseScrollDirection ? BST_CHECKED : BST_UNCHECKED, 0);
+    SendDlgItemMessageW(settingsHwnd_, IDC_MOMENTUM_CHECK, BM_SETCHECK,
+                         snap->momentumZoom ? BST_CHECKED : BST_UNCHECKED, 0);
     SendDlgItemMessageW(settingsHwnd_, IDC_AUTOSTART_CHECK, BM_SETCHECK,
                          isAutoStartEnabled() ? BST_CHECKED : BST_UNCHECKED, 0);
     SendDlgItemMessageW(settingsHwnd_, IDC_START_ZOOMED_CHECK, BM_SETCHECK,
@@ -700,6 +713,7 @@ void TrayUI::validateAndApply()
     float defaultZoom = getEditFloat(GetDlgItem(settingsHwnd_, IDC_DEFAULT_ZOOM_EDIT), 2.0f);
     int stepPct = getEditInt(GetDlgItem(settingsHwnd_, IDC_KB_STEP_EDIT), 25);
     int animSpeed = static_cast<int>(SendDlgItemMessageW(settingsHwnd_, IDC_ANIM_SPEED_COMBO, CB_GETCURSEL, 0, 0));
+    float scrollSens = getEditFloat(GetDlgItem(settingsHwnd_, IDC_SCROLL_SENS_EDIT), 1.0f);
 
     // AC-2.9.10: Min > Max validation
     if (minZoom > maxZoom)
@@ -719,6 +733,10 @@ void TrayUI::validateAndApply()
     minZoom = (std::max)(1.0f, (std::min)(5.0f, minZoom));
     maxZoom = (std::max)(2.0f, (std::min)(10.0f, maxZoom));
     defaultZoom = (std::max)(minZoom, (std::min)(maxZoom, defaultZoom));
+
+    // A3: scroll sensitivity multiplier, clamped to match SettingsManager [0.1, 5.0]
+    scrollSens = (std::max)(0.1f, (std::min)(5.0f, scrollSens));
+    setEditFloat(GetDlgItem(settingsHwnd_, IDC_SCROLL_SENS_EDIT), scrollSens);
 
     // Build snapshot
     SettingsSnapshot snap;
@@ -744,6 +762,9 @@ void TrayUI::validateAndApply()
         (SendDlgItemMessageW(settingsHwnd_, IDC_AUTOSTART_CHECK, BM_GETCHECK, 0, 0) == BST_CHECKED);
     snap.reverseScrollDirection =
         (SendDlgItemMessageW(settingsHwnd_, IDC_REVERSE_SCROLL_CHECK, BM_GETCHECK, 0, 0) == BST_CHECKED);
+    snap.scrollSensitivity = scrollSens;
+    snap.momentumZoom =
+        (SendDlgItemMessageW(settingsHwnd_, IDC_MOMENTUM_CHECK, BM_GETCHECK, 0, 0) == BST_CHECKED);
 
     // Apply snapshot — observers fire synchronously
     settings_->applySnapshot(snap);

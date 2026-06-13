@@ -241,7 +241,7 @@ void RenderLoop::frameTick()
             s_zoomController.applySettings(
                 snap->minZoom, snap->maxZoom,
                 snap->keyboardZoomStep, snap->defaultZoomLevel,
-                snap->animationSpeed);
+                snap->animationSpeed, snap->scrollSensitivity);
             s_followKeyboardFocus = snap->followKeyboardFocus;
             s_followTextCursor = snap->followTextCursor;
             s_reverseScrollDirection = snap->reverseScrollDirection;

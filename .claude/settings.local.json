@@ -22,7 +22,8 @@
       "Bash(\"/c/Program Files/Microsoft Visual Studio/2022/Community/MSBuild/Current/Bin/MSBuild.exe\":*)",
       "Bash(\"/c/Program Files \\(x86\\)/Microsoft Visual Studio/Installer/vswhere.exe\":*)",
       "Bash(\"/c/Program Files/Microsoft Visual Studio/18/Community/MSBuild/Current/Bin/MSBuild.exe\":*)",
-      "Bash(build/Debug/smoothzoom_tests.exe:*)"
+      "Bash(build/Debug/smoothzoom_tests.exe:*)",
+      "Bash(xargs grep -l \"GetDpiForMonitor\")"
     ]
   }
 }

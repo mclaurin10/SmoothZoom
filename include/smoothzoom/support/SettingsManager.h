@@ -31,6 +31,10 @@ struct SettingsSnapshot
     bool    colorInversionEnabled = false;
     bool    reverseScrollDirection = false;
 
+    // Input interoperability (A3, B3):
+    float   scrollSensitivity   = 1.0f;  // multiplier on scroll-gesture zoom rate
+    bool    momentumZoom        = true;  // allow inertial/momentum scroll to drive zoom
+
     // Phase 4 toggle combo (hardcoded until Phase 5B wires to InputInterceptor)
     int     toggleKey1VK        = 0xA2;  // VK_LCONTROL
     int     toggleKey2VK        = 0xA4;  // VK_LMENU (Alt)

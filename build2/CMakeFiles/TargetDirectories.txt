@@ -1,0 +1,15 @@
+C:/Dev/SmoothZoom/build2/CMakeFiles/smoothzoom_output.dir
+C:/Dev/SmoothZoom/build2/CMakeFiles/smoothzoom_input.dir
+C:/Dev/SmoothZoom/build2/CMakeFiles/smoothzoom_logic.dir
+C:/Dev/SmoothZoom/build2/CMakeFiles/smoothzoom_support.dir
+C:/Dev/SmoothZoom/build2/CMakeFiles/SmoothZoom.dir
+C:/Dev/SmoothZoom/build2/CMakeFiles/Phase0Harness.dir
+C:/Dev/SmoothZoom/build2/CMakeFiles/smoothzoom_tests.dir
+C:/Dev/SmoothZoom/build2/CMakeFiles/RUN_TESTS.dir
+C:/Dev/SmoothZoom/build2/CMakeFiles/ALL_BUILD.dir
+C:/Dev/SmoothZoom/build2/CMakeFiles/ZERO_CHECK.dir
+C:/Dev/SmoothZoom/build2/_deps/catch2-build/CMakeFiles/RUN_TESTS.dir
+C:/Dev/SmoothZoom/build2/_deps/catch2-build/CMakeFiles/ALL_BUILD.dir
+C:/Dev/SmoothZoom/build2/_deps/catch2-build/src/CMakeFiles/Catch2.dir
+C:/Dev/SmoothZoom/build2/_deps/catch2-build/src/CMakeFiles/Catch2WithMain.dir
+C:/Dev/SmoothZoom/build2/_deps/catch2-build/src/CMakeFiles/RUN_TESTS.dir

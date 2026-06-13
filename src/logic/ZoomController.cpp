@@ -44,7 +44,10 @@ void ZoomController::applyScrollDelta(int32_t accumulatedDelta)
     // Logarithmic zoom model (AC-2.1.06):
     // Each 120-unit notch multiplies zoom by kScrollZoomBase.
     // Sub-notch deltas (Precision Touchpad) scale proportionally.
-    float normalizedDelta = static_cast<float>(accumulatedDelta) / kWheelDelta;
+    // scrollSensitivity_ scales the effective input so users can tune zoom rate
+    // across devices (A3); 1.0 = default, leaving prior behaviour unchanged.
+    float normalizedDelta =
+        static_cast<float>(accumulatedDelta) / kWheelDelta * scrollSensitivity_;
 
     // Soft-approach bounds attenuation (AC-2.1.15):
     // As zoom nears min or max, attenuate the delta to decelerate smoothly.
@@ -238,12 +241,16 @@ bool ZoomController::tick(float dtSeconds)
 
 void ZoomController::applySettings(float minZoom, float maxZoom,
                                     float keyboardStep, float defaultZoomLevel,
-                                    int animationSpeed)
+                                    int animationSpeed, float scrollSensitivity)
 {
     minZoom_ = minZoom;
     maxZoom_ = maxZoom;
     keyboardStep_ = keyboardStep;
     lastUsedZoom_ = defaultZoomLevel; // Update default for toggle-from-1.0× (AC-2.7.05)
+
+    // Scroll sensitivity (A3): guard against non-positive values from a crafted
+    // config; the SettingsManager validates range, this is defense-in-depth.
+    scrollSensitivity_ = (scrollSensitivity > 0.0f) ? scrollSensitivity : 1.0f;
 
     // Wire animation speed: 0=slow, 1=normal, 2=fast
     switch (animationSpeed)

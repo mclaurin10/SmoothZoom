@@ -281,6 +281,51 @@ TEST_CASE("snapshot() returns thread-safe copy", "[SettingsManager][Phase5]")
     REQUIRE(snap2->maxZoom == Approx(5.0f));
 }
 
+// =============================================================================
+// Input interoperability settings (A3): scrollSensitivity + momentumZoom
+// =============================================================================
+
+TEST_CASE("scrollSensitivity & momentumZoom defaults", "[SettingsManager][Interop]")
+{
+    SettingsManager mgr;
+    auto snap = mgr.snapshot();
+    REQUIRE(snap->scrollSensitivity == Approx(1.0f));
+    REQUIRE(snap->momentumZoom == true);
+}
+
+TEST_CASE("scrollSensitivity & momentumZoom load + round-trip", "[SettingsManager][Interop]")
+{
+    auto path = writeTempFile(R"({"scrollSensitivity": 2.5, "momentumZoom": false})",
+                              "interop_load.json");
+    SettingsManager mgr;
+    REQUIRE(mgr.loadFromFile(path.c_str()));
+    REQUIRE(mgr.snapshot()->scrollSensitivity == Approx(2.5f));
+    REQUIRE(mgr.snapshot()->momentumZoom == false);
+
+    // Round-trip through save → load
+    std::string rt = (std::filesystem::temp_directory_path() / "smoothzoom_test_interop_rt.json").string();
+    REQUIRE(mgr.saveToFile(rt.c_str()));
+    SettingsManager mgr2;
+    REQUIRE(mgr2.loadFromFile(rt.c_str()));
+    REQUIRE(mgr2.snapshot()->scrollSensitivity == Approx(2.5f));
+    REQUIRE(mgr2.snapshot()->momentumZoom == false);
+}
+
+TEST_CASE("scrollSensitivity out of range → keeps default", "[SettingsManager][Interop]")
+{
+    // Above max (5.0) → default 1.0 retained
+    auto pathHi = writeTempFile(R"({"scrollSensitivity": 10.0})", "interop_hi.json");
+    SettingsManager mgrHi;
+    REQUIRE(mgrHi.loadFromFile(pathHi.c_str()));
+    REQUIRE(mgrHi.snapshot()->scrollSensitivity == Approx(1.0f));
+
+    // Below min (0.1) → default 1.0 retained
+    auto pathLo = writeTempFile(R"({"scrollSensitivity": 0.0})", "interop_lo.json");
+    SettingsManager mgrLo;
+    REQUIRE(mgrLo.loadFromFile(pathLo.c_str()));
+    REQUIRE(mgrLo.snapshot()->scrollSensitivity == Approx(1.0f));
+}
+
 TEST_CASE("defaultZoomLevel out of range for custom bounds → keeps default", "[SettingsManager][Phase5]")
 {
     // maxZoom=3.0, defaultZoomLevel=5.0 (above max) → default should stay 2.0

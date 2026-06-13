@@ -36,6 +36,7 @@
 #include "smoothzoom/support/TrayUI.h"
 #include "smoothzoom/support/Logger.h"
 #include "smoothzoom/input/ModifierUtils.h"
+#include "smoothzoom/input/ScrollNormalizer.h"
 
 #include <filesystem>
 #include <fstream>
@@ -100,6 +101,7 @@ struct PtpDeviceInfo {
     USHORT contactCountLC = 0;     // Link collection for Contact Count (0x0D:0x54)
     PtpContactSlot slots[5] = {};  // Contact slots (max 5 per PTP spec)
     int numSlots = 0;
+    int32_t logicalRangeY = 0;     // Y-axis logical extent (device units) for A1 normalization
 };
 
 struct PtpContactState {
@@ -112,9 +114,10 @@ struct PtpContactState {
 static PtpDeviceInfo s_ptpDevice = {};
 static HANDLE s_ptpDeviceHandle = nullptr;
 static PtpContactState s_ptpContacts[5] = {};
-static int32_t s_ptpScrollRemainder = 0;
-// Device units of Y movement per WHEEL_DELTA notch (120). Tunable.
-static constexpr int32_t kPtpUnitsPerNotch = 25;
+// Fractional wheel-equivalent remainder (120 units/notch) carried across HID
+// reports so continuous touchpad motion produces continuous, sub-notch zoom.
+// Device-unit→wheel-equivalent normalization lives in ScrollNormalizer (A1).
+static float s_ptpWheelRemainder = 0.0f;
 
 // Windows touchpad "natural scrolling" direction setting.
 // When true, the OS flips WM_MOUSEWHEEL deltas for touchpad gestures before
@@ -380,6 +383,7 @@ static bool initPtpDevice(HANDLE hDevice)
     USHORT contactCountLC = 0;
     int numSlots = 0;
     USHORT slotLCs[5] = {};
+    int32_t logicalRangeY = 0;  // A1: largest Y logical extent across contacts
 
     for (USHORT i = 0; i < numValCaps; i++)
     {
@@ -405,6 +409,17 @@ static bool initPtpDevice(HANDLE hDevice)
             if (numSlots < 5)
                 slotLCs[numSlots++] = valCaps[i].LinkCollection;
         }
+        if (page == 0x01 && usage == 0x31) // Generic Desktop : Y (A1 normalization)
+        {
+            LONG lo = valCaps[i].LogicalMin;
+            LONG hi = valCaps[i].LogicalMax;
+            if (hi > lo)
+            {
+                int32_t range = static_cast<int32_t>(hi - lo);
+                if (range > logicalRangeY)
+                    logicalRangeY = range; // largest across contact collections
+            }
+        }
     }
 
     HeapFree(GetProcessHeap(), 0, valCaps);
@@ -429,15 +444,16 @@ static bool initPtpDevice(HANDLE hDevice)
     s_ptpDevice.numSlots = numSlots;
     for (int i = 0; i < numSlots; i++)
         s_ptpDevice.slots[i].linkCollection = slotLCs[i];
+    s_ptpDevice.logicalRangeY = logicalRangeY;  // A1: 0 if not found → normalizer falls back
     s_ptpDeviceHandle = hDevice;
 
     // Reset tracking state and diagnostics flag (allow logging for future device changes)
     for (auto& c : s_ptpContacts) c = {};
-    s_ptpScrollRemainder = 0;
+    s_ptpWheelRemainder = 0.0f;
     s_ptpInitDiagLogged = false;
 
-    SZ_LOG_INFO("Main", L"PTP device initialized: %d contact slot(s), contactCountLC=%u",
-                numSlots, contactCountLC);
+    SZ_LOG_INFO("Main", L"PTP device initialized: %d contact slot(s), contactCountLC=%u, logicalRangeY=%d",
+                numSlots, contactCountLC, logicalRangeY);
     return true;
 }
 
@@ -572,18 +588,29 @@ static void handlePtpHidReport(const BYTE* reportData, DWORD reportSize)
     // Natural OFF: negate (traditional: fingers down → scroll up → positive WHEEL_DELTA)
     // Natural ON:  don't negate (OS already flips LL hook; match that convention)
     int32_t adjustedDeltaY = s_ptpNaturalScrolling ? avgDeltaY : -avgDeltaY;
-    s_ptpScrollRemainder += adjustedDeltaY;
 
-    int32_t notches = s_ptpScrollRemainder / kPtpUnitsPerNotch;
-    SZ_LOG_DEBUG("PTP", L"handlePtpHidReport: remainder=%d, notches=%d (kPtpUnitsPerNotch=%d)",
-                 s_ptpScrollRemainder, notches, kPtpUnitsPerNotch);
-    if (notches != 0)
+    // A1: normalize device-unit Y delta to wheel-equivalent units (120/notch)
+    // using the device's own logical Y range, so a given fraction-of-pad swipe
+    // produces the same zoom on any touchpad. Falls back to a fixed constant
+    // when the descriptor lacked a usable Y range.
+    SmoothZoom::PtpAxisScale yScale{ s_ptpDevice.logicalRangeY };
+    s_ptpWheelRemainder +=
+        SmoothZoom::ptpDeltaToWheelEquiv(static_cast<float>(adjustedDeltaY), yScale);
+
+    int32_t whole = static_cast<int32_t>(s_ptpWheelRemainder); // truncate toward zero
+    SZ_LOG_DEBUG("PTP", L"handlePtpHidReport: remainder=%.2f, whole=%d, unitsPerNotch=%.1f",
+                 s_ptpWheelRemainder, whole, SmoothZoom::ptpUnitsPerNotch(yScale));
+    if (whole != 0)
     {
-        s_ptpScrollRemainder -= notches * kPtpUnitsPerNotch;
-        int16_t delta = static_cast<int16_t>(notches * WHEEL_DELTA);
+        s_ptpWheelRemainder -= static_cast<float>(whole);
 
-        SZ_LOG_DEBUG("Main", L"PTP scroll: avgDY=%d notches=%d delta=%d",
-                     avgDeltaY, notches, delta);
+        // Clamp to int16 range (single-report deltas are tiny; guard anyway).
+        if (whole > 32767) whole = 32767;
+        else if (whole < -32768) whole = -32768;
+        int16_t delta = static_cast<int16_t>(whole);
+
+        SZ_LOG_DEBUG("Main", L"PTP scroll: avgDY=%d wheelEquiv=%d",
+                     avgDeltaY, static_cast<int>(delta));
         g_sharedState.scrollAccumulator.fetch_add(delta, std::memory_order_release);
         g_sharedState.modifierHeld.store(true, std::memory_order_relaxed);
     }

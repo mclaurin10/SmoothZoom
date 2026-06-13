@@ -106,6 +106,7 @@ bool SettingsManager::loadFromFile(const char* path)
     readFloat("minZoom", settings.minZoom, 1.0f, 10.0f);
     readFloat("maxZoom", settings.maxZoom, 1.0f, 10.0f);
     readFloat("keyboardZoomStep", settings.keyboardZoomStep, 0.05f, 1.0f); // AC-2.9.12: 5%–100%
+    readFloat("scrollSensitivity", settings.scrollSensitivity, 0.1f, 5.0f); // A3: scroll-gesture rate
 
     // ── Cross-validation: min must be <= max (AC-2.9.10) ──
     if (settings.minZoom > settings.maxZoom)
@@ -130,6 +131,7 @@ bool SettingsManager::loadFromFile(const char* path)
     readBool("followTextCursor", settings.followTextCursor);
     readBool("colorInversionEnabled", settings.colorInversionEnabled);
     readBool("reverseScrollDirection", settings.reverseScrollDirection);
+    readBool("momentumZoom", settings.momentumZoom);
 
     // Freeze as const and atomic swap + version bump
     auto snap = std::make_shared<const SettingsSnapshot>(settings);
@@ -163,6 +165,8 @@ bool SettingsManager::saveToFile(const char* path) const
     j["followTextCursor"]      = snap->followTextCursor;
     j["colorInversionEnabled"] = snap->colorInversionEnabled;
     j["reverseScrollDirection"] = snap->reverseScrollDirection;
+    j["scrollSensitivity"]     = snap->scrollSensitivity;
+    j["momentumZoom"]          = snap->momentumZoom;
     j["toggleKey1VK"]          = snap->toggleKey1VK;
     j["toggleKey2VK"]          = snap->toggleKey2VK;
 

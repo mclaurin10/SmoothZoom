@@ -44,8 +44,10 @@ public:
     // detects a new settings version. Triggers animation if zoom is out of new
     // bounds (AC-2.9.05, AC-2.9.06).
     // animationSpeed: 0=slow, 1=normal, 2=fast
+    // scrollSensitivity: multiplier on scroll-gesture zoom rate (1.0 = default).
     void applySettings(float minZoom, float maxZoom, float keyboardStep,
-                       float defaultZoomLevel, int animationSpeed);
+                       float defaultZoomLevel, int animationSpeed,
+                       float scrollSensitivity = 1.0f);
 
     // Reset to 1.0× instantly (shutdown path)
     void reset();
@@ -65,6 +67,12 @@ private:
 
     // Animation ease-out rate (configurable via animationSpeed setting)
     double easeOutRate_ = 0.15;  // Default: normal speed
+
+    // Scroll-gesture sensitivity multiplier (configurable via settings, A3).
+    // Scales the normalized scroll delta before the logarithmic zoom model so
+    // users can compensate for device differences (free-spin vs fine wheels,
+    // touchpad feel). 1.0 = default.
+    float scrollSensitivity_ = 1.0f;
 
     // Phase 4: Toggle state
     bool isToggled_ = false;

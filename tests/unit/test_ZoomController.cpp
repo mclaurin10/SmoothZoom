@@ -722,6 +722,38 @@ TEST_CASE("applySettings: new keyboard step takes effect (AC-2.9.04)", "[ZoomCon
 }
 
 // =============================================================================
+// Input interoperability: scroll sensitivity (A3)
+// =============================================================================
+
+TEST_CASE("Scroll sensitivity scales zoom rate (A3)", "[ZoomController][Interop]")
+{
+    ZoomController zc;
+    zc.applySettings(1.0f, 10.0f, 0.25f, 2.0f, 1, 2.0f); // 2x sensitivity
+
+    // One notch (120) at 2x sensitivity → effective 2 notches → 1.1^2
+    zc.applyScrollDelta(120);
+    REQUIRE(zc.currentZoom() == Approx(std::pow(1.1f, 2.0f)).margin(0.01f));
+}
+
+TEST_CASE("Default scroll sensitivity leaves rate unchanged (A3)", "[ZoomController][Interop]")
+{
+    ZoomController zc;
+    zc.applySettings(1.0f, 10.0f, 0.25f, 2.0f, 1); // sensitivity defaults to 1.0
+
+    zc.applyScrollDelta(120);
+    REQUIRE(zc.currentZoom() == Approx(1.1f).margin(0.001f));
+}
+
+TEST_CASE("Non-positive scroll sensitivity is rejected (A3 defense-in-depth)", "[ZoomController][Interop]")
+{
+    ZoomController zc;
+    zc.applySettings(1.0f, 10.0f, 0.25f, 2.0f, 1, 0.0f); // invalid → falls back to 1.0
+
+    zc.applyScrollDelta(120);
+    REQUIRE(zc.currentZoom() == Approx(1.1f).margin(0.001f));
+}
+
+// =============================================================================
 // Phase 5C: Tray Toggle tests (AC-2.9.15)
 // =============================================================================
 
