@@ -26,10 +26,19 @@
 #endif
 
 #include <windows.h>
+#include <chrono>
 #include <thread>
 
 namespace SmoothZoom
 {
+
+// Steady-clock ms — same time base as RenderLoop's arbitration timestamps
+// (currentTimeMs in RenderLoop.cpp and FocusMonitor's lastFocusChangeTime).
+static int64_t steadyNowMs()
+{
+    using namespace std::chrono;
+    return duration_cast<milliseconds>(steady_clock::now().time_since_epoch()).count();
+}
 
 // Validate a caret rectangle
 static bool isValidCaretRect(const RECT& r)
@@ -105,6 +114,13 @@ struct CaretMonitor::Impl
         rect.bottom = screenRect.bottom;
 
         state->caretRect.write(rect);
+
+        // Stamp freshness — RenderLoop only treats the caret as a valid
+        // tracking source when this is recent (a few poll periods). Failed
+        // polls above return without stamping, so a rect from a closed or
+        // caret-less window goes stale instead of hijacking arbitration on
+        // every keystroke (AC-2.6.11: degrade silently).
+        state->lastCaretUpdateTime.store(steadyNowMs(), std::memory_order_release);
     }
 };
 

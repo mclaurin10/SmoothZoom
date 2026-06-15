@@ -28,6 +28,7 @@
 #endif
 
 #include <windows.h>
+#include <chrono>
 
 namespace SmoothZoom
 {
@@ -37,6 +38,23 @@ static SharedState* s_state = nullptr;
 static HHOOK s_mouseHook = nullptr;
 static HHOOK s_keyboardHook = nullptr;
 static WinKeyManager s_winKeyMgr;
+
+// Hook liveness stamp for the R-05 watchdog (GetTickCount64 domain).
+// Silent OS deregistration leaves the HHOOK non-null, so handle checks alone
+// cannot detect it — the watchdog compares this against GetLastInputInfo.
+// Hooks and watchdog both run on the main thread: plain int64_t, no atomic.
+static int64_t s_lastHookCallbackTick = 0;
+
+// Steady-clock ms — same time base as RenderLoop's currentTimeMs() and
+// FocusMonitor's lastFocusChangeTime. KBDLLHOOKSTRUCT::time is in the
+// GetTickCount domain, which diverges from steady_clock across suspend/resume
+// and wraps at 49.7 days — mixing the two silently broke the 500ms
+// caret-priority window. A QPC read is ~20ns: hook-safe.
+static int64_t steadyNowMs()
+{
+    using namespace std::chrono;
+    return duration_cast<milliseconds>(steady_clock::now().time_since_epoch()).count();
+}
 
 // Phase 5B: Configurable keys — updated by settings observer on main thread.
 // Safe to read from hook callbacks (same thread). (AC-2.1.19, AC-2.1.20)
@@ -70,7 +88,17 @@ static void onSettingsChanged(const SettingsSnapshot& s, void* /*userData*/)
 static bool isConfiguredModifierHeld()
 {
     if (s_modifierKeyVK == VK_LWIN || s_modifierKeyVK == VK_RWIN)
-        return s_winKeyMgr.state() != WinKeyManager::State::Idle;
+    {
+        // Cross-check physical key state. The state machine alone sticks at
+        // Held* whenever the Win key-up is never delivered — deterministically
+        // on Win+L, where the key-up lands on the secure desktop and LL hooks
+        // receive nothing. Without this check, every plain mouse-wheel scroll
+        // after unlock is consumed and zooms the screen until Win is re-tapped.
+        // GetAsyncKeyState is a fast user32 read — hook-safe.
+        bool physicallyHeld =
+            ((GetAsyncKeyState(VK_LWIN) | GetAsyncKeyState(VK_RWIN)) & 0x8000) != 0;
+        return physicallyHeld && s_winKeyMgr.state() != WinKeyManager::State::Idle;
+    }
     return s_nonWinModifierHeld
         || (GetAsyncKeyState(toGenericVK(s_modifierKeyVK)) & 0x8000) != 0;
 }
@@ -85,6 +113,8 @@ static bool isWinModifier()
 // Minimal: read event, check modifier via WinKeyManager, update atomics, return.
 static LRESULT CALLBACK mouseHookProc(int nCode, WPARAM wParam, LPARAM lParam)
 {
+    s_lastHookCallbackTick = static_cast<int64_t>(GetTickCount64()); // R-05 liveness
+
     if (nCode < 0 || s_state == nullptr)
         return CallNextHookEx(s_mouseHook, nCode, wParam, lParam);
 
@@ -200,8 +230,16 @@ static bool s_toggleKey1Held = false;
 static bool s_toggleKey2Held = false;
 static bool s_toggleEngaged = false;
 
+// Ctrl+Alt+I edge filter: LL hooks receive typematic auto-repeats and
+// KBDLLHOOKSTRUCT carries no repeat flag. Without edge-triggering, holding the
+// chord strobes full-screen inversion at the keyboard repeat rate — a
+// photosensitivity hazard. Set on the first qualifying 'I' down, cleared on 'I' up.
+static bool s_invertChordDown = false;
+
 static LRESULT CALLBACK keyboardHookProc(int nCode, WPARAM wParam, LPARAM lParam)
 {
+    s_lastHookCallbackTick = static_cast<int64_t>(GetTickCount64()); // R-05 liveness
+
     if (nCode < 0 || s_state == nullptr)
         return CallNextHookEx(s_keyboardHook, nCode, wParam, lParam);
 
@@ -263,6 +301,10 @@ static LRESULT CALLBACK keyboardHookProc(int nCode, WPARAM wParam, LPARAM lParam
         s_state->commandQueue.push(ZoomCommand::ToggleRelease);
     }
 
+    // Clear the inversion-chord edge filter on 'I' release (see s_invertChordDown)
+    if (info->vkCode == 'I' && isUp)
+        s_invertChordDown = false;
+
     if (isDown)
     {
         // Record keyboard activity timestamp (for caret tracking priority — Phase 3)
@@ -270,8 +312,10 @@ static LRESULT CALLBACK keyboardHookProc(int nCode, WPARAM wParam, LPARAM lParam
         // activate caret tracking (WS2C fix).
         if (!isModifierVK(static_cast<int>(info->vkCode)))
         {
+            // steadyNowMs, not info->time: the arbitration compares this against
+            // steady_clock timestamps (see steadyNowMs comment above).
             s_state->lastKeyboardInputTime.store(
-                static_cast<int64_t>(info->time), std::memory_order_relaxed);
+                steadyNowMs(), std::memory_order_relaxed);
         }
 
         // Modifier+key shortcuts (Phase 2: AC-2.8.01–AC-2.8.10, Phase 5B: AC-2.1.19)
@@ -302,8 +346,11 @@ static LRESULT CALLBACK keyboardHookProc(int nCode, WPARAM wParam, LPARAM lParam
 
         // Win+Ctrl+M → open settings (AC-2.8.11)
         // Always Win-based regardless of configured modifier.
+        // Physical Win check guards against a stale state machine (missed
+        // key-up across the secure desktop) turning plain Ctrl+M into this.
         if (info->vkCode == 'M'
             && s_winKeyMgr.state() != WinKeyManager::State::Idle
+            && ((GetAsyncKeyState(VK_LWIN) | GetAsyncKeyState(VK_RWIN)) & 0x8000)
             && (GetAsyncKeyState(VK_CONTROL) & 0x8000)
             && s_msgWindow)
         {
@@ -312,12 +359,14 @@ static LRESULT CALLBACK keyboardHookProc(int nCode, WPARAM wParam, LPARAM lParam
         }
 
         // Ctrl+Alt+I → toggle color inversion (Phase 6: AC-2.10.01)
+        // Edge-triggered via s_invertChordDown — see declaration comment.
         if (info->vkCode == 'I')
         {
             bool ctrlHeld = (GetAsyncKeyState(VK_CONTROL) & 0x8000) != 0;
             bool altHeld  = (GetAsyncKeyState(VK_MENU)    & 0x8000) != 0;
-            if (ctrlHeld && altHeld)
+            if (ctrlHeld && altHeld && !s_invertChordDown)
             {
+                s_invertChordDown = true;
                 s_state->commandQueue.push(ZoomCommand::ToggleInvert);
             }
         }
@@ -388,6 +437,9 @@ bool InputInterceptor::install(SharedState& state)
         return false;
     }
 
+    // Seed liveness so the watchdog has a grace period before any input arrives
+    s_lastHookCallbackTick = static_cast<int64_t>(GetTickCount64());
+
     return true;
 }
 
@@ -427,6 +479,62 @@ bool InputInterceptor::reinstall()
     }
 
     return isHealthy();
+}
+
+bool InputInterceptor::forceReinstall()
+{
+    if (s_state == nullptr)
+        return false;
+
+    // Silent OS deregistration (R-05) leaves the HHOOK non-null but dead, so
+    // unconditionally unhook and rehook. UnhookWindowsHookEx on an
+    // already-deregistered handle fails harmlessly.
+    if (s_mouseHook)
+    {
+        UnhookWindowsHookEx(s_mouseHook);
+        s_mouseHook = nullptr;
+    }
+    if (s_keyboardHook)
+    {
+        UnhookWindowsHookEx(s_keyboardHook);
+        s_keyboardHook = nullptr;
+    }
+    s_mouseHook = SetWindowsHookExW(WH_MOUSE_LL, mouseHookProc, nullptr, 0);
+    s_keyboardHook = SetWindowsHookExW(WH_KEYBOARD_LL, keyboardHookProc, nullptr, 0);
+
+    // Key-up events were likely missed during the outage — clear held-key state.
+    resetTransientKeyState();
+
+    // Restart the liveness grace period
+    s_lastHookCallbackTick = static_cast<int64_t>(GetTickCount64());
+
+    return isHealthy();
+}
+
+int64_t InputInterceptor::lastCallbackTick()
+{
+    return s_lastHookCallbackTick;
+}
+
+void InputInterceptor::resetTransientKeyState()
+{
+    // Clears every held/engaged flag derived from hook-delivered key events.
+    // Called when key-ups may have been missed: secure-desktop transitions
+    // (Win+L strands WinKeyManager in Held*, hijacking plain scrolling into
+    // zoom after unlock) and hook reinstalls after an outage.
+    s_winKeyMgr.reset();
+    s_nonWinModifierHeld = false;
+    s_toggleKey1Held = false;
+    s_toggleKey2Held = false;
+    s_invertChordDown = false;
+    if (s_toggleEngaged)
+    {
+        s_toggleEngaged = false;
+        if (s_state)
+            s_state->commandQueue.push(ZoomCommand::ToggleRelease);
+    }
+    if (s_state)
+        s_state->modifierHeld.store(false, std::memory_order_relaxed);
 }
 
 // Phase 5B: Register for settings change notifications (AC-2.9.04)

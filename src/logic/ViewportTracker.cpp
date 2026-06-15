@@ -35,11 +35,18 @@ ViewportTracker::Offset ViewportTracker::computePointerOffset(
     float xOff = static_cast<float>(pointerX) * (1.0f - invZoom);
     float yOff = static_cast<float>(pointerY) * (1.0f - invZoom);
 
-    // Clamp to valid offset range (viewport cannot pan past virtual desktop edges)
-    float minOffX = static_cast<float>(originX);
-    float minOffY = static_cast<float>(originY);
-    float maxOffX = static_cast<float>(originX) + static_cast<float>(screenW) * (1.0f - invZoom);
-    float maxOffY = static_cast<float>(originY) + static_cast<float>(screenH) * (1.0f - invZoom);
+    // Clamp to valid offset range (viewport cannot pan past virtual desktop edges).
+    // The screen shows virtual columns [off + originX/Z, off + (originX+screenW)/Z);
+    // these must stay within [originX, originX+screenW]:
+    //   off >= originX * (1 - 1/Z)  and  off <= (originX+screenW) * (1 - 1/Z)
+    // Same derivation as computeElementOffset below. With originX=0 this reduces
+    // to the classic [0, screenW*(1-1/Z)]; with a negative origin (monitor left
+    // of primary) the previous [originX, originX+screenW*(1-1/Z)] range was too
+    // small by |originX|/Z and pinned tracking across the primary monitor.
+    float minOffX = static_cast<float>(originX) * (1.0f - invZoom);
+    float minOffY = static_cast<float>(originY) * (1.0f - invZoom);
+    float maxOffX = static_cast<float>(originX + screenW) * (1.0f - invZoom);
+    float maxOffY = static_cast<float>(originY + screenH) * (1.0f - invZoom);
 
     xOff = std::clamp(xOff, minOffX, maxOffX);
     yOff = std::clamp(yOff, minOffY, maxOffY);

@@ -401,6 +401,7 @@ void RenderLoop::frameTick()
     int64_t nowMs = currentTimeMs();
     int64_t lastFocusChange = s_state->lastFocusChangeTime.load(std::memory_order_acquire);
     int64_t lastKeyboardInput = s_state->lastKeyboardInputTime.load(std::memory_order_acquire);
+    int64_t lastCaretUpdate = s_state->lastCaretUpdateTime.load(std::memory_order_acquire);
 
     // Read focus/caret rects via SeqLock (lock-free reader)
     ScreenRect focusRect = s_state->focusRect.read();
@@ -413,6 +414,15 @@ void RenderLoop::frameTick()
     bool caretValid = (caretRect.width() >= 0 && caretRect.height() > 0 // Caret can be 0-width
         && caretRect.left > -5000 && caretRect.top > -5000
         && caretRect.height() <= 5000);
+
+    // Caret freshness: GTTI polls at ~30Hz and only writes on success, so a
+    // rect older than a few poll periods means the caret is gone (caret-less
+    // app focused, source window closed). A stale rect must not win arbitration
+    // — otherwise any keystroke pans the viewport to the old caret position,
+    // possibly on another monitor (AC-2.6.11: degrade silently).
+    constexpr int64_t kCaretFreshnessMs = 150;
+    caretValid = caretValid && lastCaretUpdate > 0
+        && (nowMs - lastCaretUpdate) < kCaretFreshnessMs;
 
     // Phase 5B: Gate on settings (AC-2.9.08, AC-2.9.09)
     focusValid = focusValid && s_followKeyboardFocus;

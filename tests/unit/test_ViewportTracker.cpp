@@ -5,6 +5,7 @@
 
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/catch_approx.hpp>
+#include <catch2/catch_message.hpp>
 #include "smoothzoom/logic/ViewportTracker.h"
 
 using namespace SmoothZoom;
@@ -393,8 +394,8 @@ TEST_CASE("Multi-monitor: pointer on left monitor produces negative-range offset
         -960, 540, 2.0f, kDualW, kDualH, kDualOriginX, kDualOriginY);
 
     // xOff = -960 * (1 - 0.5) = -480
-    // Clamp min = -1920, max = -1920 + 3840*0.5 = 0
-    // -480 is within [-1920, 0] → valid
+    // Clamp min = -1920*0.5 = -960, max = (-1920+3840)*0.5 = 960
+    // -480 is within [-960, 960] → valid
     REQUIRE(off.x == Approx(-480.0f));
     REQUIRE(off.y == Approx(270.0f));
 }
@@ -402,43 +403,65 @@ TEST_CASE("Multi-monitor: pointer on left monitor produces negative-range offset
 TEST_CASE("Multi-monitor: clamp min respects negative origin",
           "[ViewportTracker][Phase6]")
 {
-    // Pointer far to the left of virtual desktop — should clamp to origin
+    // Pointer far to the left of virtual desktop — clamp so the visible
+    // viewport's left edge lands exactly on the virtual desktop's left edge:
+    // minOff = originX * (1 - 1/Z) = -1920 * 0.5 = -960
+    // (off + originX/Z = -960 + -960 = -1920 = left desktop edge)
     auto off = ViewportTracker::computePointerOffset(
         -5000, 0, 2.0f, kDualW, kDualH, kDualOriginX, kDualOriginY);
 
-    REQUIRE(off.x == Approx(static_cast<float>(kDualOriginX)));
+    float expectedMin = static_cast<float>(kDualOriginX) * (1.0f - 1.0f / 2.0f);
+    REQUIRE(off.x == Approx(expectedMin));
     REQUIRE(off.y == Approx(0.0f));
 }
 
 TEST_CASE("Multi-monitor: clamp max covers right monitor edge",
           "[ViewportTracker][Phase6]")
 {
-    // Pointer at far right of virtual desktop
+    // Pointer at far right of virtual desktop — clamp so the visible
+    // viewport's right edge lands exactly on the virtual desktop's right edge:
+    // maxOff = (originX + screenW) * (1 - 1/Z) = 1920 * 0.5 = 960
+    // (off + (originX+screenW)/Z = 960 + 960 = 1920 = right desktop edge)
     float invZoom = 1.0f / 2.0f;
-    float expectedMax = static_cast<float>(kDualOriginX) +
-                        static_cast<float>(kDualW) * (1.0f - invZoom);
+    float expectedMaxX = static_cast<float>(kDualOriginX + kDualW) * (1.0f - invZoom);
+    float expectedMaxY = static_cast<float>(kDualOriginY + kDualH) * (1.0f - invZoom);
 
     auto off = ViewportTracker::computePointerOffset(
         5000, 5000, 2.0f, kDualW, kDualH, kDualOriginX, kDualOriginY);
 
-    REQUIRE(off.x == Approx(expectedMax));
+    REQUIRE(off.x == Approx(expectedMaxX));
+    REQUIRE(off.y == Approx(expectedMaxY));
 }
 
 TEST_CASE("Multi-monitor: desktop-under-pointer invariant holds with negative origin",
           "[ViewportTracker][Phase6]")
 {
-    // Pointer on left monitor at (-800, 300)
-    int px = -800, py = 300;
-    float zoom = 3.0f;
-    auto off = ViewportTracker::computePointerOffset(
-        px, py, zoom, kDualW, kDualH, kDualOriginX, kDualOriginY);
+    // The proportional-mapping invariant (desktop coordinate under the pointer
+    // equals the pointer position) must hold wherever the clamp does not bind —
+    // on BOTH monitors. The primary-monitor probes (px > 0) regressed when the
+    // pointer clamp used [originX, originX + screenW*(1-1/Z)]: maxOff was 0 at
+    // 2x, pinning the offset for every px > 0.
+    struct Probe { int px, py; float zoom; };
+    const Probe probes[] = {
+        {-800, 300, 3.0f},   // left monitor
+        {-100, 900, 2.0f},   // left monitor, near boundary
+        {1000, 500, 2.0f},   // primary monitor — regression probe
+        {1800, 1000, 5.0f},  // primary monitor, near right edge
+    };
 
-    // Key property: desktopX = offset + pointerX / zoom == pointerX
-    float desktopX = off.x + static_cast<float>(px) / zoom;
-    float desktopY = off.y + static_cast<float>(py) / zoom;
+    for (const auto& p : probes)
+    {
+        auto off = ViewportTracker::computePointerOffset(
+            p.px, p.py, p.zoom, kDualW, kDualH, kDualOriginX, kDualOriginY);
 
-    REQUIRE(desktopX == Approx(static_cast<float>(px)).margin(0.5f));
-    REQUIRE(desktopY == Approx(static_cast<float>(py)).margin(0.5f));
+        // Key property: desktopX = offset + pointerX / zoom == pointerX
+        float desktopX = off.x + static_cast<float>(p.px) / p.zoom;
+        float desktopY = off.y + static_cast<float>(p.py) / p.zoom;
+
+        INFO("probe px=" << p.px << " py=" << p.py << " zoom=" << p.zoom);
+        REQUIRE(desktopX == Approx(static_cast<float>(p.px)).margin(0.5f));
+        REQUIRE(desktopY == Approx(static_cast<float>(p.py)).margin(0.5f));
+    }
 }
 
 TEST_CASE("Multi-monitor: element offset respects negative origin",

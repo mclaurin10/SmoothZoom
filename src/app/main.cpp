@@ -190,6 +190,44 @@ static bool sentinelExists(const std::filesystem::path& path)
     return std::filesystem::exists(path, ec);
 }
 
+static DWORD readSentinelPid(const std::filesystem::path& path)
+{
+    if (path.empty())
+        return 0;
+    std::ifstream ifs(path);
+    DWORD pid = 0;
+    if (ifs)
+        ifs >> pid;
+    return pid;
+}
+
+// True if `pid` is a live process whose image is SmoothZoom. Used to tell a
+// genuinely stale sentinel (crash) from one owned by a running instance in
+// another session — the Local\ single-instance mutex is per-session, but the
+// sentinel path under %APPDATA% is shared across the user's sessions.
+static bool isLiveSmoothZoomProcess(DWORD pid)
+{
+    if (pid == 0)
+        return false;
+    HANDLE hProc = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid);
+    if (!hProc)
+        return false;
+
+    DWORD exitCode = 0;
+    bool alive = GetExitCodeProcess(hProc, &exitCode) && exitCode == STILL_ACTIVE;
+
+    bool isSmoothZoom = false;
+    if (alive)
+    {
+        wchar_t image[MAX_PATH] = {};
+        DWORD len = MAX_PATH;
+        if (QueryFullProcessImageNameW(hProc, 0, image, &len))
+            isSmoothZoom = (wcsstr(image, L"SmoothZoom") != nullptr);
+    }
+    CloseHandle(hProc);
+    return alive && isSmoothZoom;
+}
+
 // ── Conflict Detection Helpers (AC-ERR.01, E6.8) ────────────────────────────
 
 static DWORD findMagnifyExe()
@@ -257,9 +295,10 @@ static LONG WINAPI crashHandler(EXCEPTION_POINTERS* /*exInfo*/)
     // MagSetFullscreenTransform has process-global effect regardless of thread.
     // F-08: Wrap in __try for defense in depth — if Mag state is severely corrupted,
     // this prevents a structured exception from aborting the rest of the handler.
+    BOOL resetOk = FALSE;
     __try
     {
-        MagSetFullscreenTransform(1.0f, 0, 0);
+        resetOk = MagSetFullscreenTransform(1.0f, 0, 0);
     }
     __except (EXCEPTION_EXECUTE_HANDLER)
     {
@@ -278,8 +317,12 @@ static LONG WINAPI crashHandler(EXCEPTION_POINTERS* /*exInfo*/)
         // Swallow — we're already in a crash handler
     }
 
-    // Best-effort sentinel removal (may fail if heap is corrupted — next launch catches it)
-    removeSentinel(s_sentinelPath);
+    // Remove the sentinel ONLY if the zoom reset succeeded. The API can return
+    // FALSE without raising (secure desktop active, Mag state torn down) — in
+    // that case the screen is still magnified and the sentinel is the only
+    // thing left that triggers next-launch recovery (R-14, E6.11).
+    if (resetOk)
+        removeSentinel(s_sentinelPath);
 
     return EXCEPTION_CONTINUE_SEARCH;
 }
@@ -626,12 +669,35 @@ static LRESULT CALLBACK msgWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lP
     case WM_TIMER:
         if (wParam == kWatchdogTimerId)
         {
-            // Hook health watchdog (R-05, AC-ERR.03):
-            // Check if hooks were silently deregistered and reinstall if needed.
-            if (!g_inputInterceptor.isHealthy())
+            // Hook health watchdog (R-05, AC-ERR.03).
+            // Silent OS deregistration leaves the HHOOK non-null, so the handle
+            // check alone can never detect it. Liveness check: if the system
+            // received input meaningfully later than our last hook callback,
+            // the hooks are dead — force a full unhook/rehook.
+            bool needReinstall = !g_inputInterceptor.isHealthy();
+            if (!needReinstall && !s_sessionLocked)
+            {
+                LASTINPUTINFO lii = {};
+                lii.cbSize = sizeof(lii);
+                if (GetLastInputInfo(&lii))
+                {
+                    ULONGLONG now64 = GetTickCount64();
+                    // Reconstruct 64-bit last-input time from the 32-bit tick
+                    // (DWORD subtraction handles the 49.7-day wrap correctly)
+                    DWORD inputAgeMs = static_cast<DWORD>(now64) - lii.dwTime;
+                    int64_t lastInput64 =
+                        static_cast<int64_t>(now64) - static_cast<int64_t>(inputAgeMs);
+                    int64_t lastCallback =
+                        SmoothZoom::InputInterceptor::lastCallbackTick();
+                    // 2s slack: live hooks see every input event, so any input
+                    // arriving well after our last callback means dead hooks.
+                    needReinstall = (lastInput64 - lastCallback) > 2000;
+                }
+            }
+            if (needReinstall)
             {
                 SZ_LOG_WARN("Main", L"Hook deregistration detected, reinstalling...");
-                bool restored = g_inputInterceptor.reinstall();
+                bool restored = g_inputInterceptor.forceReinstall();
                 if (restored && s_hookFailureNotified)
                 {
                     // Recovery after previous failure — inform user
@@ -715,6 +781,11 @@ static LRESULT CALLBACK msgWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lP
         {
             s_sessionLocked = false;
             SZ_LOG_INFO("Main", L"Session unlocked \u2014 checking hook health");
+            // Key-ups land on the secure desktop where LL hooks receive
+            // nothing \u2014 most notably Win+L strands WinKeyManager in Held*,
+            // which would consume and zoom every plain scroll after unlock.
+            // Clear all hook-derived held-key state before input resumes.
+            SmoothZoom::InputInterceptor::resetTransientKeyState();
             // Force immediate hook health check after returning from secure desktop
             if (!g_inputInterceptor.isHealthy())
             {
@@ -892,16 +963,50 @@ int WINAPI wWinMain(
     // Enable debug-level logging for diagnostics
     SmoothZoom::setLogLevel(SmoothZoom::LogLevel::Debug);
 
+    // ── 0-pre. Single-instance guard ─────────────────────────────────────────
+    // Must run before the sentinel logic: without it, a second launch misreads
+    // the running instance's live .running sentinel as a crash, force-resets the
+    // (system-global) magnification out from under it, and then both instances
+    // fight over hooks and transforms. Handle is intentionally held for the
+    // process lifetime; the OS releases it on exit.
+    HANDLE hSingleInstance =
+        CreateMutexW(nullptr, FALSE, L"Local\\SmoothZoom.SingleInstance");
+    if (hSingleInstance != nullptr && GetLastError() == ERROR_ALREADY_EXISTS)
+    {
+        MessageBoxW(nullptr,
+                    L"SmoothZoom is already running.\n\n"
+                    L"Look for its icon in the system tray.",
+                    L"SmoothZoom",
+                    MB_OK | MB_ICONINFORMATION);
+        CloseHandle(hSingleInstance);
+        return 0;
+    }
+
     // ── 0a. Dirty-shutdown sentinel check (R-14, E6.11) ─────────────────────
     s_sentinelPath = getSentinelPath();
     if (sentinelExists(s_sentinelPath))
     {
-        // Previous session crashed while zoomed — reset magnification
-        SZ_LOG_WARN("Main", L"Stale sentinel detected, resetting magnification...");
-        SmoothZoom::MagBridge recoveryBridge;
-        if (recoveryBridge.initialize())
+        DWORD ownerPid = readSentinelPid(s_sentinelPath);
+        if (isLiveSmoothZoomProcess(ownerPid))
         {
-            recoveryBridge.shutdown();
+            // Owned by a live SmoothZoom in another session (the Local\ mutex
+            // is per-session) — not a crash. Do not reset magnification.
+            // We still take over the shared sentinel below; cross-session
+            // crash protection for the other instance is a known limitation
+            // of the shared %APPDATA% path.
+            SZ_LOG_WARN("Main",
+                        L"Sentinel owned by live SmoothZoom (pid %lu) — skipping crash recovery",
+                        static_cast<unsigned long>(ownerPid));
+        }
+        else
+        {
+            // Previous session crashed while zoomed — reset magnification
+            SZ_LOG_WARN("Main", L"Stale sentinel detected, resetting magnification...");
+            SmoothZoom::MagBridge recoveryBridge;
+            if (recoveryBridge.initialize())
+            {
+                recoveryBridge.shutdown();
+            }
         }
         removeSentinel(s_sentinelPath);
     }

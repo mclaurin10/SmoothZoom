@@ -25,10 +25,14 @@ struct SharedState
     std::atomic<int64_t> lastKeyboardInputTime{0};
     std::atomic<int64_t> lastLLHookScrollTime{0};  // Dedup: LL hook scroll timestamp (GetTickCount64)
 
-    // -- Written by UIA thread --
+    // -- Written by UIA thread (focus) / caret thread (caret) --
     SeqLock<ScreenRect>  focusRect;
     SeqLock<ScreenRect>  caretRect;
     std::atomic<int64_t> lastFocusChangeTime{0};
+    // Caret freshness (steady_clock ms). CaretMonitor only writes caretRect on a
+    // successful poll — without this timestamp a rect from a closed/caret-less
+    // window stays "valid" forever and hijacks arbitration on every keystroke.
+    std::atomic<int64_t> lastCaretUpdateTime{0};
 
     // -- Written by main thread on WM_DISPLAYCHANGE, read by render thread --
     // Virtual screen dimensions (SM_CXVIRTUALSCREEN / SM_CYVIRTUALSCREEN)
