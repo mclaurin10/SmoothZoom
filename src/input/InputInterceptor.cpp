@@ -360,15 +360,10 @@ static LRESULT CALLBACK keyboardHookProc(int nCode, WPARAM wParam, LPARAM lParam
             }
         }
 
-        // Ctrl+Q → graceful exit (Phase 5C: AC-2.9.16)
-        if (info->vkCode == 'Q')
-        {
-            bool ctrlHeld = (GetAsyncKeyState(VK_CONTROL) & 0x8000) != 0;
-            if (ctrlHeld && s_msgWindow)
-            {
-                PostMessageW(s_msgWindow, WM_GRACEFUL_EXIT, 0, 0);
-            }
-        }
+        // No keyboard exit shortcut. A bare global Ctrl+Q hijacked a near-
+        // universal application shortcut (Quit) and silently terminated
+        // SmoothZoom from any focused app. The tray-menu "Exit" item is the sole
+        // exit mechanism (AC-2.9.16); no AC mandates a keyboard exit.
     }
 
     // Consume zoom-in/zoom-out action keys when the configured modifier is held.
@@ -382,7 +377,7 @@ static LRESULT CALLBACK keyboardHookProc(int nCode, WPARAM wParam, LPARAM lParam
     //
     // Why only zoom-in/out (not Esc/settings/toggle/inversion):
     //   - VK_ESCAPE produces no character — safe to pass through (apps may need it).
-    //   - Win+Ctrl+M, Ctrl+Alt+I, Ctrl+Q, Ctrl+Alt toggle — all use Ctrl/Alt/Win
+    //   - Win+Ctrl+M, Ctrl+Alt+I, Ctrl+Alt toggle — all use Ctrl/Alt/Win
     //     which never produce printable characters. Consuming them could break
     //     standard app behavior (e.g., Esc closing dialogs).
     //

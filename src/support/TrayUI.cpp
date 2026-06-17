@@ -554,7 +554,11 @@ void TrayUI::createSettingsWindow()
     createCheck(L"Reverse Scroll Direction", IDC_REVERSE_SCROLL_CHECK, curY);
     curY += checkGap;
 
-    createCheck(L"Momentum / Inertial Scroll", IDC_MOMENTUM_CHECK, curY);
+    // Momentum gating (handoff B3) is deferred and needs real-hardware tuning,
+    // so the control is disabled — like "Image Smoothing" above — to avoid
+    // presenting a toggle that has no effect. The field is still persisted in
+    // config.json for forward-compatibility.
+    createCheck(L"Momentum / Inertial Scroll (not yet active)", IDC_MOMENTUM_CHECK, curY, false);
     curY += checkGap;
 
     createCheck(L"Start with Windows", IDC_AUTOSTART_CHECK, curY);

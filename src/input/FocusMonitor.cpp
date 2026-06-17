@@ -10,6 +10,7 @@
 
 #include "smoothzoom/input/FocusMonitor.h"
 #include "smoothzoom/common/SharedState.h"
+#include "smoothzoom/common/RectValidation.h"
 #include "smoothzoom/support/Logger.h"
 
 #ifndef SMOOTHZOOM_TESTING
@@ -40,16 +41,20 @@ static int64_t currentTimeMs()
 }
 
 // Validate a bounding rectangle from UIA (R-09: UIA Inconsistency)
-static bool isValidRect(const RECT& r)
+static bool isValidRect(const RECT& r, const SharedState* st)
 {
     int32_t w = r.right - r.left;
     int32_t h = r.bottom - r.top;
-    // Reject zero-area, negative, or absurdly large rectangles
+    // Reject zero-area or negative rectangles.
     if (w <= 0 || h <= 0) return false;
-    if (w > 10000 || h > 10000) return false;
-    // Reject clearly off-screen (heuristic — real check would use monitor bounds)
-    if (r.left < -5000 || r.top < -5000) return false;
-    return true;
+    // Reject rects entirely off the virtual desktop, using the live bounds
+    // (handles negative-origin / large multi-monitor layouts that fixed
+    // magic-number limits wrongly rejected).
+    const int32_t vx = st->screenOriginX.load(std::memory_order_relaxed);
+    const int32_t vy = st->screenOriginY.load(std::memory_order_relaxed);
+    const int32_t vw = st->screenWidth.load(std::memory_order_relaxed);
+    const int32_t vh = st->screenHeight.load(std::memory_order_relaxed);
+    return rectIntersectsVirtualDesktop(r.left, r.top, r.right, r.bottom, vx, vy, vw, vh);
 }
 
 // ─── Focus Changed Event Handler (COM class) ──────────────────────────────
@@ -99,7 +104,7 @@ public:
         }
 
         if (FAILED(hr)) return S_OK; // Silent degradation (AC-2.5.14)
-        if (!isValidRect(boundingRect)) return S_OK; // Reject bad rects (R-09)
+        if (!isValidRect(boundingRect, state_)) return S_OK; // Reject bad rects (R-09)
 
         // Write validated rectangle to shared state via SeqLock
         ScreenRect rect;

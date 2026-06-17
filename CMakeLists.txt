@@ -233,6 +233,8 @@ if(SMOOTHZOOM_BUILD_TESTS)
         tests/unit/test_SettingsManager.cpp
         tests/unit/test_ModifierUtils.cpp
         tests/unit/test_ScrollNormalizer.cpp
+        tests/unit/test_RectValidation.cpp
+        tests/unit/test_SeqLock.cpp
         src/logic/ZoomController.cpp
         src/logic/ViewportTracker.cpp
         src/input/WinKeyManager.cpp

@@ -15,6 +15,7 @@
 
 #include "smoothzoom/input/CaretMonitor.h"
 #include "smoothzoom/common/SharedState.h"
+#include "smoothzoom/common/RectValidation.h"
 
 #ifndef SMOOTHZOOM_TESTING
 
@@ -40,19 +41,26 @@ static int64_t steadyNowMs()
     return duration_cast<milliseconds>(steady_clock::now().time_since_epoch()).count();
 }
 
-// Validate a caret rectangle
-static bool isValidCaretRect(const RECT& r)
+// Validate a caret rectangle.
+// checkBounds: only on SCREEN-coordinate rects. The client-coordinate rect (pre
+// ClientToScreen) must NOT be bounds-checked against virtual-desktop screen
+// space — non-DPI-aware source windows report virtualized client coords (R-10),
+// so a screen-space bounds test there is a category error.
+static bool isValidCaretRect(const RECT& r, const SharedState* st, bool checkBounds)
 {
-    // Caret rects can be very thin (1px wide for text cursor) — allow small width
+    // Caret rects can be very thin (1px or 0px wide for a text cursor) —
+    // allow zero width, but require non-negative dimensions and some height.
     int32_t w = r.right - r.left;
     int32_t h = r.bottom - r.top;
-    // Must have non-negative dimensions and at least some height
     if (w < 0 || h <= 0) return false;
-    // Reject absurdly large
-    if (w > 5000 || h > 5000) return false;
-    // Reject clearly off-screen (R-09, matches FocusMonitor bounds)
-    if (r.left < -5000 || r.top < -5000) return false;
-    return true;
+    if (!checkBounds) return true;
+    // Reject rects entirely off the virtual desktop, using the live bounds
+    // (R-09; handles negative-origin / large multi-monitor layouts).
+    const int32_t vx = st->screenOriginX.load(std::memory_order_relaxed);
+    const int32_t vy = st->screenOriginY.load(std::memory_order_relaxed);
+    const int32_t vw = st->screenWidth.load(std::memory_order_relaxed);
+    const int32_t vh = st->screenHeight.load(std::memory_order_relaxed);
+    return rectIntersectsVirtualDesktop(r.left, r.top, r.right, r.bottom, vx, vy, vw, vh);
 }
 
 // ─── CaretMonitor::Impl ──────────────────────────────────────────────────
@@ -94,8 +102,8 @@ struct CaretMonitor::Impl
 
         RECT caretClient = gti.rcCaret;
 
-        // Validate in client coords first
-        if (!isValidCaretRect(caretClient)) return;
+        // Validate in client coords first (degeneracy only — see isValidCaretRect)
+        if (!isValidCaretRect(caretClient, state, /*checkBounds=*/false)) return;
 
         // Convert from client coordinates to screen coordinates
         POINT topLeft = {caretClient.left, caretClient.top};
@@ -110,8 +118,8 @@ struct CaretMonitor::Impl
         screenRect.right  = bottomRight.x;
         screenRect.bottom = bottomRight.y;
 
-        // Final validation in screen coords
-        if (!isValidCaretRect(screenRect)) return;
+        // Final validation in screen coords (full virtual-desktop bounds check)
+        if (!isValidCaretRect(screenRect, state, /*checkBounds=*/true)) return;
 
         // Write to shared state via SeqLock
         ScreenRect rect;

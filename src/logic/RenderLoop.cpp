@@ -11,6 +11,7 @@
 
 #include "smoothzoom/logic/RenderLoop.h"
 #include "smoothzoom/common/SharedState.h"
+#include "smoothzoom/common/RectValidation.h"
 #include "smoothzoom/logic/ZoomController.h"
 #include "smoothzoom/logic/ViewportTracker.h"
 #include "smoothzoom/output/MagBridge.h"
@@ -459,13 +460,18 @@ void RenderLoop::frameTick()
     ScreenRect focusRect = s_state->focusRect.read();
     ScreenRect caretRect = s_state->caretRect.read();
 
-    // Validate rects: non-zero area + bounds check (defense-in-depth for R-09)
+    // Validate rects: non-zero area + on-desktop bounds (defense-in-depth for
+    // R-09). Bounds use the live virtual desktop (already loaded above) instead
+    // of fixed magic numbers, so valid rects on negative-origin / large
+    // multi-monitor layouts are not wrongly rejected.
     bool focusValid = (focusRect.width() > 0 && focusRect.height() > 0
-        && focusRect.left > -5000 && focusRect.top > -5000
-        && focusRect.width() <= 10000 && focusRect.height() <= 10000);
+        && rectIntersectsVirtualDesktop(focusRect.left, focusRect.top,
+               focusRect.right, focusRect.bottom,
+               s_screenOriginX, s_screenOriginY, s_screenW, s_screenH));
     bool caretValid = (caretRect.width() >= 0 && caretRect.height() > 0 // Caret can be 0-width
-        && caretRect.left > -5000 && caretRect.top > -5000
-        && caretRect.height() <= 5000);
+        && rectIntersectsVirtualDesktop(caretRect.left, caretRect.top,
+               caretRect.right, caretRect.bottom,
+               s_screenOriginX, s_screenOriginY, s_screenW, s_screenH));
 
     // Caret freshness: GTTI polls at ~30Hz and only writes on success, so a
     // rect older than a few poll periods means the caret is gone (caret-less

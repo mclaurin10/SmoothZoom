@@ -19,6 +19,12 @@
     <ClCompile Include="C:\Users\dmclaurin\src\SmoothZoom\tests\unit\test_ScrollNormalizer.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="C:\Users\dmclaurin\src\SmoothZoom\tests\unit\test_RectValidation.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\dmclaurin\src\SmoothZoom\tests\unit\test_SeqLock.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="C:\Users\dmclaurin\src\SmoothZoom\src\logic\ZoomController.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>

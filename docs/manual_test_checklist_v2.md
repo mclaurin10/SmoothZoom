@@ -81,7 +81,8 @@ Phase 6 polish: bug-fix verification, remaining ACs, core regression spot-check.
 - [ ] Tray icon: right-click menu (Settings, Toggle Zoom, Exit)
 - [ ] Settings window: changes apply without restart (AC-2.9.04)
 - [ ] Settings persistence: changes survive restart (AC-2.9.02)
-- [ ] Ctrl+Q: graceful exit with zoom reset
+- [ ] Tray "Exit": graceful exit animates zoom to 1.0× before closing (AC-2.9.16)
+- [ ] No global keyboard exit: Ctrl+Q in any app does NOT quit SmoothZoom
 
 ## 4. Deferred ACs
 

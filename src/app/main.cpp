@@ -327,6 +327,28 @@ static LONG WINAPI crashHandler(EXCEPTION_POINTERS* /*exInfo*/)
     return EXCEPTION_CONTINUE_SEARCH;
 }
 
+// Best-effort main-thread zoom reset for a hung-render-thread shutdown (R-14).
+// Reset-only (1.0, 0, 0) has no viewport offsets, so the render-thread affinity
+// that the Magnification API requires for OFFSETS does not apply — the factor
+// reset is process-global and takes effect from any thread. Reuses the exact
+// SEH-guarded pattern sanctioned in crashHandler() (the confined exception to
+// the "no Mag* outside MagBridge" rule). Kept in its own function because
+// __try/__except cannot live in a function that needs C++ object unwinding
+// (e.g. WinMain) — that is a hard MSVC error (C2712).
+static BOOL emergencyResetMagnification()
+{
+    BOOL ok = FALSE;
+    __try
+    {
+        ok = MagSetFullscreenTransform(1.0f, 0, 0);
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER)
+    {
+        ok = FALSE;
+    }
+    return ok;
+}
+
 // ── PTP HID Device Initialization ────────────────────────────────────────────
 // Called once per device when the first HID report arrives. Parses the device's
 // HID report descriptor to discover contact slot link collections.
@@ -821,11 +843,18 @@ static LRESULT CALLBACK msgWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lP
 
             if (!g_renderLoop.isRunning())
             {
+                // Render thread reset zoom to 1.0× before clearing running_.
                 g_renderLoop.finalizeShutdown();
                 g_inputInterceptor.uninstall();
+                removeSentinel(s_sentinelPath);
             }
-            // else: render thread still alive — process exit will clean up
-            removeSentinel(s_sentinelPath);
+            else if (emergencyResetMagnification())
+            {
+                // Render thread still alive — best-effort reset succeeded.
+                removeSentinel(s_sentinelPath);
+            }
+            // else: screen may still be magnified — leave the sentinel so the
+            // next launch detects the dirty exit and resets magnification (R-14).
         }
         return 0;
 
@@ -1241,6 +1270,7 @@ int WINAPI wWinMain(
 
     // Wait for render thread to finish (it resets zoom to 1.0× on its thread).
     // Timeout after 3 seconds to prevent process hang if render thread is stuck.
+    bool renderStoppedClean = false;
     {
         DWORD shutdownStart = GetTickCount();
         while (g_renderLoop.isRunning())
@@ -1252,6 +1282,10 @@ int WINAPI wWinMain(
             }
             Sleep(10);
         }
+        // !isRunning() ⇒ the render thread ran its reset-to-1.0× + shutdown
+        // (RenderLoop::run) before clearing running_. A timeout means it is
+        // stuck and the screen may still be magnified.
+        renderStoppedClean = !g_renderLoop.isRunning();
     }
 
     // No-op — MagUninitialize now happens on the render thread (thread affinity).
@@ -1266,8 +1300,24 @@ int WINAPI wWinMain(
         s_ptpDevice.preparsedData = nullptr;
     }
 
-    // ── 4c. Remove sentinel on clean exit (R-14) ───────────────────────────
-    removeSentinel(s_sentinelPath);
+    // ── 4c. Remove sentinel ONLY on a verified-clean shutdown (R-14, E6.11) ──
+    // If the render thread hung, the screen may still be magnified — attempt a
+    // best-effort emergency reset and only drop the sentinel if it succeeds.
+    // Leaving the sentinel lets the NEXT launch detect the dirty exit and reset
+    // magnification; removing it unconditionally would defeat that recovery.
+    if (renderStoppedClean)
+    {
+        removeSentinel(s_sentinelPath);
+    }
+    else if (emergencyResetMagnification())
+    {
+        removeSentinel(s_sentinelPath);
+    }
+    else
+    {
+        SZ_LOG_ERROR("Main",
+            L"Shutdown timeout + emergency reset failed; leaving sentinel for next-launch recovery (R-14)");
+    }
 
     return 0;
 }
