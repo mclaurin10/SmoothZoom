@@ -585,12 +585,26 @@ void RenderLoop::frameTick()
             SZ_LOG_INFO("RenderLoop", L"MagBridge setTransform recovered");
         s_magBridgeLastOk = ok;
 
-        s_lastZoom = zoom;
-        s_lastOffX = offset.x;
-        s_lastOffY = offset.y;
+        // Only cache the transform we actually applied. Updating s_last* on a
+        // failed call poisons the redundant-call gate above (next frame's
+        // `changed` compares against values that were never applied → false),
+        // which suppresses the retry and leaves the display stale while the
+        // cache claims success. Keeping the prior values means a transient
+        // failure is retried every following frame until it lands — the correct
+        // eventually-consistent behavior across secure-desktop / UAC transitions
+        // (AC-ERR.04, R-14). This also keeps the #6 idle short-circuit honest: a
+        // failed reset-to-1.0× leaves s_lastZoom != 1.0, so the short-circuit
+        // won't engage until the identity transform is truly on screen.
+        if (ok)
+        {
+            s_lastZoom = zoom;
+            s_lastOffX = offset.x;
+            s_lastOffY = offset.y;
 
-        // Phase 5C: publish for main thread (graceful exit, tray tooltip)
-        s_state->currentZoomLevel.store(zoom, std::memory_order_relaxed);
+            // Phase 5C: publish for main thread (graceful exit, tray tooltip).
+            // Gated on success so the reported zoom matches what is on screen.
+            s_state->currentZoomLevel.store(zoom, std::memory_order_relaxed);
+        }
     }
 
 #ifdef SMOOTHZOOM_PERF_AUDIT
