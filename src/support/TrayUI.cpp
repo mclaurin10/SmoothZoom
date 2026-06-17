@@ -170,7 +170,11 @@ static float getEditFloat(HWND hEdit, float fallback)
     GetWindowTextW(hEdit, buf, 64);
     wchar_t* end = nullptr;
     double val = wcstod(buf, &end);
-    if (end == buf)
+    // Reject unparseable input AND non-finite values: wcstod parses "nan"/"inf"
+    // successfully (end != buf), but a NaN/Inf zoom bound must never reach the
+    // zoom math (R-17). Substituting the finite fallback also keeps the downstream
+    // "Min > Max" comparison meaningful (NaN comparisons are always false).
+    if (end == buf || !std::isfinite(val))
         return fallback;
     return static_cast<float>(val);
 }

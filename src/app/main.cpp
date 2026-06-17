@@ -910,7 +910,9 @@ static LRESULT CALLBACK msgWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lP
 
         if (modHeld)
         {
-            SZ_LOG_INFO("Main", L"Raw Input scroll fallback: delta=%d", delta);
+            // Debug, not Info: this fires per qualifying scroll event on the
+            // main thread, and the logger flushes synchronously per line (R-05).
+            SZ_LOG_DEBUG("Main", L"Raw Input scroll fallback: delta=%d", delta);
             g_sharedState.scrollAccumulator.fetch_add(delta, std::memory_order_release);
             g_sharedState.modifierHeld.store(true, std::memory_order_relaxed);
         }
@@ -960,8 +962,12 @@ int WINAPI wWinMain(
     // ── 0. Install crash handler (R-14) ──────────────────────────────────────
     SetUnhandledExceptionFilter(crashHandler);
 
-    // Enable debug-level logging for diagnostics
-    SmoothZoom::setLogLevel(SmoothZoom::LogLevel::Debug);
+    // Default to Info. The per-event PTP / Raw-Input paths log at Debug, and the
+    // logger flushes to disk synchronously per line on this thread — which also
+    // services the low-level hooks. Running at Debug during a sustained touchpad
+    // scroll would add input latency and risk hook-timeout deregistration (R-05).
+    // Raise to Debug only when actively diagnosing.
+    SmoothZoom::setLogLevel(SmoothZoom::LogLevel::Info);
 
     // ── 0-pre. Single-instance guard ─────────────────────────────────────────
     // Must run before the sentinel logic: without it, a second launch misreads

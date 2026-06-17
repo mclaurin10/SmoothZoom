@@ -124,7 +124,7 @@ static LRESULT CALLBACK mouseHookProc(int nCode, WPARAM wParam, LPARAM lParam)
     {
     case WM_MOUSEWHEEL:
     {
-#ifdef SMOOTHZOOM_LOGGING
+#ifdef SMOOTHZOOM_INPUT_DIAG  // opt-in per-event hook tracing — deliberately NOT enabled by Debug/SMOOTHZOOM_LOGGING (R-05: hook callbacks must do no I/O)
         {
             wchar_t dbg[256];
             swprintf_s(dbg, L"[SZ-DIAG] WM_MOUSEWHEEL: nonWinMod=%d, modVK=0x%X, asyncMod=%d, fg=0x%p\n",
@@ -174,7 +174,7 @@ static LRESULT CALLBACK mouseHookProc(int nCode, WPARAM wParam, LPARAM lParam)
 
         if (isShiftMod)
         {
-#ifdef SMOOTHZOOM_LOGGING
+#ifdef SMOOTHZOOM_INPUT_DIAG  // opt-in per-event hook tracing — deliberately NOT enabled by Debug/SMOOTHZOOM_LOGGING (R-05: hook callbacks must do no I/O)
             {
                 wchar_t dbg[256];
                 swprintf_s(dbg, L"[SZ-DIAG] WM_MOUSEHWHEEL (Shift mod): nonWinMod=%d, modVK=0x%X, asyncMod=%d, fg=0x%p\n",
@@ -269,7 +269,7 @@ static LRESULT CALLBACK keyboardHookProc(int nCode, WPARAM wParam, LPARAM lParam
     // Track non-Win modifier state for scroll gesture detection (Issue 1 fix)
     if (!isWinModifier() && isModifierMatch(static_cast<int>(info->vkCode), s_modifierKeyVK))
     {
-#ifdef SMOOTHZOOM_LOGGING
+#ifdef SMOOTHZOOM_INPUT_DIAG  // opt-in per-event hook tracing — deliberately NOT enabled by Debug/SMOOTHZOOM_LOGGING (R-05: hook callbacks must do no I/O)
         {
             wchar_t dbg[128];
             swprintf_s(dbg, L"[SZ-DIAG] ModifierKey vk=0x%X isDown=%d\n",

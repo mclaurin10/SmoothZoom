@@ -176,12 +176,40 @@ bool SettingsManager::saveToFile(const char* path) const
     std::filesystem::create_directories(p.parent_path(), ec);
     // Ignore ec — directory may already exist or path may be a bare filename
 
-    std::ofstream file(path);
-    if (!file.is_open())
-        return false;
+    // Atomic write (R-14): serialize to a sibling temp file, flush it fully, then
+    // rename over the destination. A crash, power loss, or full disk mid-write can
+    // only damage the temp file — the live config.json is swapped in by a single
+    // same-directory rename (atomic on NTFS), so loadFromFile never observes a
+    // truncated/half-written file and silently falls back to defaults.
+    std::filesystem::path tmpPath(std::string(path) + ".tmp");
+    {
+        std::ofstream file(tmpPath);
+        if (!file.is_open())
+            return false;
 
-    file << j.dump(4); // 4-space indent, human-readable (AC-2.9.01)
-    return file.good();
+        file << j.dump(4); // 4-space indent, human-readable (AC-2.9.01)
+
+        // Close explicitly and re-check AFTER close. A disk-full / I/O error can
+        // surface only when the stream's buffer is flushed on close(), which is
+        // after a plain good() check would already have passed. Committing the
+        // rename of a truncated temp over the good config would re-introduce the
+        // exact corruption this guards against, so verify the stream survived the
+        // close before renaming.
+        file.close();
+        if (!file)
+        {
+            std::filesystem::remove(tmpPath, ec); // best-effort cleanup
+            return false;
+        }
+    } // ofstream destroyed here; handle already released by the explicit close()
+
+    std::filesystem::rename(tmpPath, p, ec);
+    if (ec)
+    {
+        std::filesystem::remove(tmpPath, ec); // best-effort cleanup; keep old config intact
+        return false;
+    }
+    return true;
 }
 
 // ─── Snapshot Access ─────────────────────────────────────────────────────────

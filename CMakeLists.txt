@@ -28,6 +28,12 @@ endif()
 option(SMOOTHZOOM_BUILD_TESTS  "Build unit tests"          ON)
 option(SMOOTHZOOM_SIGN_BINARY  "Sign output with dev cert"  OFF)
 option(SMOOTHZOOM_LOGGING      "Enable diagnostic logging via OutputDebugStringW" OFF)
+# Per-event tracing INSIDE the low-level hook callbacks (scroll/modifier events).
+# Deliberately separate from SMOOTHZOOM_LOGGING and NOT auto-enabled for Debug:
+# these write OutputDebugStringW on every input event on the hook-servicing thread,
+# which violates the "hook callbacks do no I/O" rule and risks hook deregistration
+# (R-05). Enable only for short, targeted input diagnostics.
+option(SMOOTHZOOM_INPUT_DIAG   "Enable per-event input-hook tracing (R-05 hazard; diagnostics only)" OFF)
 
 # Auto-enable logging for Debug builds
 # For multi-config generators (Visual Studio), CMAKE_BUILD_TYPE is empty at
@@ -42,6 +48,12 @@ if(SMOOTHZOOM_LOGGING)
 endif()
 # Always add logging for Debug config in multi-config generators (VS)
 add_compile_definitions($<$<CONFIG:Debug>:SMOOTHZOOM_LOGGING>)
+
+# Input-hook tracing is opt-in only — intentionally NOT tied to Debug or
+# SMOOTHZOOM_LOGGING (see option comment above; R-05).
+if(SMOOTHZOOM_INPUT_DIAG)
+    add_compile_definitions(SMOOTHZOOM_INPUT_DIAG)
+endif()
 
 # ---------------------------------------------------------------------------
 # Third-party
