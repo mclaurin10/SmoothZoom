@@ -155,7 +155,7 @@ The keyboard hook callback:
 3. Delegates Win key state management to WinKeyManager.
 4. For recognized shortcuts (zoom in/out, toggle, settings, color inversion): posts a command to the keyboard command queue.
 5. For all keyboard events: records timestamp to `lastKeyboardInputTime`.
-6. Returns `CallNextHookEx(...)` for all keyboard events (never consumes keyboard events, only observes them — except see WinKeyManager below for the suppression case).
+6. Consumes (returns `1`) only the four zoom keys (`VK_OEM_PLUS`, `VK_ADD`, `VK_OEM_MINUS`, `VK_SUBTRACT`), and only while the configured modifier is held — on both key-down and key-up. This prevents a `+`/`_` character leak when the modifier is Shift, and from peripheral macros (Logitech Options+, AHK) that synthesize `Shift+=`/`Shift+-` via `SendInput`. All other keyboard events return `CallNextHookEx(...)` (observe-only). (WinKeyManager's Start Menu suppression is separate — it injects a synthetic keystroke and does not consume the Win key event.)
 
 **Precision Touchpad (PTP) support via Raw Input:**
 
@@ -424,7 +424,14 @@ Many applications do not implement UIA TextPattern. As a fallback, CaretMonitor 
 ```cpp
 GUITHREADINFO gti = { sizeof(gti) };
 if (GetGUIThreadInfo(0, &gti)) {
-    if (gti.flags & GUI_CARETBLINKING) {
+    // Gate on "a caret exists" (hwndCaret + a valid rcCaret), NOT on
+    // GUI_CARETBLINKING. That flag is set only during the caret's visible blink
+    // phase; gating on it would stop refreshing the caret during the dark half of
+    // every blink, and the RenderLoop freshness window (150ms) is shorter than a
+    // default ~530ms blink half-period — so a typing pause could let the caret go
+    // stale and oscillate the viewport source. A caret-less app reports
+    // hwndCaret == NULL, so this still degrades silently (AC-2.6.11).
+    if (gti.hwndCaret) {
         RECT caretRect;
         caretRect.left   = gti.rcCaret.left;
         caretRect.top    = gti.rcCaret.top;
@@ -433,7 +440,8 @@ if (GetGUIThreadInfo(0, &gti)) {
         // Convert from client coordinates to screen coordinates
         POINT topLeft = { caretRect.left, caretRect.top };
         ClientToScreen(gti.hwndCaret, &topLeft);
-        // Write to shared state
+        // Validate the rect, write to shared state, and stamp freshness only on
+        // a successful poll (so a stale rect cannot hijack arbitration).
     }
 }
 ```

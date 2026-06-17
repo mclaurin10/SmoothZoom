@@ -81,8 +81,15 @@ struct CaretMonitor::Impl
 
         if (!GetGUIThreadInfo(0, &gti)) return; // Silent failure (AC-2.6.11)
 
-        // Check if there's a blinking caret (GUI_CARETBLINKING flag)
-        if (!(gti.flags & GUI_CARETBLINKING)) return;
+        // Gate on "is there a caret," not "is it currently blinking-visible."
+        // GUI_CARETBLINKING is set only during the caret's visible blink phase, so
+        // gating on it stops stamping freshness during the dark half of every
+        // blink. RenderLoop's freshness window (kCaretFreshnessMs = 150) is shorter
+        // than a default ~530ms blink half-period, so a typing pause could let the
+        // caret go stale and oscillate the viewport source. hwndCaret + a valid
+        // rcCaret means a caret exists; a caret-less app reports hwndCaret == NULL
+        // (and isValidCaretRect rejects an empty rect), so we still degrade silently
+        // where no caret can be determined (AC-2.6.07, AC-2.6.11; R-09).
         if (!gti.hwndCaret) return;
 
         RECT caretClient = gti.rcCaret;

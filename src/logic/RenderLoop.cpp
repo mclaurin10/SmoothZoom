@@ -130,6 +130,7 @@ void RenderLoop::start(SharedState& state)
     s_state = &state;
     shutdownRequested_.store(false, std::memory_order_relaxed);
     initComplete_.store(false, std::memory_order_relaxed);
+    magnifierConflictDetected_.store(false, std::memory_order_relaxed);
     s_firstTick = true;
 
     // Initialize frame timing for dt computation
@@ -162,6 +163,11 @@ bool RenderLoop::isRunning() const
     return running_.load(std::memory_order_acquire);
 }
 
+bool RenderLoop::magnifierConflictActive() const
+{
+    return magnifierConflictDetected_.load(std::memory_order_relaxed);
+}
+
 void RenderLoop::threadMain()
 {
     // Initialize MagBridge on the render thread so all Mag* API calls
@@ -174,6 +180,24 @@ void RenderLoop::threadMain()
         // Leave running_ false so main thread sees failure via isRunning()
         initComplete_.store(true, std::memory_order_release);
         return;
+    }
+
+    // Post-init conflict detection (AC-ERR.02 / AC-ERR.01; mag-bridge.md): read
+    // the system's current full-screen transform once. A non-1.0× magnification
+    // means another magnifier — or a leftover transform from a crashed instance
+    // — is active. This must run on the render thread (Mag* affinity, R-01); a
+    // get needs no message pump (that requirement is only for set offsets). The
+    // flag is published to the main thread by the initComplete_ release below.
+    // Coarse epsilon (0.01) for "is it 1.0?" — looser than R-17's 0.005 snap.
+    {
+        float curMag = 1.0f, curX = 0.0f, curY = 0.0f;
+        if (s_magBridge.getTransform(curMag, curX, curY)
+            && (curMag > 1.0f + 0.01f || curMag < 1.0f - 0.01f))
+        {
+            magnifierConflictDetected_.store(true, std::memory_order_relaxed);
+            SZ_LOG_WARN("RenderLoop",
+                        L"Another magnifier may be active: initial transform magnification=%.3f", curMag);
+        }
     }
 
     running_.store(true, std::memory_order_release);
@@ -326,8 +350,36 @@ void RenderLoop::frameTick()
 
     s_zoomController.tick(dtSeconds);
 
+    // End the scroll gesture on a frame with no new scroll input so the
+    // controller settles from Scrolling to Idle. This arms the 1.0× idle
+    // short-circuit below; a later scroll re-enters Scrolling via
+    // applyScrollDelta(). (AC-2.3.13, R-18)
+    if (scrollDelta == 0)
+        s_zoomController.endScroll();
+
     // Get current zoom level
     float zoom = s_zoomController.currentZoom();
+
+    // R-18 / AC-2.3.13 idle short-circuit: once settled at rest at 1.0×, skip all
+    // per-frame tracking work (GetCursorPos, MonitorFromPoint/GetMonitorInfo,
+    // source arbitration, offset math, setTransform). Settings (step 0), commands
+    // (step 2), scroll (step 3) and animation (step 4) all ran above, so color
+    // inversion, keyboard shortcuts and re-zoom still work — any of them breaks
+    // out of Idle next frame. The s_lastZoom/offset guard ensures the final
+    // reset-to-1.0× frame (which still needs one setTransform(1,0,0)) is not
+    // skipped. !s_sourceTransitionActive lets an in-flight 200ms source blend
+    // finish first. Float == is exact here: ZoomController snaps to exactly 1.0f
+    // and s_lastZoom is assigned from zoom (same compare as the changed-check).
+    // NOTE: idle frames return before the SMOOTHZOOM_PERF_AUDIT block — the
+    // in-frame counter then reports active-frame cost only; idle CPU is verified
+    // at the OS level (Task Manager / typeperf).
+    if (s_zoomController.mode() == ZoomController::Mode::Idle
+        && zoom == 1.0f
+        && s_lastZoom == 1.0f && s_lastOffX == 0.0f && s_lastOffY == 0.0f
+        && !s_sourceTransitionActive)
+    {
+        return;
+    }
 
     // 5. Compute viewport offset with multi-source tracking (Phase 3)
     //    Reads are all lock-free (atomics + SeqLock) — no hot path violations.

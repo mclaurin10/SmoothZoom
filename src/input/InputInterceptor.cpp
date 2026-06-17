@@ -154,8 +154,6 @@ static LRESULT CALLBACK mouseHookProc(int nCode, WPARAM wParam, LPARAM lParam)
             if (s_modifierKeyVK == VK_LWIN || s_modifierKeyVK == VK_RWIN)
                 s_winKeyMgr.markUsedForZoom();
 
-            s_state->modifierHeld.store(true, std::memory_order_relaxed);
-
             // Consume the event — do not pass to next hook or applications (AC-2.1.02)
             return 1;
         }
@@ -201,8 +199,6 @@ static LRESULT CALLBACK mouseHookProc(int nCode, WPARAM wParam, LPARAM lParam)
                     static_cast<int64_t>(GetTickCount64()), std::memory_order_relaxed);
 
                 s_state->scrollAccumulator.fetch_add(delta, std::memory_order_release);
-
-                s_state->modifierHeld.store(true, std::memory_order_relaxed);
 
                 // Consume — prevent horizontal scroll reaching applications
                 return 1;
@@ -258,11 +254,6 @@ static LRESULT CALLBACK keyboardHookProc(int nCode, WPARAM wParam, LPARAM lParam
         else if (isUp)
         {
             s_winKeyMgr.onWinKeyUp();
-            // BF-3: Only clear modifierHeld on Win key-up when Win IS the modifier.
-            // Otherwise, releasing Win while Alt/Shift is held would incorrectly
-            // clear the modifier state.
-            if (isWinModifier())
-                s_state->modifierHeld.store(false, std::memory_order_relaxed);
         }
     }
 
@@ -278,8 +269,6 @@ static LRESULT CALLBACK keyboardHookProc(int nCode, WPARAM wParam, LPARAM lParam
         }
 #endif
         s_nonWinModifierHeld = isDown;
-        if (isUp && s_state)
-            s_state->modifierHeld.store(false, std::memory_order_relaxed);
     }
 
     // Phase 4/5B: Configurable toggle key tracking (AC-2.7.01–AC-2.7.10)
@@ -533,8 +522,6 @@ void InputInterceptor::resetTransientKeyState()
         if (s_state)
             s_state->commandQueue.push(ZoomCommand::ToggleRelease);
     }
-    if (s_state)
-        s_state->modifierHeld.store(false, std::memory_order_relaxed);
 }
 
 // Phase 5B: Register for settings change notifications (AC-2.9.04)

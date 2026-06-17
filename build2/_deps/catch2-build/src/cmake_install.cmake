@@ -1,4 +1,4 @@
-# Install script for directory: C:/Dev/SmoothZoom/build/_deps/catch2-src/src
+# Install script for directory: C:/Users/dmclaurin/src/SmoothZoom/build2/_deps/catch2-src/src
 
 # Set the install prefix
 if(NOT DEFINED CMAKE_INSTALL_PREFIX)
@@ -35,6 +35,6 @@ endif()
 string(REPLACE ";" "\n" CMAKE_INSTALL_MANIFEST_CONTENT
        "${CMAKE_INSTALL_MANIFEST_FILES}")
 if(CMAKE_INSTALL_LOCAL_ONLY)
-  file(WRITE "C:/Dev/SmoothZoom/build2/_deps/catch2-build/src/install_local_manifest.txt"
+  file(WRITE "C:/Users/dmclaurin/src/SmoothZoom/build2/_deps/catch2-build/src/install_local_manifest.txt"
      "${CMAKE_INSTALL_MANIFEST_CONTENT}")
 endif()

@@ -655,7 +655,6 @@ static void handlePtpHidReport(const BYTE* reportData, DWORD reportSize)
         SZ_LOG_DEBUG("Main", L"PTP scroll: avgDY=%d wheelEquiv=%d",
                      avgDeltaY, static_cast<int>(delta));
         g_sharedState.scrollAccumulator.fetch_add(delta, std::memory_order_release);
-        g_sharedState.modifierHeld.store(true, std::memory_order_relaxed);
     }
 }
 
@@ -914,7 +913,6 @@ static LRESULT CALLBACK msgWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lP
             // main thread, and the logger flushes synchronously per line (R-05).
             SZ_LOG_DEBUG("Main", L"Raw Input scroll fallback: delta=%d", delta);
             g_sharedState.scrollAccumulator.fetch_add(delta, std::memory_order_release);
-            g_sharedState.modifierHeld.store(true, std::memory_order_relaxed);
         }
 
         return DefWindowProcW(hWnd, msg, wParam, lParam);
@@ -1117,6 +1115,26 @@ int WINAPI wWinMain(
                     MB_OK | MB_ICONERROR);
         removeSentinel(s_sentinelPath);
         return 1;
+    }
+
+    // ── 2a. Post-init magnifier-conflict warning (AC-ERR.02 / AC-ERR.01) ────
+    // The render thread read the system transform right after MagInitialize. A
+    // non-1.0× transform means another full-screen magnifier (or a leftover
+    // transform from a crashed instance) was active. Warn and continue — unlike
+    // Magnify.exe we cannot identify or close an unknown magnifier, and
+    // SmoothZoom overrides the transform on its first zoom anyway.
+    if (g_renderLoop.magnifierConflictActive())
+    {
+        MessageBoxW(nullptr,
+                    L"Another full-screen magnifier appears to be active.\n\n"
+                    L"The screen was already magnified when SmoothZoom started. "
+                    L"Two full-screen magnifiers cannot share the display, so "
+                    L"zoom or tracking may behave unexpectedly.\n\n"
+                    L"If you are running another magnifier (including a leftover "
+                    L"session from a previous crash), please close it. SmoothZoom "
+                    L"will continue running.",
+                    L"SmoothZoom — Another Magnifier Detected",
+                    MB_OK | MB_ICONWARNING);
     }
 
     // ── 2b. Start UIA monitoring (Phase 3: focus + caret tracking) ──────────

@@ -1,16 +1,16 @@
 ﻿<?xml version="1.0" encoding="utf-8"?>
-<Project ToolsVersion="18.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+<Project ToolsVersion="17.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <ItemGroup>
-    <ClCompile Include="C:\Dev\SmoothZoom\build\_deps\catch2-src\src\catch2\internal\catch_main.cpp">
+    <ClCompile Include="C:\Users\dmclaurin\src\SmoothZoom\build2\_deps\catch2-src\src\catch2\internal\catch_main.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
-    <CustomBuild Include="C:\Dev\SmoothZoom\build\_deps\catch2-src\src\CMakeLists.txt" />
+    <CustomBuild Include="C:\Users\dmclaurin\src\SmoothZoom\build2\_deps\catch2-src\src\CMakeLists.txt" />
   </ItemGroup>
   <ItemGroup>
     <Filter Include="Source Files">
-      <UniqueIdentifier>{B1026CB0-8ED6-38CB-8B84-DA9534D239D0}</UniqueIdentifier>
+      <UniqueIdentifier>{DB245FA0-9840-397D-B646-DF3479C8C595}</UniqueIdentifier>
     </Filter>
   </ItemGroup>
 </Project>

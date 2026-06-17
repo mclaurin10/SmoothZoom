@@ -38,17 +38,19 @@ WH_MOUSE_LL callback:
 
 **Do NOT rely on `WM_MOUSEMOVE` from the hook for pointer position in the RenderLoop.** These events are unreliable when the fullscreen magnifier is active. The RenderLoop reads pointer position via `GetCursorPos()` directly. The hook writes to shared state as a secondary signal only.
 
-## Keyboard Hook — Observe Only, Never Consume
+## Keyboard Hook — Observe Only, Except the Four Zoom Keys
 
 ```
 WH_KEYBOARD_LL callback:
   Modifier key down/up          → update modifier state, delegate to WinKeyManager
   Shortcut combos (Phase 2+)    → post command to lock-free queue
   All keyboard events           → record timestamp to lastKeyboardInputTime
-  ALWAYS                        → return CallNextHookEx (PASS THROUGH)
+  Zoom key + modifier held      → return 1 (CONSUME) — VK_OEM_PLUS / VK_ADD /
+                                   VK_OEM_MINUS / VK_SUBTRACT, on down AND up
+  Everything else               → return CallNextHookEx (PASS THROUGH)
 ```
 
-**The keyboard hook NEVER returns 1.** It observes all keyboard events and passes them through. The only exception is WinKeyManager's Start Menu suppression, which injects a synthetic keystroke — it does not consume the original event.
+**The keyboard hook returns 1 only for the four zoom keys (`VK_OEM_PLUS`, `VK_ADD`, `VK_OEM_MINUS`, `VK_SUBTRACT`), and only while the configured modifier is held — on both key-down and key-up.** This is a deliberate, bounded exception: when the modifier is Shift, `Shift+=`/`Shift+-` would otherwise leak a `+`/`_` character into the focused app, and peripheral macros (Logitech Options+, AHK) synthesize those same chords via `SendInput`. The zoom command is posted on key-down; consuming both edges blocks the character without affecting any other key. Every other keyboard event passes through unchanged (observe-only). WinKeyManager's Start Menu suppression is a separate mechanism — it injects a synthetic keystroke and does not consume the Win key event.
 
 ## WinKeyManager — Start Menu Suppression State Machine
 
@@ -88,7 +90,7 @@ A timer on the Main thread checks hook handle validity every 5 seconds. (R-05 mi
 
 1. **Doing real work in the hook callback.** Even a single `std::string` construction or a debug `printf` can push the callback close to the system timeout under load. If you need debug output, set an atomic flag and log from outside the callback on a state transition.
 
-2. **Consuming keyboard events (returning 1 from the keyboard hook).** The keyboard hook is observe-only. Consuming keyboard events would break the user's keyboard for all applications. WinKeyManager's suppression injects a *new* event — it does not consume the Win key event itself.
+2. **Consuming keyboard events beyond the four zoom keys.** The keyboard hook returns 1 *only* for `VK_OEM_PLUS` / `VK_ADD` / `VK_OEM_MINUS` / `VK_SUBTRACT`, and *only* while the configured modifier is held (see "Keyboard Hook" above). Consuming any other key — or consuming the zoom keys when the modifier is not held — would break the user's keyboard for all applications. WinKeyManager's suppression injects a *new* event; it does not consume the Win key event itself.
 
 3. **Suppressing Start Menu when `usedWithOtherKey` is true.** If the user pressed Win+E (to open Explorer) after scrolling, suppression would prevent Explorer from opening. Check both flags.
 

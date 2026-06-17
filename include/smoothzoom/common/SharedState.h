@@ -19,7 +19,6 @@ namespace SmoothZoom
 struct SharedState
 {
     // -- Written by main thread (hook callbacks) --
-    std::atomic<bool>    modifierHeld{false};
     std::atomic<int32_t> scrollAccumulator{0};
     std::atomic<bool>    toggleState{false};
     std::atomic<int64_t> lastKeyboardInputTime{0};

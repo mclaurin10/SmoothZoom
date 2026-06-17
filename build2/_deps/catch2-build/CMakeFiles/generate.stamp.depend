@@ -1,7 +1,7 @@
 # CMake generation dependency list for this directory.
-C:/Dev/SmoothZoom/build/_deps/catch2-src/CMake/CatchConfigOptions.cmake
-C:/Dev/SmoothZoom/build/_deps/catch2-src/CMakeLists.txt
-C:/Program Files/Microsoft Visual Studio/18/Community/Common7/IDE/CommonExtensions/Microsoft/CMake/CMake/share/cmake-4.2/Modules/CMakeDependentOption.cmake
-C:/Program Files/Microsoft Visual Studio/18/Community/Common7/IDE/CommonExtensions/Microsoft/CMake/CMake/share/cmake-4.2/Modules/CMakePackageConfigHelpers.cmake
-C:/Program Files/Microsoft Visual Studio/18/Community/Common7/IDE/CommonExtensions/Microsoft/CMake/CMake/share/cmake-4.2/Modules/GNUInstallDirs.cmake
-C:/Program Files/Microsoft Visual Studio/18/Community/Common7/IDE/CommonExtensions/Microsoft/CMake/CMake/share/cmake-4.2/Modules/WriteBasicConfigVersionFile.cmake
+C:/Program Files/CMake/share/cmake-4.2/Modules/CMakeDependentOption.cmake
+C:/Program Files/CMake/share/cmake-4.2/Modules/CMakePackageConfigHelpers.cmake
+C:/Program Files/CMake/share/cmake-4.2/Modules/GNUInstallDirs.cmake
+C:/Program Files/CMake/share/cmake-4.2/Modules/WriteBasicConfigVersionFile.cmake
+C:/Users/dmclaurin/src/SmoothZoom/build2/_deps/catch2-src/CMake/CatchConfigOptions.cmake
+C:/Users/dmclaurin/src/SmoothZoom/build2/_deps/catch2-src/CMakeLists.txt

@@ -1,13 +1,13 @@
 ﻿<?xml version="1.0" encoding="utf-8"?>
-<Project ToolsVersion="18.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+<Project ToolsVersion="17.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <ItemGroup>
-    <CustomBuild Include="C:\Dev\SmoothZoom\build2\CMakeFiles\b6b29c0ba9766b026468dd3d9f776aaf\RUN_TESTS_force.rule">
+    <CustomBuild Include="C:\Users\dmclaurin\src\SmoothZoom\build2\CMakeFiles\eba2817a53de838c4b8f3da70f1d33e7\RUN_TESTS_force.rule">
       <Filter>CMake Rules</Filter>
     </CustomBuild>
   </ItemGroup>
   <ItemGroup>
     <Filter Include="CMake Rules">
-      <UniqueIdentifier>{8A65F8B9-B428-3D8C-8B53-FD5977F65ECC}</UniqueIdentifier>
+      <UniqueIdentifier>{43FEAC59-39AC-3B4D-9D08-ED579613FBDD}</UniqueIdentifier>
     </Filter>
   </ItemGroup>
 </Project>

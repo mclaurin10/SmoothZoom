@@ -202,9 +202,12 @@ bool ZoomController::tick(float dtSeconds)
 
     if (mode_ == Mode::Scrolling)
     {
-        // Scroll-direct: no interpolation needed. Value was set in applyScrollDelta.
-        // Transition to Idle when scroll input stops (done externally by RenderLoop
-        // when scrollAccumulator is 0 for a frame and modifier is released).
+        // Scroll-direct: no interpolation needed. The value was set directly in
+        // applyScrollDelta(). RenderLoop calls endScroll() on a frame with no
+        // scroll input to return us to Idle (which arms the 1.0× idle
+        // short-circuit). Until then we report "changed" so a caller that gates on
+        // tick()'s return value still refreshes; RenderLoop instead gates its
+        // MagBridge call on its own changed-since-last-frame check.
         return true;
     }
 
@@ -270,6 +273,14 @@ void ZoomController::applySettings(float minZoom, float maxZoom,
 
     // Clamp pending target to new bounds
     targetZoom_ = std::clamp(targetZoom_, minZoom_, maxZoom_);
+}
+
+void ZoomController::endScroll()
+{
+    // Only ends a scroll gesture. Never interrupts an in-progress animation
+    // (Animating) or disturbs an already-Idle controller.
+    if (mode_ == Mode::Scrolling)
+        mode_ = Mode::Idle;
 }
 
 void ZoomController::reset()

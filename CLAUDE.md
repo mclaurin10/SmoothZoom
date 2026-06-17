@@ -92,7 +92,7 @@ Each component has a single responsibility. No component reaches into another's 
 
 - **MagBridge** is the only file that `#include`s `Magnification.h`. This isolates a future migration to Desktop Duplication API. (R-01)
 - **WinKeyManager** is factored out of InputInterceptor for testability of the Win key state machine.
-- **InputInterceptor** never consumes keyboard events (only observes). It consumes scroll events only when the modifier is held.
+- **InputInterceptor** consumes keyboard events only for the four zoom keys (`VK_OEM_PLUS`, `VK_ADD`, `VK_OEM_MINUS`, `VK_SUBTRACT`), and only while the configured modifier is held — on both key-down and key-up. This prevents a `+`/`_` character leak when the modifier is Shift (and from peripheral macros that synthesize `Shift+=`/`Shift+-`). All other keyboard events pass through (observe-only). It consumes scroll events only when the modifier is held.
 - **ViewportTracker** arbitrates between sources: active typing → Caret; recent focus change (after 100ms debounce) → Focus; otherwise → Pointer. Transitions between sources animate over 200ms.
 - **ZoomController** has four modes: IDLE, SCROLL_DIRECT, ANIMATING, TOGGLING. Uses `double` internally for zoom math, converts to `float` only at the API boundary. Snaps to 1.0× within epsilon 0.005. (R-17)
 

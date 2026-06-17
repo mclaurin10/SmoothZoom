@@ -98,6 +98,50 @@ TEST_CASE("Reset returns to 1.0x idle", "[ZoomController]")
     REQUIRE(zc.mode() == ZoomController::Mode::Idle);
 }
 
+TEST_CASE("endScroll: Scrolling returns to Idle without changing zoom (AC-2.3.13, R-18)", "[ZoomController]")
+{
+    ZoomController zc;
+
+    zc.applyScrollDelta(120);
+    REQUIRE(zc.mode() == ZoomController::Mode::Scrolling);
+    float zoomed = zc.currentZoom();
+    float target = zc.targetZoom();
+
+    zc.endScroll();
+    REQUIRE(zc.mode() == ZoomController::Mode::Idle);
+    // endScroll only changes the mode — the zoom level is untouched.
+    REQUIRE(zc.currentZoom() == Approx(zoomed));
+    REQUIRE(zc.targetZoom() == Approx(target));
+}
+
+TEST_CASE("endScroll: no-op when already Idle", "[ZoomController]")
+{
+    ZoomController zc;
+    REQUIRE(zc.mode() == ZoomController::Mode::Idle);
+
+    zc.endScroll();
+    REQUIRE(zc.mode() == ZoomController::Mode::Idle);
+    REQUIRE(zc.currentZoom() == Approx(1.0f));
+}
+
+TEST_CASE("endScroll: does not interrupt an in-progress animation", "[ZoomController]")
+{
+    ZoomController zc;
+
+    zc.applyKeyboardStep(+1); // Animating toward 1.25
+    REQUIRE(zc.mode() == ZoomController::Mode::Animating);
+
+    zc.endScroll(); // Must NOT cancel the animation
+    REQUIRE(zc.mode() == ZoomController::Mode::Animating);
+    REQUIRE(zc.targetZoom() == Approx(1.25f));
+
+    // Animation still completes normally afterward.
+    for (int i = 0; i < 60; ++i)
+        zc.tick(1.0f / 60.0f);
+    REQUIRE(zc.currentZoom() == Approx(1.25f).margin(0.005f));
+    REQUIRE(zc.mode() == ZoomController::Mode::Idle);
+}
+
 TEST_CASE("Logarithmic model: equal effort for equal ratios (AC-2.1.06)", "[ZoomController]")
 {
     // Core property: same ratio requires same number of notches regardless of starting zoom.

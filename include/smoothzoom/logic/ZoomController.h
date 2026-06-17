@@ -22,6 +22,12 @@ public:
     // Scroll-gesture zoom: consume accumulated delta, compute new level
     void applyScrollDelta(int32_t accumulatedDelta);
 
+    // End an active scroll gesture: Scrolling → Idle (no-op in Idle/Animating).
+    // Called by RenderLoop on a frame with no scroll input so the controller
+    // settles into Idle, enabling the 1.0× idle short-circuit (AC-2.3.13, R-18).
+    // A subsequent scroll re-enters Scrolling via applyScrollDelta().
+    void endScroll();
+
     // Keyboard step: set animation target (+1 = zoom in, -1 = zoom out)
     void applyKeyboardStep(int direction);
 

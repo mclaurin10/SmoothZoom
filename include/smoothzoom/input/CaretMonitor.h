@@ -1,7 +1,8 @@
 #pragma once
 // =============================================================================
 // SmoothZoom — CaretMonitor
-// UIA text-pattern caret + GTTI polling fallback. Runs on UIA thread. Doc 3 §3.6
+// UIA text-pattern caret + GTTI polling fallback. Runs on its own dedicated
+// Caret Thread (Doc 3 §2.4), not the UIA thread. Doc 3 §3.6
 // Phase 3 component.
 //
 // Two techniques for caret tracking:

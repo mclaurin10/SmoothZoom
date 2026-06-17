@@ -1,19 +1,19 @@
 ﻿<?xml version="1.0" encoding="utf-8"?>
-<Project ToolsVersion="18.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+<Project ToolsVersion="17.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <ItemGroup>
-    <ClCompile Include="C:\Dev\SmoothZoom\src\support\SettingsManager.cpp">
+    <ClCompile Include="C:\Users\dmclaurin\src\SmoothZoom\src\support\SettingsManager.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="C:\Dev\SmoothZoom\src\support\TrayUI.cpp">
+    <ClCompile Include="C:\Users\dmclaurin\src\SmoothZoom\src\support\TrayUI.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
-    <CustomBuild Include="C:\Dev\SmoothZoom\CMakeLists.txt" />
+    <CustomBuild Include="C:\Users\dmclaurin\src\SmoothZoom\CMakeLists.txt" />
   </ItemGroup>
   <ItemGroup>
     <Filter Include="Source Files">
-      <UniqueIdentifier>{B1026CB0-8ED6-38CB-8B84-DA9534D239D0}</UniqueIdentifier>
+      <UniqueIdentifier>{DB245FA0-9840-397D-B646-DF3479C8C595}</UniqueIdentifier>
     </Filter>
   </ItemGroup>
 </Project>
