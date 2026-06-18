@@ -2,6 +2,31 @@
 
 Phase 6 polish: bug-fix verification, remaining ACs, core regression spot-check.
 
+> **Verification log — 2026-06-18 (dev hardware, signed Release build installed to
+> `C:\Program Files\SmoothZoom`, zoom visually confirmed by user):**
+> - Color inversion Ctrl+Alt+I toggles + persists to `config.json` and survives
+>   restart (bidirectional False→True→False round-trip verified live). ✅
+> - Config `schemaVersion` key added; a legacy (unversioned) config migrates to
+>   version 1 on first save. ✅
+> - Single-instance guard: 2nd launch shows the "already running" dialog (`#32770`)
+>   and the first instance is undisturbed. ✅
+> - Performance (E6.12, CPU only): zoomed+stationary **0.00%** (<2%), zoomed+moving
+>   **0.06%** (<5%), not-zoomed idle 0.03%. PROVISIONAL — dev hardware, not the
+>   Intel UHD 620 reference box; GPU / memory / latency not yet measured. ✅ (CPU)
+> - Visual ACs (confirmed via screenshot of the magnified output): scroll-gesture
+>   zoom engages and is **centered on the pointer** (AC-2.1.01/09); **viewport
+>   follows the pointer** when it moves (AC-2.4 / E1.1); magnification is smooth/
+>   clean (AC-2.3.x); **Shift+Esc resets to 1.0×** (AC-2.8.08). (Modifier is Shift
+>   in this machine's config; reset = modifier+Esc.) ✅
+> - Working verification methodology: drive input via SendInput/keybd_event
+>   injection (reaches the LL hooks) + observe via computer-use screenshots (DO
+>   capture the DWM Magnification overlay). computer-use's own scroll does NOT
+>   reach the hook; a medium-IL shell cannot kill `uiAccess` procs or inject over a
+>   higher-IL foreground window (elevation needed for those).
+> - Still needs an interactive/elevated pass: Win+L lock/unlock (secure desktop),
+>   sleep/resume (S1), DPI-change (S2), multi-monitor (needs 2nd display), UAC
+>   (E6.10), and the full AC-2.4–2.10 sweep.
+
 ## 1. Bug Fix Verification
 
 ### WS1: Keyboard Shortcuts Respect Configurable Modifier
@@ -39,9 +64,9 @@ Phase 6 polish: bug-fix verification, remaining ACs, core regression spot-check.
 
 ### Color Inversion (AC-2.10.01–AC-2.10.05)
 
-- [ ] Ctrl+Alt+I toggles color inversion on/off (instantaneous, no animation)
+- [x] Ctrl+Alt+I toggles color inversion on/off (instantaneous, no animation) — 2026-06-18
 - [ ] Inversion persists across zoom level changes
-- [ ] Inversion state survives settings save/reload
+- [x] Inversion state survives settings save/reload — 2026-06-18 (config + restart)
 - [ ] Inversion resets on application exit (screen returns to normal)
 - [ ] Inversion works at 1x zoom (if applicable)
 
@@ -67,13 +92,13 @@ Phase 6 polish: bug-fix verification, remaining ACs, core regression spot-check.
 ### Performance (E6.12)
 
 - [ ] Build with SMOOTHZOOM_PERF_AUDIT — verify frame timing logs in DebugView
-- [ ] Zoomed + pointer stationary: CPU < 2%
-- [ ] Zoomed + pointer moving: CPU < 5%
+- [x] Zoomed + pointer stationary: CPU < 2% — 2026-06-18 measured 0.00% (dev hw, provisional)
+- [x] Zoomed + pointer moving: CPU < 5% — 2026-06-18 measured 0.06% (dev hw, provisional)
 
 ## 3. Core Feature Spot-Check (Regression)
 
-- [ ] Win+Scroll: smooth zoom in/out (120-unit increments)
-- [ ] Win+Esc: animated reset to 1x
+- [x] Win+Scroll: smooth zoom in/out (120-unit increments) — 2026-06-18 (Shift+Scroll per config; centered on pointer)
+- [x] Win+Esc: animated reset to 1x — 2026-06-18 (Shift+Esc per config)
 - [ ] Win+Plus/Minus: keyboard zoom with ease-out animation
 - [ ] Scroll interrupts keyboard animation (AC-2.2.07)
 - [ ] Start Menu suppression when Win is modifier (AC-2.1.16)
