@@ -1,20 +1,21 @@
 # SmoothZoom
 
-**Current Status:** Phase 6 — Polish & Hardening (in progress). Phases 0–5 complete.
+**Current Status:** Phases 0–6 complete — **feature-complete v1.0 magnifier**. All ten components plus the Phase 6 hardening set (color inversion, multi-monitor, crash recovery, conflict detection, hook watchdog, config schema versioning) are implemented and merged to `master`. **Current phase: Phase 7 — v1.0 Release Verification & Certification** (performance audit E6.12 + the 139-AC manual sweep E6.13 — see `docs/07_v1.0_Release_Verification_PRD.md`). Input Interoperability is the deferred **Phase 8**.
 
 Native C++17 Win32 full-screen magnifier for Windows. Hold Win+Scroll to smoothly zoom up to 10× with continuous viewport tracking of pointer, keyboard focus, and text cursor. Uses the Windows Magnification API.
 
 ## Design Documents — Read Before Implementing
 
-Five docs and a research report fully specify this project. **Always consult the relevant doc before coding. Do not guess—look it up.**
+Five core design docs, a v1.0 verification PRD, and a research report specify this project. **Always consult the relevant doc before coding. Do not guess—look it up.**
 
 | Doc | File | Covers |
 |-----|------|--------|
 | 1 — Scope | `01_Project_Scope_and_Non-Scope.md` | In/out of scope, success criteria, constraints, settings |
 | 2 — Behavior Spec | `02_Behavior_Specification.md` | 139 acceptance criteria (AC-numbered). The authority on behavior. |
 | 3 — Architecture | `03_Technical_Architecture.md` | Components, threading, data flow, pseudocode, build/deploy |
-| 4 — Phases | `04_Phased_Delivery_Plan.md` | Seven phases (0–6), exit criteria, AC-to-phase mapping |
+| 4 — Phases | `04_Phased_Delivery_Plan.md` | Phases 0–8: exit criteria, AC-to-phase mapping (0–6 delivered, 7 verifying, 8 deferred) |
 | 5 — Risks | `05_Technical_Risks_and_Mitigations.md` | 22 risks (R-01–R-22) with mitigations |
+| 7 — Verification PRD | `07_v1.0_Release_Verification_PRD.md` | v1.0 release verification & certification: perf audit, 139-AC sweep, exit criteria |
 
 Cite **AC numbers** for behavior (e.g., AC-2.1.06), **risk IDs** for technical concerns (e.g., R-05), and **exit criteria** for phase gates (e.g., E1.4).
 
@@ -72,9 +73,9 @@ Violating these causes silent failure or a broken build. Non-negotiable.
 
 3. **Image Smoothing is always on (API limitation).** `MagSetFullscreenTransform` provides no filtering parameter. `MagSetImageScalingCallback` is deprecated and windowed-mode only. The Magnification API always uses bilinear filtering. AC-2.3.07 is inherently satisfied (smoothing is always on). AC-2.3.08 (nearest-neighbor) and AC-2.3.09 (toggle) are deferred to the Desktop Duplication API migration (R-01, out of scope). The `imageSmoothingEnabled` field is retained in SettingsSnapshot for forward-compatibility.
 
-## Phased Delivery — Follow Strictly
+## Phased Delivery
 
-Do not implement later-phase features prematurely. Each phase produces a runnable, testable build. Check Doc 4 for full exit criteria and AC coverage per phase.
+All feature phases (0–6) are delivered. Each phase produced a runnable, testable build. Check Doc 4 for full exit criteria and AC coverage per phase. **Do not remove or regress shipped features.** Phase 7 is verification/certification (no new features); Phase 8 (Input Interoperability) is deferred — do not start it before v1.0 ships.
 
 | Phase | Name | Key Delivery | Status |
 |-------|------|-------------|--------|
@@ -84,7 +85,11 @@ Do not implement later-phase features prematurely. Each phase produces a runnabl
 | 3 | Accessibility Tracking | UIA thread, focus following, caret following, source priority arbitration | Done |
 | 4 | Temporary Toggle | Ctrl+Alt hold-to-peek, bidirectional, state preservation | Done |
 | 5 | Settings, Tray, Persistence | config.json, settings window, tray icon, configurable modifier/shortcuts | Done |
-| 6 | Polish & Hardening | Color inversion, multi-monitor, crash recovery, conflict detection, perf audit | Current (code complete, testing in progress) |
+| 6 | Polish & Hardening | Color inversion, multi-monitor, crash recovery, conflict detection, hook watchdog, schema versioning | Done |
+| 7 | v1.0 Release Verification | Performance audit (E6.12), 139-AC manual sweep (E6.13), interactive/elevated test matrix → certified, signed v1.0 | **Current** |
+| 8 | Input Interoperability | Scroll-sensitivity/momentum settings UI, consolidate Raw Input/PTP into the Input layer, per-device robustness, pinch-feasibility spike | Deferred (post-1.0) |
+
+> **Input-interop P0 has already landed** ahead of Phase 8: `ScrollNormalizer` (device-independent scroll units), continuous precision-touchpad scroll, and the `scrollSensitivity` / `momentumZoom` settings fields. The remaining interop work (settings UI, input-layer consolidation, robustness, pinch spike) is Phase 8 — see `docs/input-interop-handoff.md`.
 
 ## Component Boundaries
 

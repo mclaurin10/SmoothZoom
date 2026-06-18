@@ -4,18 +4,18 @@
 
 ### Document 4 of 5 — Development Plan Series
 
-**Version:** 1.0
-**Status:** Draft
-**Last Updated:** February 2026
-**Prerequisites:** Document 1 — Project Scope (v1.1), Document 2 — Behavior Specification (v1.0), Document 3 — Technical Architecture (v1.0)
+**Version:** 1.1
+**Status:** Baselined (v1.0 feature plan)
+**Last Updated:** 2026-06-18
+**Prerequisites:** Document 1 — Project Scope (v1.2), Document 2 — Behavior Specification (v1.1), Document 3 — Technical Architecture (v1.1)
 
-> **Project Status (2026-03-22):** Phase 6 in progress. Phases 0–5 complete. See per-phase notes below.
+> **Project Status (2026-06-18):** Phases 0–6 are **complete** — the v1.0 feature set is delivered and merged to `master`. The project is now in **Phase 7 — v1.0 Release Verification & Certification** (see §9A and the standalone PRD `07_v1.0_Release_Verification_PRD.md`). **Phase 8 — Input Interoperability** (§9B) is planned but deferred until v1.0 ships. The original plan ran phases 0–6; Phases 7 and 8 were added once the feature set landed.
 
 ---
 
 ## 1. Phasing Principles
 
-The work is divided into seven phases. Each phase produces a runnable build that can be launched, tested, and evaluated independently of subsequent phases. Phases are ordered by three criteria applied in priority order:
+The work is divided into phases. Phases 0–6 deliver the v1.0 feature set; Phase 7 verifies and certifies that build for release; Phase 8 is a deferred post-1.0 enhancement. Each phase produces a runnable build that can be launched, tested, and evaluated independently of subsequent phases. Phases are ordered by three criteria applied in priority order:
 
 1. **Risk retirement.** Work that could invalidate fundamental assumptions (e.g., "Does the Magnification API actually support smooth float-precision zoom?") comes first. If a phase reveals a blocking problem, the investment in subsequent phases has been minimized.
 
@@ -38,6 +38,8 @@ Phases do not have calendar durations. Each phase is complete when all of its ex
 | 4 | Temporary Toggle | Hold-to-peek interaction works, including all edge cases around interruption and state preservation. | Phase 3 + Ctrl+Alt hold-to-toggle with bidirectional peek. |
 | 5 | Settings, Tray, and Persistence | All configuration is user-adjustable, persisted, and accessible from a system tray UI. | Phase 4 + tray icon, settings window, config.json, auto-start, configurable modifier/shortcuts. |
 | 6 | Polish, Multi-Monitor, and Hardening | Edge cases, error recovery, multi-monitor support, color inversion, and crash safety. | The release candidate. |
+| 7 | v1.0 Release Verification & Certification | Every acceptance criterion and performance target is verified against the signed, installed build. | The certified, signed v1.0 release. |
+| 8 | Input Interoperability (deferred) | Scroll/zoom behaves consistently across all pointing devices; the three scroll-ingest paths are consolidated in the Input layer. | A post-1.0 enhancement build. |
 
 ---
 
@@ -352,7 +354,7 @@ Make SmoothZoom a proper installed application with user-configurable settings, 
 
 ## 9. Phase 6 — Polish, Multi-Monitor, and Hardening
 
-> **Status:** In progress. Color inversion (AC-2.10.01, 2.10.03, 2.10.05), multi-monitor basics (AC-MM.01–03), error handling (AC-ERR.01–05), and crash recovery (R-14) are implemented. Performance optimization ongoing — CPU idle measured at ~5% (target <2%), CPU active ~8% (target <5%). Manual testing of Phase 3–5 ACs in progress. 7 items under active investigation.
+> **Status:** Complete. All Phase 6 work items are implemented and merged: color inversion (AC-2.10.01–05), multi-monitor (AC-MM.01–04), display-change handling (AC-ERR.05), conflict detection (AC-ERR.01–02), crash recovery (R-14), the hook watchdog (AC-ERR.03), and config schema versioning. The two remaining gates — the formal E6.12 performance audit and the E6.13 139-AC verification sweep — are **not** Phase 6 implementation work; they are the substance of **Phase 7 (§9A)**, where they are tracked against the signed build. Provisional CPU readings on dev hardware (0.00% idle, 0.06% while panning at 5×) are well within target; the reference-hardware audit is pending in Phase 7.
 
 ### 9.6.1 Purpose
 
@@ -447,6 +449,58 @@ Formal measurement against all performance criteria from Scope §6.2:
 
 ---
 
+## 9A. Phase 7 — v1.0 Release Verification & Certification
+
+> **Status:** Current. The phase gate is verification, not new features.
+
+### 9A.1 Purpose
+
+Phases 0–6 delivered the complete v1.0 feature set. Phase 7 takes that feature-complete build and certifies it for release: every acceptance criterion is verified against the signed, installed binary, and every performance target is measured on reference hardware. No new user-facing features are added in this phase. The exit is a certified, signed v1.0.
+
+This phase is specified in full in the standalone PRD **`07_v1.0_Release_Verification_PRD.md`**; the summary below is the at-a-glance version. The live results tracker is **`manual_test_checklist_v2.md`**.
+
+### 9A.2 Exit Criteria
+
+| # | Criterion | Folds in |
+|---|-----------|----------|
+| VER-1 | All 139 non-deferred acceptance criteria from Document 2 verified PASS against the signed build; results recorded in the checklist. | E6.13 |
+| VER-2 | Full performance audit on the Intel UHD 620 reference machine **and** dev hardware: CPU idle <2%, CPU active <5%, frame latency ≤16 ms, GPU <10%, memory <50 MB. Adaptive frame-rate (R-18) implemented if the idle target is missed. | E6.12 |
+| VER-3 | Interactive/elevated test matrix passes: dual-monitor (E6.4–E6.7), monitor unplug while zoomed (E6.9), mixed-DPI / `WM_DPICHANGED`, UAC / secure desktop (E6.10), `Win+L` lock/unlock transient-key reset, sleep/resume, native-Magnifier conflict (E6.8 / AC-ERR.01–02). | E6.4–E6.10 |
+| VER-4 | Crash recovery validated live (force-kill → zoom resets, sentinel cleaned), graceful exit animation (AC-2.9.16), and hook-watchdog reinstall (AC-ERR.03) all confirmed on the signed build. | E6.11 |
+| VER-5 | Deferred items documented and excluded from the pass bar: AC-2.3.08/09 and AC-2.9.07 (image smoothing) and AC-MM.01's "other monitors at 1.0×" clause — all R-01 deferrals, not failures. | — |
+| VER-6 | Release artifacts produced: signed v1.0 binary, completed checklist, written verification report, version stamped. | — |
+
+### 9A.3 Carried-Over Findings to Re-Verify
+
+Earlier ad-hoc testing surfaced items to confirm or close during this phase (tracked in the checklist): occasional viewport drift away from the pointer at zoom (AC-2.1.11); intermittent Start Menu activation on Win release (AC-2.1.16, R-06); whether a settings modifier change takes effect live (AC-2.1.19); and the post-conflict-dialog scroll-to-zoom path (E6.8). Several config evolutions are also reconciled here, notably that `Ctrl` is excluded as a scroll modifier (AC-2.1.21 / E5.12 retired).
+
+---
+
+## 9B. Phase 8 — Input Interoperability (Deferred, Post-1.0)
+
+> **Status:** Planned, deferred until v1.0 ships. Do not begin before Phase 7 completes.
+
+### 9B.1 Purpose
+
+Make zoom/scroll behave consistently across high-precision OEM trackpads (Synaptics, Elan), the Apple Magic Trackpad, notched and free-spin mice, and trackballs. A **P0 backend slice has already landed** ahead of this phase: the header-only `ScrollNormalizer` (device input → device-independent wheel-equivalent units), continuous sub-notch precision-touchpad scroll, and the `scrollSensitivity` / `momentumZoom` settings fields. Phase 8 completes the remaining, mostly user-facing and consolidation work.
+
+Full context and the prioritized task list live in **`input-interop-handoff.md`**. Scope decisions already made (do not re-litigate): pinch-to-zoom is investigate-only (feasibility spike, stays out of scope per Doc 1 §3.7); pan is auto-tracking only (no new gesture); the capture backend stays on the Magnification API (no Desktop Duplication code); momentum/inertia is configurable (default on).
+
+### 9B.2 Work Items (priority order)
+
+| # | Item | Scope |
+|---|------|-------|
+| 8.1 | Settings UI (A3-UI) | Add a scroll-sensitivity slider + momentum checkbox to the settings window (fields exist; today they are editable only via `config.json`). Highest value, smallest effort. |
+| 8.2 | Input-layer consolidation (A2) | Move the Raw Input + precision-touchpad handlers out of `main.cpp` into the Input layer (a `ScrollIngest` component or `InputInterceptor`), funneling all three scroll-ingest paths through `ScrollNormalizer`. Behavior-preserving; respect hot-path invariants. |
+| 8.3 | Per-device robustness (P1) | Per-device dedup via `RAWINPUTHEADER.hDevice` (replace the coarse 50 ms global window); high-res/free-spin rate clamp; implement `momentumZoom` gating. Needs real-hardware tuning. |
+| 8.4 | Exploratory (P2) | Pinch-to-zoom feasibility spike (reuse the PTP contact data; no production code); handle `WM_DPICHANGED` in the message-only window. |
+
+### 9B.3 Exit Criteria
+
+Defined when the phase is scheduled. At minimum: A3 settings are user-adjustable in the UI; all scroll-ingest paths share one normalized funnel in the Input layer with no behavior regression against v1.0; the new behavior is validated on at least three device classes (precision touchpad, notched mouse, free-spin mouse).
+
+---
+
 ## 10. Phase Dependency Graph
 
 ```
@@ -491,10 +545,16 @@ Phase 5: Settings, Tray, and Persistence
 Phase 6: Polish, Multi-Monitor, and Hardening
    │
    │  Adds: Color inversion, multi-monitor, conflict detection,
-   │  crash recovery, hook robustness, performance audit
+   │  crash recovery, hook robustness, schema versioning
    │
    ▼
-Release Candidate
+Phase 7: v1.0 Release Verification & Certification
+   │
+   │  Verifies all 139 ACs + performance targets against the
+   │  signed build; produces the release artifacts
+   │
+   ▼
+v1.0 Release ───────► Phase 8: Input Interoperability (deferred, post-1.0)
 ```
 
 Phases 4 and 5 have a soft dependency: Phase 4 could theoretically ship before Phase 3 (the toggle doesn't strictly require focus/caret tracking), but testing the toggle's interaction with all three tracking sources is important, so Phase 3 comes first.

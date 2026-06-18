@@ -88,11 +88,9 @@ If CPU exceeds targets on 240Hz displays despite optimizations: implement adapti
 
 ---
 
-## ⛔ Phase 3+ Only — Do NOT Implement Before Phase 3
+## Source Transition Smoothing — Implemented (Reference)
 
-### Source Transition Smoothing (Phase 3+)
-
-When ViewportTracker switches active source (e.g., Pointer → Focus), the offset target jumps. Smooth this with a 200ms transition animation, not an instant snap. The RenderLoop detects source changes and manages the transition interpolation.
+When ViewportTracker switches active source (e.g., Pointer → Focus), the offset target jumps. The RenderLoop smooths this with a 200ms transition animation rather than an instant snap — it detects source changes and manages the interpolation. (Shipped in Phase 3; do not regress.)
 
 ---
 
@@ -116,7 +114,7 @@ These are specific errors to watch for when writing or reviewing RenderLoop code
 
 6. **Using `Sleep()` or `WaitableTimer` instead of `DwmFlush()`.** `DwmFlush()` synchronizes to the actual display VSync. Manual timers drift, causing either dropped frames or wasted cycles. Only fall back to manual timing if `DwmFlush()` is unavailable (see Architecture §2.2).
 
-7. **Adding source transition smoothing before Phase 3.** ViewportTracker doesn't support multiple input sources until Phase 3 delivers UIA integration. Source transitions before that phase are dead code.
+7. **Breaking source-transition cancellation.** When the active source changes mid-transition (e.g., the user moves the mouse during a focus pan), the in-flight transition must retarget/cancel cleanly — not keep drifting toward the abandoned target. (See the WS2B viewport-drift fix.)
 
 8. **Logging every frame.** Even a lightweight log call per frame at 144Hz = 144 writes/second. Log only on state transitions (zoom started, zoom ended, source changed, error detected).
 

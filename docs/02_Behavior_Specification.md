@@ -4,10 +4,12 @@
 
 ### Document 2 of 5 — Development Plan Series
 
-**Version:** 1.0
-**Status:** Draft
-**Last Updated:** February 2026
-**Prerequisite:** Document 1 — Project Scope and Non-Scope (v1.1)
+**Version:** 1.1
+**Status:** Baselined (v1.0 behavior spec)
+**Last Updated:** 2026-06-18
+**Prerequisite:** Document 1 — Project Scope and Non-Scope (v1.2)
+
+> **Status (2026-06-18):** These 139 acceptance criteria are the authoritative v1.0 behavior set and are frozen for the Phase 7 verification sweep (see `07_v1.0_Release_Verification_PRD.md`, tracked in `manual_test_checklist_v2.md`). Three ACs are formally deferred (§15). Two scroll-tuning settings that landed early — `scrollSensitivity` and `momentumZoom` — are intentionally **not** part of these 139; their behavioral acceptance criteria belong to the deferred Phase 8 (Input Interoperability) and will be authored there.
 
 ---
 
@@ -450,6 +452,14 @@ The following acceptance criteria depend on the Desktop Duplication API migratio
 **AC-2.3.09** — Toggling image smoothing in settings changes the rendering on the next display frame. No restart or re-zoom is required.
 
 **AC-2.9.07** — Toggling image smoothing on or off takes effect on the next display frame.
+
+### 15.1 Partially-deferred clause — AC-MM.01
+
+**AC-MM.01** is verified in v1.0 for its primary requirement (zoom is active and tracks the pointer on the monitor where the pointer resides). Its secondary clause — "the *other* monitors display at 1.0×" — is **not achievable** with `MagSetFullscreenTransform`, which applies one global transform across the entire virtual desktop (the same behavior as the native Windows Magnifier in full-screen mode). That clause is deferred to the Desktop Duplication migration (R-01) and is excluded from the v1.0 pass bar.
+
+### 15.2 Reframed criterion — AC-2.1.21
+
+`Ctrl` was removed as a scroll-gesture modifier option (Project Scope §5) so that Ctrl+Scroll zoom in browsers, IDEs, and document viewers is never consumed. **AC-2.1.21** therefore documents the Ctrl-exclusion rationale and the alternative-modifier warning, rather than "Ctrl-as-modifier" behavior. The corresponding exit criterion (Doc 4 E5.12) is retired.
 
 ---
 

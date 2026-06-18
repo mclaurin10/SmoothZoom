@@ -62,13 +62,13 @@ The `setInputTransform` method remains in MagBridge's interface for use by the s
 
 ---
 
-## ⛔ Phase 6 Only — Do NOT Implement Until Phase 6
+## Phase 6 Features — Implemented (Reference)
 
-Everything below this line covers Phase 6 features. Do not implement any of this during Phases 0–5.
+These features shipped in Phase 6 and are part of the v1.0 build. This is now a behavior reference, not a gate. **Do not regress them.**
 
-### Color Inversion (Phase 6 — AC-2.10.01 through AC-2.10.05)
+### Color Inversion (AC-2.10.01 through AC-2.10.05) — implemented
 
-Add `MagSetFullscreenColorEffect(pMatrix)` call — Render thread, on color inversion toggle.
+`MagBridge::setColorInversion(bool)` applies/removes the 5×5 color matrix via `MagSetFullscreenColorEffect`, called on the Render thread when the `ToggleInvert` command is processed or the settings snapshot's `colorInversionEnabled` changes. State is persisted to `config.json` and re-applied on startup (BF-1 first-tick force).
 
 ```cpp
 // Inversion: new_channel = 1 - old_channel
@@ -82,16 +82,15 @@ float invertMatrix[5][5] = {
 // Identity matrix (no effect): diagonal of 1s
 ```
 
-### Conflict Detection (Phase 6 — AC-ERR.01, AC-ERR.02)
+### Conflict Detection (AC-ERR.01, AC-ERR.02) — implemented
 
-- Before `MagInitialize`: check for `Magnify.exe` process. If found, prompt user.
-- After `MagInitialize`: call `MagGetFullscreenTransform`. If zoom ≠ 1.0, another magnifier is active — warn user.
+- After `MagInitialize`: `MagGetFullscreenTransform` read-back; if zoom ≠ 1.0, another magnifier is active and the main thread shows a warning dialog.
 
-### Multi-Monitor (Phase 6 — AC-MM.01 through AC-MM.04)
+### Multi-Monitor (AC-MM.01 through AC-MM.04) — implemented
 
-- Use `MonitorFromPoint` to detect active monitor.
-- On monitor change: reapply transform for new monitor's geometry.
-- On `WM_DISPLAYCHANGE` / `WM_DPICHANGED`: re-query screen dimensions, adjust input transform rectangles. (AC-ERR.05)
+- `MonitorFromPoint` + `GetMonitorInfo` per frame detect the active monitor; focus/caret centering uses per-monitor geometry while pointer tracking uses virtual-desktop geometry.
+- `WM_DISPLAYCHANGE` / `WM_DPICHANGED` refresh virtual-screen metrics. (AC-ERR.05)
+- **API limitation:** `MagSetFullscreenTransform` is a single global transform, so other monitors cannot stay at 1.0× (AC-MM.01 secondary clause deferred to R-01).
 
 ---
 
@@ -111,4 +110,4 @@ These are specific errors to watch for when writing or reviewing MagBridge code.
 
 6. **Calling Mag* functions from the wrong thread.** All Mag* functions must be called from the Render thread. The Magnification API has undocumented thread affinity — `MagSetFullscreenTransform` silently ignores offsets if called from a different thread than `MagInitialize`. `RenderLoop::threadMain()` calls `MagBridge::initialize()` first, then runs the frame loop, then calls `MagBridge::shutdown()` — all on the same thread.
 
-7. **Adding Phase 6 features (color inversion, conflict detection, multi-monitor) before Phase 6.** These are gated. Check the phase plan before implementing.
+7. **Regressing the shipped Phase 6 features (color inversion, conflict detection, multi-monitor).** These are part of v1.0 — do not remove or break them. The color-effect matrix, the post-init conflict read-back, and per-monitor centering are reference behavior above.

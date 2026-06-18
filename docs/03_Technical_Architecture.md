@@ -4,10 +4,12 @@
 
 ### Document 3 of 5 — Development Plan Series
 
-**Version:** 1.0
-**Status:** Draft
-**Last Updated:** February 2026
-**Prerequisites:** Document 1 — Project Scope (v1.1), Document 2 — Behavior Specification (v1.0)
+**Version:** 1.1
+**Status:** Baselined (reflects the shipped v1.0 implementation)
+**Last Updated:** 2026-06-18
+**Prerequisites:** Document 1 — Project Scope (v1.2), Document 2 — Behavior Specification (v1.1)
+
+> **Status (2026-06-18):** This architecture is fully implemented (Phases 0–6). Two notes reflect the as-built state: (1) a header-only `ScrollNormalizer` helper now sits in the Input layer between the scroll-ingest paths and `ZoomController` (§3.1); (2) the Raw Input and precision-touchpad handlers physically live in `main.cpp` today and are slated to move into the Input layer in the deferred **Phase 8** (see `04_Phased_Delivery_Plan.md` §9B and `input-interop-handoff.md`). The verification of this build is specified in `07_v1.0_Release_Verification_PRD.md`.
 
 ---
 
@@ -169,6 +171,12 @@ Precision Touchpad devices deliver scroll gestures as HID reports through Raw In
 **LL Hook vs. Raw Input scroll deduplication:**
 
 Some Precision Touchpad drivers deliver scroll events through both the low-level mouse hook (`WM_MOUSEWHEEL`) and Raw Input (`WM_INPUT`) simultaneously. To prevent double-counting, the LL hook callback records a timestamp (`lastLLHookScrollTime`) on every scroll event. The Raw Input and PTP HID handlers check this timestamp and discard their event if an LL hook scroll was processed within the last 50ms.
+
+**Scroll normalization (`ScrollNormalizer`):**
+
+All three scroll-ingest paths — the LL hook (`WM_MOUSEWHEEL`/`WM_MOUSEHWHEEL`), Raw Input mouse (`WM_INPUT`/`RIM_TYPEMOUSE`), and the PTP HID two-finger gesture — converge on a single `std::atomic<int32_t> scrollAccumulator`, drained once per frame by `RenderLoop::frameTick` via `exchange(0)`. A pure, header-only helper, `ScrollNormalizer` (`include/smoothzoom/input/ScrollNormalizer.h`, no Win32 dependency, unit-tested), converts each device's raw input into device-independent "wheel-equivalent units" (120 = one notch). For precision touchpads it normalizes the per-contact Y delta against the device's own logical-axis range and carries a float remainder for continuous sub-notch scrolling. `ZoomController` then applies the user's `scrollSensitivity` multiplier before the logarithmic zoom model.
+
+> **Implementation-location note:** The Raw Input registration and PTP HID parsing currently live in `src/app/main.cpp` (main-thread `WM_INPUT` handling, off the render hot path), not yet in this component. Consolidating all three paths behind one Input-layer funnel is a behavior-preserving refactor scheduled for the deferred Phase 8 (`input-interop-handoff.md` item #6). The architecture treats this as known debt, not a design change.
 
 **Hook health monitoring:** A watchdog timer on the main thread periodically verifies that the hooks are still installed by checking the hook handles. If a handle becomes invalid (the system unregistered the hook), it re-installs the hook and logs a warning (AC-ERR.03).
 
@@ -595,23 +603,29 @@ If the application crashes without running this sequence, the screen may be left
 
 ```
 struct SettingsSnapshot {
-    int     modifierKeyVK;          // VK_LWIN, VK_CONTROL, etc.
-    int     toggleKeyComboVK[2];    // e.g., {VK_CONTROL, VK_MENU}
+    int     schemaVersion;          // kSettingsSchemaVersion (currently 1)
+    int     modifierKeyVK;          // VK_LWIN, VK_MENU, etc. (Ctrl excluded as scroll modifier)
+    int     toggleKey1VK;           // VK_LCONTROL  (temporary-toggle combo, key 1)
+    int     toggleKey2VK;           // VK_LMENU     (temporary-toggle combo, key 2)
     float   minZoom;                // 1.0
     float   maxZoom;                // 10.0
     float   keyboardZoomStep;       // 0.25
     int     animationSpeed;         // 0=slow, 1=normal, 2=fast
-    bool    imageSmoothingEnabled;  // true
+    bool    imageSmoothingEnabled;  // true (forward-compat; Mag API always smooths — R-01)
     bool    startWithWindows;       // false
     bool    startZoomed;            // false
     float   defaultZoomLevel;       // 2.0
     bool    followKeyboardFocus;    // true
     bool    followTextCursor;       // true
-    bool    colorInversionEnabled;  // false
+    bool    colorInversionEnabled;  // false (persisted; toggled by Ctrl+Alt+I)
+    float   scrollSensitivity;      // 1.0  (0.1–5.0; input-interop P0)
+    bool    momentumZoom;           // true (input-interop P0; gating logic is Phase 8)
 };
 ```
 
 **Validation on load:** Each field is validated against its allowed range (from Scope §2.9). Invalid values are silently replaced with defaults. A log entry records the correction.
+
+**Schema versioning:** `schemaVersion` (constant `kSettingsSchemaVersion`, currently `1`) is stamped on every save. A legacy config without the key is read as version 0 and migrated forward on first save, so new fields can be introduced without silently discarding a user's existing settings.
 
 **Observer pattern:** Components that need to respond to settings changes (e.g., InputInterceptor needs to know the modifier key, WinKeyManager needs to know if Win is the modifier) register as observers. When the settings pointer is swapped, observers are notified on the main thread. This is a low-frequency event (only when the user changes a setting) so performance is not a concern.
 

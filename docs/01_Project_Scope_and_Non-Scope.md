@@ -4,11 +4,11 @@
 
 ### Document 1 of 5 — Development Plan Series
 
-**Version:** 1.1
-**Status:** Draft
-**Last Updated:** February 2026
+**Version:** 1.2
+**Status:** Baselined (v1.0 feature spec)
+**Last Updated:** 2026-06-18
 
-> **Status (2026-03-22):** All in-scope features implemented. Phase 6 hardening in progress. Image smoothing toggle (AC-2.3.08, 2.3.09, 2.9.07) formally deferred to post-v1 — depends on Desktop Duplication API (R-01). No other scope changes.
+> **Status (2026-06-18):** All in-scope features are implemented, integrated, and merged — Phases 0–6 complete. The project is in **Phase 7 — v1.0 Release Verification & Certification** (`07_v1.0_Release_Verification_PRD.md`). Image smoothing toggle (AC-2.3.08, 2.3.09, 2.9.07) remains formally deferred to post-v1 — depends on Desktop Duplication API (R-01). Two scroll-tuning settings (`scrollSensitivity`, `momentumZoom`) landed early as part of the input-interoperability P0 slice; the rest of that work is the deferred Phase 8. No other scope changes.
 
 ---
 
@@ -156,6 +156,9 @@ The application provides a settings interface accessible via a system tray icon 
 | Default zoom level (for toggle) | 2.0× | 1.5× to 10.0× |
 | Follow keyboard focus | On | On / Off |
 | Follow text cursor | On | On / Off |
+| Color inversion | Off | On / Off (also toggled by `Ctrl+Alt+I`; persisted) |
+| Scroll sensitivity | 1.0× | 0.1×–5.0× (multiplier on scroll-gesture zoom rate) |
+| Momentum zoom | On | On / Off (allow inertial/coasting scroll to drive zoom) |
 
 **Key behavioral details:**
 
@@ -341,7 +344,7 @@ The project is considered successful when the following conditions are met:
 
 ## 8. Document Roadmap
 
-This is Document 1 of 5 in the Development Plan series:
+This is Document 1 of the Development Plan series (five core docs plus the v1.0 verification PRD):
 
 | # | Document | Purpose |
 |---|----------|---------|
@@ -350,3 +353,4 @@ This is Document 1 of 5 in the Development Plan series:
 | 3 | Technical Architecture | Component-level system design: input interception, animation engine, viewport tracker, Magnification API integration, settings persistence, and how they connect. |
 | 4 | Phased Delivery Plan | Milestones that decompose the work into incremental, testable, shippable phases. Each phase produces a runnable build. |
 | 5 | Technical Risks and Mitigations | Known risks, their likelihood, impact, and concrete mitigation strategies. |
+| 7 | v1.0 Release Verification PRD | The Phase 7 verification & certification plan: performance audit, 139-AC sweep, exit criteria, and release artifacts. |

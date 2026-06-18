@@ -4,10 +4,12 @@
 
 ### Document 5 of 5 — Development Plan Series
 
-**Version:** 1.0
-**Status:** Draft
-**Last Updated:** February 2026
+**Version:** 1.1
+**Status:** Baselined
+**Last Updated:** 2026-06-18
 **Prerequisites:** Documents 1–4 of this series
+
+> **Status (2026-06-18):** Phases 0–6 are complete, so most mitigations below are **implemented** (see the per-risk "Implementation note" callouts): MagBridge isolation (R-01), proportional mapping in place of a per-frame input transform (R-04), the 5-second hook watchdog (R-05), UIA rectangle validation + `IUIAutomation6` connection timeout (R-09, R-11), display-change handling (R-16), double-precision zoom math with epsilon snap (R-17), crash handler + dirty-shutdown sentinel (R-14), and session lock/unlock with transient-key reset (R-15, R-21). The **active** risks for the Phase 7 verification campaign (`07_v1.0_Release_Verification_PRD.md`) are **R-18** (performance on the Intel UHD 620 reference machine — adaptive frame-rate held in reserve) and residual **R-06** (intermittent Start Menu suppression, AC-2.1.16) to confirm or close. **R-07 / R-08** (modifier conflicts, touchpad formats) are partially mitigated by the input-interop P0 `ScrollNormalizer` and the `scrollSensitivity` setting; deeper per-device work is the deferred Phase 8.
 
 ---
 
@@ -202,6 +204,8 @@ These risks concern the global low-level hooks that intercept mouse and keyboard
 
 **Contingency:** If users discover a Win+Scroll conflict with a specific application: document it and offer the alternative modifier keys. If a Win+Scroll conflict is found with a widely-used application, evaluate whether a two-key modifier (e.g., `Ctrl+Win+Scroll`) is practical as the new default.
 
+> **Implementation note:** Win is the default modifier; `Ctrl` is excluded outright as a scroll modifier (Scope §5) so Ctrl+Scroll zoom is never consumed in apps. Alternative modifiers (`Alt`, `Shift`, combos) are configurable. Residual modifier behaviors are confirmed during Phase 7 verification (see AC-2.1.19–21 reconciliation, Doc 2 §15.2).
+
 ---
 
 ### R-08: Touchpad Scroll Event Format Variations
@@ -219,6 +223,8 @@ These risks concern the global low-level hooks that intercept mouse and keyboard
 2. Test on at least three touchpad configurations: a Precision Touchpad (e.g., Microsoft Surface, recent ThinkPad), a non-Precision Synaptics touchpad, and an external mouse with a free-spinning scroll wheel (e.g., Logitech MX Master with ratchet mode disabled).
 
 **Contingency:** If a specific touchpad configuration produces unusable zoom behavior: add a sensitivity multiplier to the settings that the user can adjust. This is a last-resort affordance — the goal is for the default to work well on all input devices.
+
+> **Implementation note:** Partially mitigated. The input-interop P0 slice added the header-only `ScrollNormalizer` (normalizes every device's input to wheel-equivalent units, with device-range normalization and continuous sub-notch handling for precision touchpads) and the contingency's `scrollSensitivity` multiplier (0.1–5.0) now exists as a setting. Deeper per-device robustness (per-device dedup, free-spin rate clamp, momentum gating) is the deferred Phase 8.
 
 ---
 
@@ -251,6 +257,8 @@ These risks concern the Windows UI Automation (UIA) framework used for focus fol
 4. The `followKeyboardFocus` setting (AC-2.9.08) allows the user to disable focus following entirely if it misbehaves in their workflow.
 
 **Contingency:** If focus following is unreliable in one or more "must work" applications (Edge, Chrome, Firefox, Word, Excel): investigate application-specific workarounds. For example, Chrome and Edge expose focus information through the `IAccessible2` interface in addition to UIA; an alternative query path may yield better results.
+
+> **Implementation note:** Implemented. FocusMonitor validates every bounding rectangle (rejects zero-area, negative, off-screen — shared `isValidRect` logic, unit-tested) and degrades silently to pointer tracking when events are absent or unusable (AC-2.5.14). Cross-application coverage is verified in the Phase 7 sweep against the Doc 4 §6.3.5 matrix.
 
 ---
 
@@ -297,6 +305,8 @@ These risks concern the Windows UI Automation (UIA) framework used for focus fol
 3. Log slow callbacks (>50ms) to help identify problematic applications during testing.
 
 **Contingency:** If a critical application consistently produces UIA callbacks exceeding the timeout: investigate caching the last-known bounding rectangle for that application's elements and using it as an estimate until a fresh query completes.
+
+> **Implementation note:** Implemented. FocusMonitor sets `IUIAutomation6::put_ConnectionTimeout(100)` so cross-process UIA property queries are bounded at the COM-infrastructure level (replacing an earlier `std::async`/`wait_for` pattern whose future destructor could still block). The UIA thread is isolated, so a slow provider only delays focus updates — it cannot drop frames or stall input. Slow (>50 ms) queries are logged.
 
 ---
 
@@ -411,6 +421,8 @@ These risks concern the Windows UI Automation (UIA) framework used for focus fol
 
 **Contingency:** If edge cases prove difficult to handle (e.g., the pointer is on a monitor that is being removed mid-frame): implement a conservative fallback that resets zoom to 1.0× on any display configuration change, then allows the user to re-zoom. This is inelegant but safe. The fallback can be replaced with more sophisticated handling over time.
 
+> **Implementation note:** Implemented. The message-only window handles `WM_DISPLAYCHANGE` and `WM_DPICHANGED`, refreshing virtual-screen metrics (origin + extent, including negative origins) in shared state; RenderLoop reads these each frame and `MonitorFromPoint`/`GetMonitorInfo` reflect the active monitor. Monitor-unplug while zoomed (E6.9) and mixed-DPI behavior are verified live in Phase 7.
+
 ---
 
 ### R-17: Floating-Point Accumulation Error Over Long Sessions
@@ -429,6 +441,8 @@ These risks concern the Windows UI Automation (UIA) framework used for focus fol
 3. Use `double` precision for internal zoom calculations and convert to `float` only at the API call boundary. This provides approximately 15 significant digits of precision, making accumulation error negligible over any realistic session duration.
 
 **Contingency:** If drift is noticeable despite double precision (extremely unlikely): implement periodic zoom-level normalization, where the zoom level is periodically rounded to the nearest 0.001.
+
+> **Implementation note:** Implemented. ZoomController uses `double` internally and converts to `float` only at the MagBridge boundary, and snaps to exactly 1.0× within epsilon 0.005 (also snaps at the configured max). Covered by unit tests. NaN/Inf zoom-bound guards were added during Phase 6 hardening.
 
 ---
 
@@ -452,6 +466,8 @@ These risks concern the Windows UI Automation (UIA) framework used for focus fol
 3. When the zoom level is stable (not changing) and the pointer is stationary, the render loop detects that neither zoom nor offset has changed since the last frame and skips the API calls. Only `DwmFlush()` is called.
 
 **Contingency:** If CPU usage remains too high on 240Hz displays even with the optimizations above: implement an adaptive frame rate where the render loop runs at a lower rate (e.g., 60Hz) when no input activity is occurring, and ramps up to full VSync rate only during active zooming or pointer movement.
+
+> **Status note (active — Phase 7):** This is the headline open risk for v1.0 verification. The redundant-frame skip (no API call when neither zoom nor offset changed) is implemented, and provisional dev-hardware readings are well within target (0.00% idle, 0.06% while panning at 5×). What remains is the formal audit on the Intel UHD 620 reference machine across all five metrics (CPU idle/active, GPU, memory, frame latency). The adaptive-frame-rate contingency above is held in reserve and implemented only if the idle target is missed on reference hardware. Tracked as VER-2 in `07_v1.0_Release_Verification_PRD.md`.
 
 ---
 

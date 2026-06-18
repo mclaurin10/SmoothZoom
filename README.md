@@ -4,7 +4,7 @@ Full-screen magnification for Windows, inspired by macOS Accessibility Zoom. Hol
 
 ## Current Status
 
-**Phase 6 — Polish & Hardening** (in progress). All core features are implemented and functional. Testing and stabilization underway.
+**Feature-complete v1.0** — Phases 0–6 are delivered. Every feature below is implemented, integrated, and merged. The project is now in **Phase 7 — v1.0 Release Verification & Certification**: a formal performance audit and full acceptance-criteria sweep against the signed, installed build before the v1.0 release is cut.
 
 ## Key Features
 
@@ -15,11 +15,13 @@ Full-screen magnification for Windows, inspired by macOS Accessibility Zoom. Hol
 - **Focus following** — Viewport tracks keyboard focus changes via UI Automation
 - **Caret following** — Viewport tracks the text cursor during active typing
 - **Temporary toggle** — Hold Ctrl+Alt to peek at zoom/unzoom, release to restore
-- **Settings persistence** — JSON config file with hot-reload
+- **Settings persistence** — JSON config file with hot-reload and schema versioning
 - **System tray icon** — Right-click for settings window and exit
-- **Color inversion** — Accessibility color inversion mode
+- **Color inversion** — Accessibility color inversion mode (Ctrl+Alt+I)
 - **Multi-monitor support** — Basic multi-monitor awareness
+- **Precision-touchpad scroll** — Two-finger zoom normalized to device-independent units, with continuous sub-notch scrolling and an adjustable scroll-sensitivity / momentum setting
 - **Crash recovery** — Exception handler resets zoom; dirty-shutdown sentinel detection
+- **Hook watchdog** — Detects and auto-reinstalls low-level hooks if Windows silently deregisters them under load
 
 ## Controls
 
@@ -29,8 +31,11 @@ Full-screen magnification for Windows, inspired by macOS Accessibility Zoom. Hol
 | Win + Plus / Minus | Zoom in/out (animated step) |
 | Win + Esc | Reset to 1× (animated) |
 | Ctrl+Alt (hold) | Temporary toggle (peek at zoom/unzoom) |
-| Win+Ctrl+M | Toggle zoom on/off |
-| Tray icon (right-click) | Settings and exit |
+| Ctrl+Alt+I | Toggle color inversion |
+| Win+Ctrl+M | Open settings window |
+| Tray icon (right-click) | Settings, toggle zoom on/off, exit |
+
+The scroll/keyboard modifier defaults to **Win** and is configurable in settings (`Alt`, `Shift`, or two-key combos; `Ctrl` is intentionally excluded to preserve Ctrl+Scroll zoom in apps). The temporary-toggle combo defaults to `Ctrl+Alt` and is also configurable.
 
 ## Build Requirements
 
@@ -96,11 +101,11 @@ Support Layer: SettingsManager · TrayUI
 
 Communication between threads uses atomics, SeqLock, lock-free queues, and atomic pointer swap — no mutexes on the render hot path.
 
-See `docs/` for the five design documents covering scope, behavior specification (139 acceptance criteria), technical architecture, phased delivery plan, and risk mitigations.
+See `docs/` for the five core design documents (scope, behavior specification with 139 acceptance criteria, technical architecture, phased delivery plan, risk mitigations) and the v1.0 Release Verification PRD (`07_v1.0_Release_Verification_PRD.md`).
 
 ## Known Limitations
 
 - **Image smoothing toggle deferred** — `MagSetFullscreenTransform` provides no filtering parameter. Nearest-neighbor mode (AC-2.3.08) and the toggle (AC-2.3.09) depend on a future Desktop Duplication API migration (R-01).
-- **CPU usage** — May exceed target in some scenarios; optimization ongoing in Phase 6.
+- **Performance certification pending** — CPU usage measures within target on dev hardware (~0% idle, <0.1% while panning at 5×). The full performance audit (GPU, memory, and frame-latency metrics on the Intel UHD 620 reference machine) is part of Phase 7 verification; an adaptive frame-rate fallback (R-18) is held in reserve if the idle target is missed on reference hardware.
 - **Windows Magnifier conflict** — Only one full-screen magnifier can run at a time. SmoothZoom detects the native Magnifier and advises the user.
 - **Secure desktop inaccessible** — Magnification API does not work on Ctrl+Alt+Delete, UAC prompts, or the lock screen.

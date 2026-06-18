@@ -1,6 +1,10 @@
-# SmoothZoom — Manual Test Checklist v2
+# SmoothZoom — Manual Test Checklist (v2)
 
-Phase 6 polish: bug-fix verification, remaining ACs, core regression spot-check.
+**The single live verification tracker** for the Phase 7 v1.0 Release Verification campaign
+(`07_v1.0_Release_Verification_PRD.md`). The earlier `manual_test_checklist.md` has been
+archived to `docs/archive/`; its findings are carried into §5–§6 below. Sections 1–3 are the
+Phase 6 bug-fix/regression spot-checks; §5 is the full 139-AC tracker; §6 lists the
+carried-over findings to confirm or close.
 
 > **Verification log — 2026-06-18 (dev hardware, signed Release build installed to
 > `C:\Program Files\SmoothZoom`, zoom visually confirmed by user):**
@@ -116,3 +120,188 @@ These are documented as out-of-scope until Desktop Duplication API migration:
 - **AC-2.3.08** — Nearest-neighbor filtering option
 - **AC-2.3.09** — Image smoothing toggle
 - **AC-2.9.07** — Settings UI for image smoothing (retained in schema for forward-compat)
+
+---
+
+## 5. Full Acceptance-Criteria Tracker (139 ACs) — VER-1
+
+The authoritative AC list is Document 2. This table is the v1.0 verification record. Status
+legend:
+
+- `✅ 06-18` — verified on the signed v1.0 build, 2026-06-18
+- `UT` — passing via automated unit test (Catch2)
+- `prior` — passed in earlier ad-hoc testing on a pre-release build; **needs a recorded Phase-7 confirmation** against the signed build
+- `⚠ open` — carried finding to confirm or close (see §6)
+- `⊘ def` — deferred or reframed (see §4 and Doc 2 §15)
+- `—` — not yet exercised
+
+### 2.1 Scroll-Gesture Zoom (21)
+
+| AC | Description | Status |
+|----|-------------|--------|
+| AC-2.1.01 | Win+Scroll up zooms in, down zooms out | ✅ 06-18 |
+| AC-2.1.02 | Scroll without modifier passes through to apps | prior |
+| AC-2.1.03 | Releasing modifier holds zoom level (no snap-back) | prior |
+| AC-2.1.04 | Both LWin and RWin work as modifier | — (no dual-Win keyboard) |
+| AC-2.1.05 | Precision touchpad two-finger scroll zooms smoothly | prior / UT (ScrollNormalizer) |
+| AC-2.1.06 | Logarithmic model: 1×→2× same effort as 2×→4× | UT |
+| AC-2.1.07 | Zoom rate scales with scroll velocity | prior |
+| AC-2.1.08 | Single notch ≈ 10–20% visible change | prior |
+| AC-2.1.09 | Zoom-in keeps point under pointer fixed | ✅ 06-18 |
+| AC-2.1.10 | Moving pointer during scroll uses current position as focal | prior |
+| AC-2.1.11 | Pointer at center: symmetrical zoom, no drift | ⚠ open (occasional drift) |
+| AC-2.1.12 | Pointer near corner: viewport stays within bounds | prior |
+| AC-2.1.13 | Zoom doesn't go below min (1.0×) | UT + prior |
+| AC-2.1.14 | Zoom doesn't exceed max (10.0×) | UT + prior |
+| AC-2.1.15 | Soft bounds decelerate near limits | UT + prior |
+| AC-2.1.16 | Win+Scroll then release Win: Start Menu suppressed | ⚠ open (intermittent, R-06) |
+| AC-2.1.17 | Win press+release without scroll: Start Menu opens | prior |
+| AC-2.1.18 | Win+Scroll then Win+E: Explorer opens normally | prior |
+| AC-2.1.19 | Changing modifier in settings takes effect immediately | ⚠ open (earlier: no effect) |
+| AC-2.1.20 | Non-Win modifier: no Start Menu suppression logic | ⚠ open (clarify expected) |
+| AC-2.1.21 | Ctrl-exclusion rationale + alt-modifier warning | ⊘ def (reframed, Doc 2 §15.2) |
+
+### 2.2 Smooth Zoom Animation (10)
+
+| AC | Description | Status |
+|----|-------------|--------|
+| AC-2.2.01 | Scroll zoom renders next frame (≤16 ms) | prior |
+| AC-2.2.02 | No visible frame drops under normal workloads | prior |
+| AC-2.2.03 | Scroll zoom direct/continuous, no lag | prior |
+| AC-2.2.04 | Keyboard zoom animates over 100–150 ms | UT + prior |
+| AC-2.2.05 | Ease-out timing | UT |
+| AC-2.2.06 | Rapid keyboard presses retarget smoothly | UT + prior |
+| AC-2.2.07 | Plus then Minus reverses smoothly | UT + prior |
+| AC-2.2.08 | Scroll interrupts keyboard animation | UT + prior |
+| AC-2.2.09 | Toggle interrupts ongoing animation | UT + prior |
+| AC-2.2.10 | Viewport + zoom move as one coordinated motion | prior |
+
+### 2.3 Full-Screen Magnification (13; 2 deferred)
+
+| AC | Description | Status |
+|----|-------------|--------|
+| AC-2.3.01 | All content magnified uniformly | ✅ 06-18 |
+| AC-2.3.02 | No unmagnified holes | prior |
+| AC-2.3.03 | Cursor visible + correctly positioned | prior |
+| AC-2.3.04 | Clicks interact with correct elements | prior |
+| AC-2.3.05 | Drag operations correct while zoomed | prior |
+| AC-2.3.06 | Hover/tooltips at correct position | prior |
+| AC-2.3.07 | Image smoothing ON (always on — API) | prior |
+| AC-2.3.08 | Image smoothing OFF: hard pixel edges | ⊘ def (R-01) |
+| AC-2.3.09 | Toggling smoothing changes next frame | ⊘ def (R-01) |
+| AC-2.3.10 | Native refresh rate, no tearing | prior |
+| AC-2.3.11 | Real-time content updates smoothly | prior |
+| AC-2.3.12 | At 1.0×: no artifact/overlay/tint | prior |
+| AC-2.3.13 | At 1.0×: no input latency/interception | prior |
+
+### 2.4 Continuous Viewport Tracking (13)
+
+| AC | Description | Status |
+|----|-------------|--------|
+| AC-2.4.01 | Proportional mapping | ✅ 06-18 / UT |
+| AC-2.4.02 | Move right reveals content right | prior |
+| AC-2.4.03 | Continuous mapping, no steps | — |
+| AC-2.4.04 | Never pans beyond desktop bounds | UT |
+| AC-2.4.05 | All four corners reachable | UT |
+| AC-2.4.06 | Movement smooth, no jumps | prior |
+| AC-2.4.07 | No perceptible tracking lag | prior |
+| AC-2.4.08 | Stops immediately when pointer stops | — |
+| AC-2.4.09 | Micro-movements don't jitter (deadzone) | UT + prior |
+| AC-2.4.10 | Deadzone imperceptible during intentional movement | — |
+| AC-2.4.11 | Deadzone scales with resolution | UT |
+| AC-2.4.12 | Tracking identical at all zoom levels | UT + prior |
+| AC-2.4.13 | At 10.0×: still smooth/controllable | — |
+
+### 2.5 Keyboard Focus Following (14) — needs cross-app matrix (Doc 4 §6.3.5)
+
+| AC | Description | Status |
+|----|-------------|--------|
+| AC-2.5.01–14 | Tab/Shift+Tab/Alt+Tab/arrow pans; already-visible suppression; partial-visibility margin; 100 ms debounce; rapid-tab; focus/pointer cooperation; cross-app matrix; silent no-op without UIA | UT (logic) ; MAN — pending sweep |
+
+### 2.6 Text Cursor Following (11) — needs cross-app matrix
+
+| AC | Description | Status |
+|----|-------------|--------|
+| AC-2.6.01–11 | Typing/arrows/Home/End/PgUp-Dn/click/Find pan; lookahead; caret priority while typing; 500 ms idle handoff; cross-app matrix; silent no-op | UT (logic) ; MAN — pending sweep |
+
+### 2.7 Temporary Zoom Toggle (12)
+
+| AC | Description | Status |
+|----|-------------|--------|
+| AC-2.7.01–12 | Peek to/from 1.0× and to last-used; brief tap; toggle-during-scroll; scroll-during-toggle; toggle-during-animation; configurable combo; no conflict with modifier | UT (8) ; MAN — pending |
+
+### 2.8 Keyboard Shortcuts (12)
+
+| AC | Description | Status |
+|----|-------------|--------|
+| AC-2.8.01–07 | Win+Plus/Minus step, clamps, cumulative retarget | UT + prior |
+| AC-2.8.08 | Modifier+Esc while zoomed: animate to 1.0× | ✅ 06-18 |
+| AC-2.8.09 | Modifier+Esc at 1.0×: no effect | UT |
+| AC-2.8.10 | Esc saves pre-escape level as last-used | — |
+| AC-2.8.11 | Win+Ctrl+M opens settings window | — |
+| AC-2.8.12 | Keyboard shortcut during Win+Scroll: step applied | — |
+
+### 2.9 Settings & Configuration (18; 1 deferred)
+
+| AC | Description | Status |
+|----|-------------|--------|
+| AC-2.9.01 | Settings saved to JSON in %AppData%\SmoothZoom\ | UT + prior |
+| AC-2.9.02 | Loaded on startup; defaults if missing | UT + ✅ 06-18 (schema migrate) |
+| AC-2.9.03 | Corrupt config: defaults, no crash | UT |
+| AC-2.9.04 | Modifier change takes effect immediately | ⚠ open (see AC-2.1.19) |
+| AC-2.9.05 | Reduce max while above: animate down | UT |
+| AC-2.9.06 | Raise min while below: animate up | UT |
+| AC-2.9.07 | Image-smoothing toggle | ⊘ def (R-01) |
+| AC-2.9.08 | Toggle focus following off | — |
+| AC-2.9.09 | Toggle caret following off | — |
+| AC-2.9.10 | UI prevents min > max | UT |
+| AC-2.9.11 | UI prevents toggle-key = modifier conflict | — |
+| AC-2.9.12 | Keyboard step constrained 5–100% | UT |
+| AC-2.9.13 | Tray icon visible while running | — |
+| AC-2.9.14 | Right-click tray: Settings, Toggle, Exit | — |
+| AC-2.9.15 | Tray "Toggle Zoom" | UT + — |
+| AC-2.9.16 | Tray "Exit": animate to 1.0× then exit | — |
+| AC-2.9.17 | Start with Windows | — |
+| AC-2.9.18/19 | Start zoomed on/off | — |
+
+### 2.10 Color Inversion (5)
+
+| AC | Description | Status |
+|----|-------------|--------|
+| AC-2.10.01 | Ctrl+Alt+I toggles instantly | ✅ 06-18 |
+| AC-2.10.02 | Applies to all content incl. cursor | — |
+| AC-2.10.03 | Toggle from settings UI: same effect | ✅ 06-18 |
+| AC-2.10.04 | State persists across sessions | ✅ 06-18 |
+| AC-2.10.05 | Works at 1.0× | — |
+
+### Multi-Monitor Basics (4) — needs second display
+
+| AC | Description | Status |
+|----|-------------|--------|
+| AC-MM.01 | Zoom + track on pointer's monitor (primary clause) | — ; secondary "others at 1.0×" ⊘ def (R-01) |
+| AC-MM.02 | Pointer transfer: zoom follows | — |
+| AC-MM.03 | Different DPI: zoom relative to native content | — |
+| AC-MM.04 | Different resolutions: tracking adapts | — |
+
+### Conflict & Error Handling (5)
+
+| AC | Description | Status |
+|----|-------------|--------|
+| AC-ERR.01 | Detect native Magnifier, show dialog | ⚠ open (dialog OK; post-close scroll path — E6.8) |
+| AC-ERR.02 | API init failure: clear error, graceful exit | — |
+| AC-ERR.03 | Hook deregistered: auto re-register + tray notice | — |
+| AC-ERR.04 | Secure desktop: no crash, resume on return | — |
+| AC-ERR.05 | Display config change while zoomed: no crash, adapt | — |
+
+---
+
+## 6. Carried-Over Findings to Confirm or Close (from archived v1)
+
+Each must end Phase 7 as PASS, fixed, or a documented known-limitation (mirrors Doc 07 §8):
+
+1. **AC-2.1.11 — viewport drift.** Occasional shift away from the pointer at zoom. Drift fixes (WS2) have since landed — re-verify; add diagnostic logging if it recurs.
+2. **AC-2.1.16 / R-06 — Start Menu suppression.** "Mostly works, sometimes still triggers." Reproduce and fix or document the conflict.
+3. **AC-2.1.19 / AC-2.9.04 — live modifier change.** Earlier report: changing the modifier in settings had no apparent effect. The hook now reads the live modifier — verify end-to-end.
+4. **AC-2.1.20/21 — Ctrl-exclusion reframe.** `Ctrl` is excluded as a scroll modifier; AC-2.1.21 documents the rationale, not Ctrl-as-modifier behavior (Doc 2 §15.2). AC-2.1.20 ("no suppression for non-Win modifier") is expected behavior — confirm the test interpretation.
+5. **E6.8 — post-conflict scroll path.** After the conflict dialog closes the other magnifier, scroll-to-zoom reportedly didn't function. Verify the init path after a detected conflict.
+6. **Color-inversion persistence (was a v1 fail).** Now PASSES as of 2026-06-18 (config persist + restart round-trip) — closed.

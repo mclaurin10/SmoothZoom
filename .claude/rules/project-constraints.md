@@ -1,17 +1,24 @@
 # SmoothZoom — Project-Wide Constraints
 
-## Current Phase: Phase 6 — Polish & Hardening (code complete, verification in progress)
+## Current Phase: Phase 7 — v1.0 Release Verification & Certification
 
-Phases 0–5 are delivered. All ten components exist and are wired: scroll-gesture zoom,
-keyboard shortcuts with animation, UIA focus/caret tracking, temporary toggle, settings +
-tray UI, color inversion, multi-monitor support, conflict detection, crash recovery, and
-the hook watchdog are all implemented. **CLAUDE.md is the single source of truth for
-status** — if this file and CLAUDE.md ever disagree, trust CLAUDE.md and fix this file.
+Phases 0–6 are **complete** — the v1.0 feature set is delivered and merged. All ten
+components are wired: scroll-gesture zoom, keyboard shortcuts with animation, UIA
+focus/caret tracking, temporary toggle, settings + tray UI, color inversion, multi-monitor
+support, conflict detection, crash recovery, the hook watchdog, and config schema
+versioning. **CLAUDE.md is the single source of truth for status** — if this file and
+CLAUDE.md ever disagree, trust CLAUDE.md and fix this file.
 
-Remaining Phase 6 work is verification and hardening, not new features:
-- Manual AC verification (E6.13) — `docs/manual_test_checklist_v2.md` tracks it
-- Performance targets (E6.12) — CPU idle/active currently exceed targets (R-18)
-- Bug-fix passes from review findings
+The current work is verification/certification, not new features (see
+`docs/07_v1.0_Release_Verification_PRD.md`):
+- Manual AC verification (E6.13 / VER-1) — `docs/manual_test_checklist_v2.md` tracks it
+- Performance audit (E6.12 / VER-2) — dev-hardware CPU within target; the reference-hardware
+  GPU/memory/latency audit is pending (R-18 adaptive frame-rate held in reserve)
+- Interactive/elevated matrix + carried-over findings to confirm or close
+
+**Phase 8 — Input Interoperability** is the deferred next phase (input-interop P0 has
+already landed: `ScrollNormalizer`, `scrollSensitivity`, `momentumZoom`). Do not start it
+before v1.0 ships — see `docs/input-interop-handoff.md`.
 
 **Do not remove or re-scope shipped features.** The phase-gating table that previously
 lived here (forbidding Phase 2+ features) is obsolete — everything through Phase 6 is

@@ -1,3 +1,8 @@
+> ⚠️ ARCHIVED (2026-06-18). This was the implementation plan for the final two Phase 6
+> items — multi-monitor support and the FocusMonitor COM-timeout fix. Both shipped (commit
+> 5379811 and follow-ups); this plan is complete and kept for history only. The AC-MM.01
+> API-limitation note it records now lives in Doc 4 §9A / Doc 2 §15.1 and project-constraints.
+
 Plan: Multi-Monitor Support + FocusMonitor COM Fix        │
      │                                                           │
      │ Context                                                   │

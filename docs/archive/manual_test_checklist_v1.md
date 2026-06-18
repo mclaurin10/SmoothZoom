@@ -1,4 +1,9 @@
-# SmoothZoom Manual Test Checklist
+> ⚠️ **ARCHIVED (2026-06-18).** Superseded by `docs/manual_test_checklist_v2.md`, which is
+> now the single live verification tracker. This v1 checklist is kept for its earlier ad-hoc
+> test results; its full 139-AC table and open findings have been migrated into v2 (§5–§6).
+> Do not record new results here.
+
+# SmoothZoom Manual Test Checklist (v1 — archived)
 
 **Prerequisites:** Signed binary, installed to secure folder (e.g., `C:\Program Files\SmoothZoom\`), UIAccess manifest, Windows 10 1903+ x64.
 
