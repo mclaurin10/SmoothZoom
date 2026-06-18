@@ -279,6 +279,9 @@ void RenderLoop::frameTick()
                 s_colorInversionActive = snap->colorInversionEnabled;
                 s_magBridge.setColorInversion(s_colorInversionActive);
             }
+            // Mirror the live state for the main thread's persist-poller so its
+            // baseline tracks dialog-driven changes (avoids a redundant re-save).
+            s_state->colorInversionActive.store(s_colorInversionActive, std::memory_order_relaxed);
         }
         s_cachedSettingsVersion = ver;
         s_firstTick = false;
@@ -321,6 +324,10 @@ void RenderLoop::frameTick()
             // AC-2.10.01: instantaneous toggle, no animation
             s_colorInversionActive = !s_colorInversionActive;
             s_magBridge.setColorInversion(s_colorInversionActive);
+            // Publish for the main thread to persist (AC-2.10.04 / E6.2) off the
+            // render hot path — invariants forbid I/O here. PostMessage/save is
+            // done by the tray-timer poller in main.cpp.
+            s_state->colorInversionActive.store(s_colorInversionActive, std::memory_order_relaxed);
             break;
         default:
             break;

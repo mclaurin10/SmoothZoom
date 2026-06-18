@@ -326,6 +326,43 @@ TEST_CASE("scrollSensitivity out of range → keeps default", "[SettingsManager]
     REQUIRE(mgrLo.snapshot()->scrollSensitivity == Approx(1.0f));
 }
 
+// =============================================================================
+// Config schema versioning (N1): forward-compatibility key
+// =============================================================================
+
+TEST_CASE("schemaVersion defaults to current for a fresh snapshot", "[SettingsManager][Schema]")
+{
+    SettingsManager mgr;
+    REQUIRE(mgr.snapshot()->schemaVersion == kSettingsSchemaVersion);
+}
+
+TEST_CASE("schemaVersion absent in file => legacy (0)", "[SettingsManager][Schema]")
+{
+    // A pre-versioning config has no schemaVersion key — must read as legacy 0
+    // so future migration code can distinguish it from a current-schema file.
+    auto path = writeTempFile(R"({"maxZoom": 4.0})", "schema_legacy.json");
+    SettingsManager mgr;
+    REQUIRE(mgr.loadFromFile(path.c_str()));
+    REQUIRE(mgr.snapshot()->schemaVersion == 0);
+}
+
+TEST_CASE("save stamps current schemaVersion; legacy migrates forward on write",
+          "[SettingsManager][Schema]")
+{
+    // Load a legacy (unversioned) file → schemaVersion 0, then save: the file is
+    // stamped with the CURRENT schema, and re-loading reports the current version.
+    auto path = writeTempFile(R"({"maxZoom": 4.0})", "schema_rt_src.json");
+    SettingsManager mgr;
+    REQUIRE(mgr.loadFromFile(path.c_str()));
+    REQUIRE(mgr.snapshot()->schemaVersion == 0);
+
+    std::string rt = (std::filesystem::temp_directory_path() / "smoothzoom_test_schema_rt.json").string();
+    REQUIRE(mgr.saveToFile(rt.c_str()));
+    SettingsManager mgr2;
+    REQUIRE(mgr2.loadFromFile(rt.c_str()));
+    REQUIRE(mgr2.snapshot()->schemaVersion == kSettingsSchemaVersion);
+}
+
 TEST_CASE("defaultZoomLevel out of range for custom bounds → keeps default", "[SettingsManager][Phase5]")
 {
     // maxZoom=3.0, defaultZoomLevel=5.0 (above max) → default should stay 2.0

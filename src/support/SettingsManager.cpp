@@ -71,6 +71,11 @@ bool SettingsManager::loadFromFile(const char* path)
         }
     };
 
+    // Schema version: absent ⇒ legacy (pre-versioning) config ⇒ 0, so future
+    // migration code can distinguish "written by an older build" from "current".
+    settings.schemaVersion = 0;
+    readInt("schemaVersion", settings.schemaVersion, 0, 1000000);
+
     readInt("modifierKeyVK", settings.modifierKeyVK, 0, 0xFF);
 
     // F-09: Whitelist of valid modifier VK codes. Reject everything else to prevent
@@ -152,6 +157,9 @@ bool SettingsManager::saveToFile(const char* path) const
     auto snap = snapshot();
 
     json j;
+    // Always stamp the CURRENT schema version (not snap->schemaVersion): saving
+    // migrates a legacy file forward to the current schema on the next write.
+    j["schemaVersion"]         = kSettingsSchemaVersion;
     j["modifierKeyVK"]         = snap->modifierKeyVK;
     j["minZoom"]               = snap->minZoom;
     j["maxZoom"]               = snap->maxZoom;
