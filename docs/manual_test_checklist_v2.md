@@ -31,6 +31,34 @@ carried-over findings to confirm or close.
 >   sleep/resume (S1), DPI-change (S2), multi-monitor (needs 2nd display), UAC
 >   (E6.10), and the full AC-2.4–2.10 sweep.
 
+> **Verification log — 2026-06-18 (computer-use pass; signed Release build running,
+> single 1440×900 display, config modifier = Shift, toggle combo = Win+Ctrl):**
+> - **Unit suite:** `smoothzoom_tests.exe` → **All tests passed (422 assertions / 146
+>   cases)** — confirms every UT-marked AC (zoom math/bounds/soft-clamp, animation
+>   retarget/reverse/interrupt, proportional mapping/corners/deadzone, settings
+>   validation, ScrollNormalizer, SeqLock, rect validation). ✅
+> - **Live `config.json`** valid, `schemaVersion: 1`, `scrollSensitivity`/`momentumZoom`
+>   present → AC-2.9.01/02 + schema versioning. Native Magnifier not running. ✅
+> - **Keyboard zoom-in** (Shift+= ×11) magnified the screen and animated; observed via
+>   screenshot of Notepad scaling up. AC-2.8.01/2.8.06/2.2.04. ✅
+> - **No character leak:** after 11 zoom-key presses with Shift held, Notepad stayed at
+>   "Col 51, 50 characters" — the four zoom keys are consumed on modifier-held (no `+`/`_`
+>   leak). ✅
+> - **Zoom centered on pointer** — at high zoom the I-beam stayed dead-center
+>   (proportional mapping). AC-2.1.09 / AC-2.4.01; cursor visible+correct AC-2.3.03;
+>   uniform magnification AC-2.3.01. ✅
+> - **Color inversion Ctrl+Alt+I** toggled on AND off while zoomed, and **at 1.0×** the
+>   whole desktop inverted (wallpaper/Notepad/cursor). AC-2.10.01/02/05, E6.3. ✅
+> - **Reset:** Shift+Esc animated back to exactly 1.0×, no residual tint/artifact.
+>   AC-2.8.08 / AC-2.3.12. ✅
+> - **Minor finding:** the `Alt` in `Ctrl+Alt+I` passes through to the focused app (modern
+>   Notepad showed its ribbon KeyTips) — by design, only the four zoom keys are consumed.
+>   No text leaked; note that in some apps `Alt+I` could hit a menu accelerator.
+> - **Not testable here (handed to user):** scroll-gesture zoom (computer-use scroll does
+>   not reach the LL hook — already confirmed via SendInput earlier this day); multi-monitor
+>   (single display); UAC/secure-desktop, lock/unlock, sleep/resume (need elevation/hardware);
+>   focus/caret following (disabled in this machine's config).
+
 ## 1. Bug Fix Verification
 
 ### WS1: Keyboard Shortcuts Respect Configurable Modifier
@@ -128,7 +156,7 @@ These are documented as out-of-scope until Desktop Duplication API migration:
 The authoritative AC list is Document 2. This table is the v1.0 verification record. Status
 legend:
 
-- `✅ 06-18` — verified on the signed v1.0 build, 2026-06-18
+- `✅ 06-18` — verified on the signed v1.0 build, 2026-06-18 (`(cu)` = confirmed via the computer-use pass)
 - `UT` — passing via automated unit test (Catch2)
 - `prior` — passed in earlier ad-hoc testing on a pre-release build; **needs a recorded Phase-7 confirmation** against the signed build
 - `⚠ open` — carried finding to confirm or close (see §6)
@@ -182,7 +210,7 @@ legend:
 |----|-------------|--------|
 | AC-2.3.01 | All content magnified uniformly | ✅ 06-18 |
 | AC-2.3.02 | No unmagnified holes | prior |
-| AC-2.3.03 | Cursor visible + correctly positioned | prior |
+| AC-2.3.03 | Cursor visible + correctly positioned | ✅ 06-18 (cu) |
 | AC-2.3.04 | Clicks interact with correct elements | prior |
 | AC-2.3.05 | Drag operations correct while zoomed | prior |
 | AC-2.3.06 | Hover/tooltips at correct position | prior |
@@ -191,7 +219,7 @@ legend:
 | AC-2.3.09 | Toggling smoothing changes next frame | ⊘ def (R-01) |
 | AC-2.3.10 | Native refresh rate, no tearing | prior |
 | AC-2.3.11 | Real-time content updates smoothly | prior |
-| AC-2.3.12 | At 1.0×: no artifact/overlay/tint | prior |
+| AC-2.3.12 | At 1.0×: no artifact/overlay/tint | ✅ 06-18 (cu) |
 | AC-2.3.13 | At 1.0×: no input latency/interception | prior |
 
 ### 2.4 Continuous Viewport Tracking (13)
@@ -234,7 +262,7 @@ legend:
 
 | AC | Description | Status |
 |----|-------------|--------|
-| AC-2.8.01–07 | Win+Plus/Minus step, clamps, cumulative retarget | UT + prior |
+| AC-2.8.01–07 | Win+Plus/Minus step, clamps, cumulative retarget | UT + ✅ 06-18 (cu: zoom-in) |
 | AC-2.8.08 | Modifier+Esc while zoomed: animate to 1.0× | ✅ 06-18 |
 | AC-2.8.09 | Modifier+Esc at 1.0×: no effect | UT |
 | AC-2.8.10 | Esc saves pre-escape level as last-used | — |
@@ -269,10 +297,10 @@ legend:
 | AC | Description | Status |
 |----|-------------|--------|
 | AC-2.10.01 | Ctrl+Alt+I toggles instantly | ✅ 06-18 |
-| AC-2.10.02 | Applies to all content incl. cursor | — |
+| AC-2.10.02 | Applies to all content incl. cursor | ✅ 06-18 (cu) |
 | AC-2.10.03 | Toggle from settings UI: same effect | ✅ 06-18 |
 | AC-2.10.04 | State persists across sessions | ✅ 06-18 |
-| AC-2.10.05 | Works at 1.0× | — |
+| AC-2.10.05 | Works at 1.0× | ✅ 06-18 (cu) |
 
 ### Multi-Monitor Basics (4) — needs second display
 
