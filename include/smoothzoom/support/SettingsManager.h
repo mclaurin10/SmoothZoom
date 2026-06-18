@@ -15,8 +15,19 @@
 namespace SmoothZoom
 {
 
+// Config schema version. Bump when a field's meaning changes or a migration is
+// needed. saveToFile() always stamps the CURRENT version; loadFromFile() records
+// the version the file was written with (0 = legacy / pre-versioning) so future
+// code can detect and migrate older configs. (Forward-compatibility, no silent
+// default of changed fields.)
+inline constexpr int kSettingsSchemaVersion = 1;
+
 struct SettingsSnapshot
 {
+    // Schema version this snapshot was loaded from (kSettingsSchemaVersion for a
+    // fresh/default snapshot; 0 when loaded from a pre-versioning config file).
+    int     schemaVersion       = kSettingsSchemaVersion;
+
     int     modifierKeyVK       = 0x5B;  // VK_LWIN
     float   minZoom             = 1.0f;
     float   maxZoom             = 10.0f;

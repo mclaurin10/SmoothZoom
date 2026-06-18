@@ -683,6 +683,17 @@ static void handlePtpHidReport(const BYTE* reportData, DWORD reportSize)
 // Hidden message-only window for receiving WM_TIMER and WM_ENDSESSION
 static HWND g_msgWindow = nullptr;
 
+// Re-read the virtual-desktop bounds into SharedState (physical pixels, can have
+// a negative origin). Called on any event that can change the display layout:
+// resolution/monitor change, DPI/scaling change, and resume-from-sleep.
+static void refreshVirtualScreenMetrics()
+{
+    g_sharedState.screenWidth.store(GetSystemMetrics(SM_CXVIRTUALSCREEN), std::memory_order_relaxed);
+    g_sharedState.screenHeight.store(GetSystemMetrics(SM_CYVIRTUALSCREEN), std::memory_order_relaxed);
+    g_sharedState.screenOriginX.store(GetSystemMetrics(SM_XVIRTUALSCREEN), std::memory_order_relaxed);
+    g_sharedState.screenOriginY.store(GetSystemMetrics(SM_YVIRTUALSCREEN), std::memory_order_relaxed);
+}
+
 static LRESULT CALLBACK msgWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
 {
     switch (msg)
@@ -750,6 +761,29 @@ static LRESULT CALLBACK msgWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lP
                 s_trayIconShowsZoomed = isZoomed;
                 g_trayUI.updateTrayIcon(isZoomed);
             }
+
+            // Persist color inversion toggled via Ctrl+Alt+I (AC-2.10.04 / E6.2).
+            // The render thread owns the live state and publishes it to
+            // SharedState; the config write happens here on the main thread, off
+            // the render hot path (render-loop invariants forbid I/O). The -1
+            // sentinel adopts the startup baseline on the first poll so a config
+            // that already matches never triggers a spurious save.
+            static int s_lastPersistedInversion = -1;
+            int invNow = g_sharedState.colorInversionActive.load(std::memory_order_relaxed) ? 1 : 0;
+            if (s_lastPersistedInversion == -1)
+            {
+                s_lastPersistedInversion = invNow;
+            }
+            else if (invNow != s_lastPersistedInversion)
+            {
+                s_lastPersistedInversion = invNow;
+                SmoothZoom::SettingsSnapshot snap = *g_settingsManager.snapshot();
+                snap.colorInversionEnabled = (invNow != 0);
+                g_settingsManager.applySnapshot(snap); // updates current snapshot first
+                if (!g_configPath.empty())
+                    g_settingsManager.saveToFile(g_configPath.c_str());
+                SZ_LOG_INFO("Main", L"Persisted color inversion = %s", invNow ? L"ON" : L"OFF");
+            }
         }
         // Phase 5C: Graceful exit polling
         else if (g_trayUI.isExitPending() && g_trayUI.checkExitPoll())
@@ -785,10 +819,16 @@ static LRESULT CALLBACK msgWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lP
 
     case WM_DISPLAYCHANGE:
         // Screen resolution / monitor config changed — update virtual screen metrics (AC-ERR.05, E6.4–E6.7)
-        g_sharedState.screenWidth.store(GetSystemMetrics(SM_CXVIRTUALSCREEN), std::memory_order_relaxed);
-        g_sharedState.screenHeight.store(GetSystemMetrics(SM_CYVIRTUALSCREEN), std::memory_order_relaxed);
-        g_sharedState.screenOriginX.store(GetSystemMetrics(SM_XVIRTUALSCREEN), std::memory_order_relaxed);
-        g_sharedState.screenOriginY.store(GetSystemMetrics(SM_YVIRTUALSCREEN), std::memory_order_relaxed);
+        refreshVirtualScreenMetrics();
+        return 0;
+
+    case WM_DPICHANGED:
+        // Per-monitor DPI / display-scaling change (AC-ERR.05). Re-read the
+        // virtual-desktop metrics so viewport math uses the new physical-pixel
+        // bounds. Complements WM_DISPLAYCHANGE — a scaling change that keeps the
+        // resolution constant surfaces here rather than as a resolution change.
+        refreshVirtualScreenMetrics();
+        SZ_LOG_INFO("Main", L"WM_DPICHANGED — refreshed virtual-screen metrics");
         return 0;
 
     case WM_WTSSESSION_CHANGE:
@@ -819,6 +859,26 @@ static LRESULT CALLBACK msgWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lP
             }
         }
         return 0;
+
+    case WM_POWERBROADCAST:
+        // Resume from sleep / hibernate (R-21). While suspended, the low-level
+        // hooks can be silently torn down and the monitor layout can change.
+        // PBT_APMRESUMEAUTOMATIC always fires on resume; PBT_APMRESUMESUSPEND
+        // additionally fires when the resume was user-initiated.
+        if (wParam == PBT_APMRESUMEAUTOMATIC || wParam == PBT_APMRESUMESUSPEND)
+        {
+            SZ_LOG_INFO("Main", L"System resumed — revalidating hooks and screen metrics (R-21)");
+            refreshVirtualScreenMetrics();
+            // Key-ups during suspend never reach the LL hook — clear stranded
+            // held-key state (same hazard as Win+L; see WM_WTSSESSION_CHANGE).
+            SmoothZoom::InputInterceptor::resetTransientKeyState();
+            if (!g_inputInterceptor.isHealthy() && g_inputInterceptor.forceReinstall())
+            {
+                s_hookFailureNotified = false;
+                SZ_LOG_INFO("Main", L"Hooks restored after resume");
+            }
+        }
+        return TRUE;
 
     case WM_SETTINGCHANGE:
         // Refresh touchpad natural scrolling setting when user changes it in Windows Settings.
@@ -1068,6 +1128,10 @@ int WINAPI wWinMain(
         std::atomic_store(&g_sharedState.settingsSnapshot, snap);
         g_sharedState.settingsVersion.store(
             g_settingsManager.version(), std::memory_order_release);
+        // Seed the live inversion mirror so the tray-timer persist-poller's
+        // baseline matches the loaded config from the first poll (no spurious save).
+        g_sharedState.colorInversionActive.store(
+            snap && snap->colorInversionEnabled, std::memory_order_relaxed);
     }
 
     // Initialize virtual screen dimensions in shared state (read by render thread)

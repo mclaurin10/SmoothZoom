@@ -43,6 +43,10 @@ struct SharedState
 
     // -- Written by render thread, read by main thread --
     std::atomic<float> currentZoomLevel{1.0f};
+    // Live color-inversion state (Ctrl+Alt+I toggles it on the render thread).
+    // Published here so the main thread can persist it to config off the render
+    // hot path (render-loop invariants forbid I/O). Polled by the tray timer.
+    std::atomic<bool>  colorInversionActive{false};
 
     // -- Command queue: main thread → render thread --
     LockFreeQueue<ZoomCommand> commandQueue;

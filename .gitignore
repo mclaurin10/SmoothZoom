@@ -5,6 +5,9 @@ x64/
 Debug/
 Release/
 
+# Deploy / install logs
+deploy_log.txt
+
 # IDE
 .vs/
 .vscode/settings.json
@@ -28,7 +31,9 @@ CMakeSettings.json
 Thumbs.db
 desktop.ini
 .DS_Store
-*:Zone.Identifier
+# NTFS "mark of the web" alternate-data-stream files. Git records the ADS colon
+# as U+F03A (not ASCII ':'), so match on the suffix without the colon.
+*Zone.Identifier
 
 # Certificates (never commit private keys)
 *.pfx
