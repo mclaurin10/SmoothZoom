@@ -102,4 +102,4 @@ A timer on the Main thread checks hook handle validity every 5 seconds. (R-05 mi
 
 7. **Testing modifier state with `GetAsyncKeyState` instead of tracking key-down/key-up events.** `GetAsyncKeyState` is racy and can miss brief key presses. The hook already receives every key event — track state explicitly in the callback via the `KBDLLHOOKSTRUCT` fields.
 
-8. **Adding shortcut processing before Phase 2.** In Phase 1, the keyboard hook only observes modifier key state. Shortcut command posting (`ZOOM_IN`, `ZOOM_OUT`, `ZOOM_RESET`) arrives in Phase 2 when the keyboard command queue and ZoomController's ANIMATING mode are built.
+8. **Doing the shortcut work inside the hook instead of posting a command.** Keyboard shortcuts (shipped in Phase 2 — do not regress) post a command (`ZOOM_IN`, `ZOOM_OUT`, `ZOOM_RESET`) to the lock-free queue; the actual zoom math and ZoomController's ANIMATING-mode transition happen on the Render thread when it drains the queue. The hook must only detect the chord, post the command, and (for the four zoom keys with the modifier held) consume both edges — never compute zoom state in the callback.
