@@ -177,6 +177,39 @@ carried-over findings to confirm or close.
 >   and **medium-IL PostMessage is UIPI-blocked** by the uiAccess window. All SmoothZoom-UI
 >   commands this session were driven by **elevated** PostMessage/BM_CLICK to its windows.
 
+> **Resolution log — 2026-06-21 (graceful-exit hang: code hardening + root-cause analysis):**
+> Investigated the ⚠ graceful-exit finding above (tray "Exit" / AC-2.9.16 / VER-4).
+> - **Root cause (analysis).** The post-message-loop shutdown sequence (`src/app/main.cpp`)
+>   contained **unbounded waits with no forced-exit backstop**:
+>   1. `MagBridge::shutdown()` → `MagUninitialize()` runs on the **detached** render thread
+>      (`RenderLoop::threadMain`). If the Magnification subsystem is wedged it never returns,
+>      so `running_` is never cleared and the "Magnifier" host window persists — exactly the
+>      observed symptom (zoom already reset, but window present, ~0 CPU).
+>   2. `emergencyResetMagnification()` (the dirty-path fallback) calls `MagSetFullscreenTransform`
+>      with no time bound — a wedged Mag subsystem can block it too.
+>   3. `return 0` while the detached render thread is stuck inside a Mag* call makes the CRT
+>      exit path (`ExitProcess`) **deadlock** on the loader/heap lock the terminated thread
+>      still holds.
+>   4. `FocusMonitor::stop()` / `CaretMonitor::stop()` do an **unbounded `thread.join()`**
+>      (latent: a stalled UIA provider during teardown would hang here too).
+> - **Fix (committed).** Added a **shutdown watchdog** armed the instant the message loop
+>   exits: a detached thread that force-`TerminateProcess`es after `kShutdownWatchdogMs`
+>   (5 s) if graceful teardown has not finished — a clean exit kills it first, so it only ever
+>   fires on a real hang. Also changed the dirty render-shutdown path: when the render thread
+>   does not stop within the existing 3 s bound, the code now does its best-effort SEH-guarded
+>   emergency reset + sentinel handling and then **force-terminates instead of `return 0`**,
+>   side-stepping the `ExitProcess` deadlock. The clean path still returns normally (the
+>   detached render thread is fully done, so no deadlock) and removes the sentinel. Net: tray
+>   "Exit" is now **guaranteed to terminate within ≤5 s** regardless of Mag-subsystem state.
+>   Build (Debug, VS18/MSVC x64) clean; `ctest -C Debug` 100% pass (no unit-test regression).
+> - **Still pending (manual).** The clean-boot repro from the original action item — launch the
+>   installed signed build on a freshly-booted machine (no prior force-kills), zoom in, trigger
+>   tray "Exit", and confirm whether the **pre-fix** hang reproduces. Determines whether the
+>   underlying hang was a genuine `MagUninitialize` defect or test-induced subsystem wedging.
+>   Either way the hardening above stands as the AC-2.9.16 guarantee; the retest only classifies
+>   the root cause. Re-verify on the rebuilt signed Release build that tray "Exit" terminates
+>   the process (expected: a few seconds, or ≤5 s worst case via the watchdog).
+
 ## 1. Bug Fix Verification
 
 ### WS1: Keyboard Shortcuts Respect Configurable Modifier
@@ -259,7 +292,7 @@ carried-over findings to confirm or close.
 - [~] Tray icon: right-click menu (Settings, Toggle Zoom, Exit) — 2026-06-21 icon present (overflow); menu **command handlers** verified via elevated WM_COMMAND (Toggle works); literal right-click menu not click-tested (computer-use can't grant SmoothZoom; UIPI blocks medium-IL clicks)
 - [ ] Settings window: changes apply without restart (AC-2.9.04) — not exercised (settings UI needs interactive control of SmoothZoom's own window; blocked by UIPI/computer-use grant)
 - [ ] Settings persistence: changes survive restart (AC-2.9.02)
-- [⚠] Tray "Exit": graceful exit animates zoom to 1.0× before closing (AC-2.9.16) — **FINDING 2026-06-21: animates to 1.0× ✅ but process does NOT terminate (hangs in post-loop shutdown). Reproduced twice. See log + spawned task. Needs clean-boot retest.**
+- [⚠] Tray "Exit": graceful exit animates zoom to 1.0× before closing (AC-2.9.16) — **FINDING 2026-06-21: animates to 1.0× ✅ but process did NOT terminate (hung in post-loop shutdown). Reproduced twice. → HARDENED 2026-06-21: shutdown watchdog + forced-exit added (≤5 s guaranteed termination); build + ctest pass. Clean-boot repro of the original hang still needs running to classify root cause; re-verify termination on rebuilt signed build. See Resolution log.**
 - [ ] No global keyboard exit: Ctrl+Q in any app does NOT quit SmoothZoom
 
 ## 4. Deferred ACs
@@ -409,7 +442,7 @@ legend:
 | AC-2.9.13 | Tray icon visible while running | ✅ 06-21 (present in tray overflow) |
 | AC-2.9.14 | Right-click tray: Settings, Toggle, Exit | ◑ 06-21 — command handlers verified via elevated WM_COMMAND; literal right-click menu not click-tested (UIPI/computer-use grant) |
 | AC-2.9.15 | Tray "Toggle Zoom" | UT + ✅ 06-21 (toggled 1.0×↔2.0× via IDM_TOGGLE_ZOOM) |
-| AC-2.9.16 | Tray "Exit": animate to 1.0× then exit | ⚠ FINDING 06-21 — animates to 1.0× ✅ but process hangs (no terminate); see §log + task; clean-boot retest needed |
+| AC-2.9.16 | Tray "Exit": animate to 1.0× then exit | ⚠→🔧 06-21 — animates to 1.0× ✅; process-hang HARDENED (shutdown watchdog + forced-exit, ≤5 s guaranteed; build+ctest pass). Clean-boot repro of original hang + termination re-verify on rebuilt signed build still pending. See Resolution log. |
 | AC-2.9.17 | Start with Windows | — |
 | AC-2.9.18/19 | Start zoomed on/off | — |
 
