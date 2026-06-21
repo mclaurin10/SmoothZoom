@@ -349,6 +349,48 @@ static BOOL emergencyResetMagnification()
     return ok;
 }
 
+// ── Shutdown watchdog (AC-2.9.16, VER-4, R-14) ───────────────────────────────
+// Guarantees the process terminates even if a teardown step blocks forever.
+// The Magnification subsystem can wedge (e.g. after repeated force-kills during
+// crash-recovery testing) so that MagUninitialize — or any Mag* call on the
+// shutdown path — never returns; the render thread is detached, so it never
+// clears running_ and the screen-host "Magnifier" window lingers. Other
+// unbounded waits exist too: FocusMonitor/CaretMonitor stop() join their threads
+// without a timeout, and a `return 0` while the detached render thread is stuck
+// inside a Mag* call deadlocks CRT ExitProcess on the loader lock. Symptom
+// observed in Phase 7: tray Exit restores the screen (zoom resets) but the
+// process never exits (>30s, ~0% CPU). This thread is armed when the message
+// loop exits; a clean shutdown exits the process before it fires, so it only
+// ever triggers on a genuine hang.
+static constexpr DWORD kShutdownWatchdogMs = 5000;
+
+static DWORD WINAPI shutdownWatchdogThread(LPVOID /*param*/)
+{
+    Sleep(kShutdownWatchdogMs);
+    // Reaching here means graceful teardown blew its deadline. The zoom was
+    // already reset (the render thread ran ResetZoom before teardown began) and
+    // the sentinel is in its correct state, so a hard TerminateProcess is safe
+    // and is the only way out of a wedged Mag* call or an ExitProcess deadlock.
+    SZ_LOG_ERROR("Main",
+        L"Shutdown watchdog fired (%lums) — forcing process termination (AC-2.9.16)",
+        kShutdownWatchdogMs);
+    TerminateProcess(GetCurrentProcess(), 0);
+    return 0;
+}
+
+// Arm the shutdown watchdog. Detached: CloseHandle does not stop the thread, it
+// just releases the handle — the thread runs until it fires or the process exits.
+static void armShutdownWatchdog()
+{
+    HANDLE hWatchdog = CreateThread(nullptr, 0, shutdownWatchdogThread, nullptr, 0, nullptr);
+    if (hWatchdog)
+        CloseHandle(hWatchdog);
+    else
+        SZ_LOG_ERROR("Main",
+            L"Failed to arm shutdown watchdog (CreateThread failed, GetLastError=%lu)",
+            GetLastError());
+}
+
 // ── PTP HID Device Initialization ────────────────────────────────────────────
 // Called once per device when the first HID report arrives. Parses the device's
 // HID report descriptor to discover contact slot link collections.
@@ -1310,6 +1352,13 @@ int WINAPI wWinMain(
 
     // ── 4. Shutdown sequence ────────────────────────────────────────────────
 
+    // Arm the shutdown watchdog FIRST, before any teardown that could block
+    // (a wedged Mag* call on the detached render thread, an unbounded UIA/caret
+    // thread join, or an ExitProcess loader-lock deadlock). Whatever hangs, the
+    // process is now guaranteed to terminate within kShutdownWatchdogMs so tray
+    // Exit always ends the process. (AC-2.9.16, VER-4, R-14)
+    armShutdownWatchdog();
+
     // Phase 5C: Remove tray icon promptly
     g_trayUI.destroy();
 
@@ -1371,17 +1420,33 @@ int WINAPI wWinMain(
     // magnification; removing it unconditionally would defeat that recovery.
     if (renderStoppedClean)
     {
+        // Render thread ran its reset-to-1.0× + MagUninitialize and cleared
+        // running_. The detached thread is fully done, so CRT ExitProcess on
+        // return cannot deadlock on it — a normal return is safe here.
         removeSentinel(s_sentinelPath);
-    }
-    else if (emergencyResetMagnification())
-    {
-        removeSentinel(s_sentinelPath);
-    }
-    else
-    {
-        SZ_LOG_ERROR("Main",
-            L"Shutdown timeout + emergency reset failed; leaving sentinel for next-launch recovery (R-14)");
+        return 0;
     }
 
-    return 0;
+    // Render thread did NOT stop within the timeout — it is almost certainly
+    // wedged inside a Mag* call (e.g. MagUninitialize), so it never completed
+    // teardown and never cleared running_. Attempt a best-effort, SEH-guarded
+    // zoom reset from the main thread; drop the sentinel only if it succeeds,
+    // otherwise leave it so the next launch detects the dirty exit and recovers.
+    if (emergencyResetMagnification())
+        removeSentinel(s_sentinelPath);
+    else
+        SZ_LOG_ERROR("Main",
+            L"Shutdown timeout + emergency reset failed; leaving sentinel for next-launch recovery (R-14)");
+
+    // Do NOT fall through to `return 0`. Returning runs the CRT exit path →
+    // ExitProcess, which would terminate the still-stuck detached render thread
+    // while it may hold the loader/heap lock, deadlocking DLL_PROCESS_DETACH and
+    // hanging the process indefinitely (the symptom this fix targets). Force a
+    // hard exit instead so tray Exit always terminates promptly. The watchdog
+    // armed above is the backstop should emergencyResetMagnification() itself
+    // block on the wedged Mag subsystem. (AC-2.9.16, VER-4)
+    SZ_LOG_WARN("Main",
+        L"Render thread did not stop cleanly — force-terminating process (AC-2.9.16)");
+    TerminateProcess(GetCurrentProcess(), 0);
+    return 0;  // Not reached; present so the compiler sees a return.
 }

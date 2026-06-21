@@ -34,6 +34,10 @@ option(SMOOTHZOOM_LOGGING      "Enable diagnostic logging via OutputDebugStringW
 # which violates the "hook callbacks do no I/O" rule and risks hook deregistration
 # (R-05). Enable only for short, targeted input diagnostics.
 option(SMOOTHZOOM_INPUT_DIAG   "Enable per-event input-hook tracing (R-05 hazard; diagnostics only)" OFF)
+# Frame-timing instrumentation for the E6.12 / VER-2 perf audit. Emits scroll-to-display
+# latency stats (QPC, microseconds) via OutputDebugStringW every ~600 active frames.
+# OFF by default; the shipping/certified binary MUST be built WITHOUT this. (Verification-only.)
+option(SMOOTHZOOM_PERF_AUDIT   "Enable frame-timing instrumentation (E6.12; OutputDebugStringW)" OFF)
 
 # Auto-enable logging for Debug builds
 # For multi-config generators (Visual Studio), CMAKE_BUILD_TYPE is empty at
@@ -53,6 +57,11 @@ add_compile_definitions($<$<CONFIG:Debug>:SMOOTHZOOM_LOGGING>)
 # SMOOTHZOOM_LOGGING (see option comment above; R-05).
 if(SMOOTHZOOM_INPUT_DIAG)
     add_compile_definitions(SMOOTHZOOM_INPUT_DIAG)
+endif()
+
+# Perf-audit instrumentation define (E6.12 / VER-2). Verification-only; default OFF.
+if(SMOOTHZOOM_PERF_AUDIT)
+    add_compile_definitions(SMOOTHZOOM_PERF_AUDIT)
 endif()
 
 # ---------------------------------------------------------------------------
