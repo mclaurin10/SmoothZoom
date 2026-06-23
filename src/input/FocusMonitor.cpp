@@ -140,16 +140,35 @@ struct FocusMonitor::Impl
         HRESULT hr = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
         if (FAILED(hr)) return;
 
-        hr = CoCreateInstance(__uuidof(CUIAutomation), nullptr,
+        // Create the UIA root via the CUIAutomation8 coclass, not CUIAutomation.
+        // Only CUIAutomation8 vends the newer IUIAutomation2..7 interfaces; the
+        // legacy CUIAutomation coclass returns an object whose QueryInterface for
+        // IUIAutomation6 fails with E_NOINTERFACE even on OSes that fully support
+        // it (observed on Win11 26200), which silently disabled the R-11
+        // ConnectionTimeout mitigation. CUIAutomation8 has shipped since Win8.
+        hr = CoCreateInstance(__uuidof(CUIAutomation8), nullptr,
                               CLSCTX_INPROC_SERVER, __uuidof(IUIAutomation),
                               reinterpret_cast<void**>(&automation));
+        if (FAILED(hr))
+        {
+            // Fallback for genuinely older OSes that lack the CUIAutomation8
+            // coclass (pre-Win8). IUIAutomation6 won't be available there, so the
+            // QI below skips the timeout and tracking degrades gracefully (R-09).
+            SZ_LOG_WARN("FocusMonitor",
+                        L"CUIAutomation8 unavailable (hr=0x%08lX) — falling back to CUIAutomation",
+                        static_cast<unsigned long>(hr));
+            hr = CoCreateInstance(__uuidof(CUIAutomation), nullptr,
+                                  CLSCTX_INPROC_SERVER, __uuidof(IUIAutomation),
+                                  reinterpret_cast<void**>(&automation));
+        }
         if (FAILED(hr))
         {
             CoUninitialize();
             return;
         }
 
-        // Set 100ms timeout for UIA property queries (R-11 mitigation)
+        // Set 100ms timeout for UIA property queries (R-11 mitigation). IUIAutomation6
+        // ships in Win10 1809+ and is reachable from the CUIAutomation8 coclass above.
         IUIAutomation6* automation6 = nullptr;
         HRESULT hrTimeout = automation->QueryInterface(
             __uuidof(IUIAutomation6),
@@ -159,7 +178,9 @@ struct FocusMonitor::Impl
             automation6->Release();
             SZ_LOG_INFO("FocusMonitor", L"UIA connection timeout set to 100ms");
         } else {
-            SZ_LOG_WARN("FocusMonitor", L"IUIAutomation6 unavailable — no query timeout");
+            SZ_LOG_WARN("FocusMonitor",
+                        L"IUIAutomation6 unavailable (hr=0x%08lX) — no query timeout",
+                        static_cast<unsigned long>(hrTimeout));
         }
 
         handler = new FocusChangedHandler(state);
