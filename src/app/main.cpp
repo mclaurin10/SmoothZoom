@@ -294,6 +294,17 @@ static void publishToSharedState(const SmoothZoom::SettingsSnapshot& s, void* ud
     state->settingsVersion.fetch_add(1, std::memory_order_release);
 }
 
+// Identity 5×5 color matrix (no color effect). File-scope POD so the SEH-guarded
+// crash/reset paths can reference it with no heap allocation or unwinding. Mirrors
+// the identity matrix MagBridge::setColorInversion(false) applies.
+static const float kIdentityColorEffect[5][5] = {
+    { 1.0f, 0.0f, 0.0f, 0.0f, 0.0f },
+    { 0.0f, 1.0f, 0.0f, 0.0f, 0.0f },
+    { 0.0f, 0.0f, 1.0f, 0.0f, 0.0f },
+    { 0.0f, 0.0f, 0.0f, 1.0f, 0.0f },
+    { 0.0f, 0.0f, 0.0f, 0.0f, 1.0f },
+};
+
 // Crash handler (R-14): reset magnification on unhandled exception.
 // IMPORTANT: Cannot use MagBridge here — it allocates on the heap and may run on
 // a thread different from the one that called MagInitialize (thread affinity).
@@ -326,11 +337,28 @@ static LONG WINAPI crashHandler(EXCEPTION_POINTERS* /*exInfo*/)
         // Swallow — we're already in a crash handler
     }
 
-    // Remove the sentinel ONLY if the zoom reset succeeded. The API can return
-    // FALSE without raising (secure desktop active, Mag state torn down) — in
-    // that case the screen is still magnified and the sentinel is the only
-    // thing left that triggers next-launch recovery (R-14, E6.11).
-    if (resetOk)
+    // Best-effort color-effect reset — clear any active color inversion. The
+    // fullscreen color effect is process-global and persists after process death
+    // exactly like the transform (R-14), so a crash while inverted would otherwise
+    // leave the ENTIRE desktop color-inverted until the next launch. Mirrors
+    // MagBridge::shutdown() step 3 (rules/mag-bridge.md). SEH-guarded, no heap.
+    BOOL colorOk = FALSE;
+    __try
+    {
+        colorOk = MagSetFullscreenColorEffect(reinterpret_cast<PMAGCOLOREFFECT>(
+            const_cast<float*>(&kIdentityColorEffect[0][0])));
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER)
+    {
+        // Swallow — we're already in a crash handler
+    }
+
+    // Remove the sentinel ONLY if BOTH global Mag effects were cleared. Either API
+    // can return FALSE without raising (secure desktop active, Mag state torn
+    // down) — in that case the screen may still be magnified and/or inverted, and
+    // the sentinel is the only thing that triggers next-launch recovery (R-14,
+    // E6.11), which re-runs the full shutdown (transform + input + color).
+    if (resetOk && colorOk)
         removeSentinel(s_sentinelPath);
 
     return EXCEPTION_CONTINUE_SEARCH;

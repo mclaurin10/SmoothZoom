@@ -528,8 +528,11 @@ void RenderLoop::frameTick()
             int32_t eMonL = emi.rcMonitor.left, eMonT = emi.rcMonitor.top;
             int32_t eMonW = emi.rcMonitor.right - eMonL;
             int32_t eMonH = emi.rcMonitor.bottom - eMonT;
-            targetOffset = ViewportTracker::computeElementOffset(
-                focusRect, zoom, eMonW, eMonH, eMonL, eMonT);
+            // AC-2.5.05/06: pan only if the focused element isn't already fully
+            // visible, and then only just enough — pass the current applied offset
+            // so an already-visible element produces zero viewport motion.
+            targetOffset = ViewportTracker::computeFocusOffset(
+                s_lastOffX, s_lastOffY, focusRect, zoom, eMonW, eMonH, eMonL, eMonT);
         }
         break;
     case TrackingSource::Pointer:

@@ -306,18 +306,103 @@ TEST_CASE("Caret takes priority over Focus when both valid (AC-2.6.09)",
     REQUIRE(src == TrackingSource::Caret);
 }
 
-TEST_CASE("Tab during typing switches to Focus (AC-2.6.09)", "[ViewportTracker][Phase3]")
+TEST_CASE("After caret goes idle, Focus takes over (AC-2.6.09 steady state)",
+          "[ViewportTracker][Phase3]")
 {
     ViewportTracker vt;
     int64_t now = 10000;
-    // Scenario: user was typing, then pressed Tab → focus changed more recently than pointer
-    // After caret idle timeout (500ms), focus takes over
-    int64_t lastKb = now - 600;   // Last typing was 600ms ago (past caret timeout)
+    // STEADY STATE after a Tab: typing stopped 600ms ago (past the 500ms caret idle
+    // timeout) and focus changed 200ms ago (past debounce). This is NOT the instant
+    // of contention — see the contention test below for that.
+    int64_t lastKb = now - 600;
     int64_t lastPointer = 5000;
-    int64_t lastFocus = now - 200; // Tab press caused focus change 200ms ago (past debounce)
+    int64_t lastFocus = now - 200;
 
     auto src = vt.determineActiveSource(now, lastPointer, lastFocus, lastKb, true, true);
     REQUIRE(src == TrackingSource::Focus);
+}
+
+TEST_CASE("Caret wins over a just-changed focus while typing is active (AC-2.6.09 contention)",
+          "[ViewportTracker][Phase3]")
+{
+    ViewportTracker vt;
+    int64_t now = 10000;
+    // The real AC-2.6.09 contention instant: caret valid, a keystroke 50ms ago (well
+    // within the 500ms window) AND a focus change 200ms ago. ViewportTracker resolves
+    // this to Caret — keyboard recency wins. The Tab->Focus handoff for an
+    // off-viewport non-text control is delegated to RenderLoop's caret-freshness gate
+    // (kCaretFreshnessMs), NOT to ViewportTracker. Pinning this makes the division of
+    // responsibility explicit so a regression in either layer is visible.
+    int64_t lastKb = now - 50;
+    int64_t lastPointer = 5000;
+    int64_t lastFocus = now - 200;
+
+    auto src = vt.determineActiveSource(now, lastPointer, lastFocus, lastKb, true, true);
+    REQUIRE(src == TrackingSource::Caret);
+}
+
+TEST_CASE("Focus change inside the debounce window does not win yet (AC-2.5.07)",
+          "[ViewportTracker][Phase3]")
+{
+    ViewportTracker vt;
+    int64_t now = 10000;
+    // Focus changed 50ms ago — INSIDE the 100ms debounce — and is newer than the
+    // (old) pointer move. Focus must NOT win until the debounce has elapsed, so the
+    // source stays Pointer. This exercises the debounce-window interior, not just the
+    // boundary.
+    int64_t lastFocus = now - 50;     // within kFocusDebounceMs (100)
+    int64_t lastPointer = now - 5000; // pointer is old
+    int64_t lastKb = 0;               // not typing
+
+    auto src = vt.determineActiveSource(now, lastPointer, lastFocus, lastKb, true, false);
+    REQUIRE(src == TrackingSource::Pointer);
+}
+
+// ─── Visibility-aware focus offset (AC-2.5.05 / AC-2.5.06) ───────────────────
+
+TEST_CASE("Focus follow: already-visible element produces no pan (AC-2.5.05)",
+          "[ViewportTracker][Phase3]")
+{
+    // 2x zoom. Current offset (480,270) makes the visible virtual region
+    // [480,1440) x [270,810). An element well inside it must not move the viewport.
+    float curOffX = 480.0f, curOffY = 270.0f;
+    ScreenRect visible{900, 500, 1000, 560};
+    auto off = ViewportTracker::computeFocusOffset(curOffX, curOffY, visible,
+                                                   2.0f, kScreenW, kScreenH, 0, 0);
+    REQUIRE(off.x == Approx(curOffX));
+    REQUIRE(off.y == Approx(curOffY));
+}
+
+TEST_CASE("Focus follow: clipped element pans just enough, not a full re-center (AC-2.5.06)",
+          "[ViewportTracker][Phase3]")
+{
+    // Same viewport (visible x [480,1440)). An element at x[1500,1560) is clipped off
+    // the right edge: pan right just enough to reveal it (+margin), far less than
+    // centering it.
+    float curOffX = 480.0f, curOffY = 270.0f;
+    ScreenRect clipped{1500, 500, 1560, 560};
+    auto off = ViewportTracker::computeFocusOffset(curOffX, curOffY, clipped,
+                                                   2.0f, kScreenW, kScreenH, 0, 0);
+    auto centered = ViewportTracker::computeElementOffset(clipped, 2.0f, kScreenW, kScreenH, 0, 0);
+
+    REQUIRE(off.x > curOffX);             // panned right
+    REQUIRE(off.x < centered.x);          // but not all the way to centering
+    float viewportW = kScreenW / 2.0f;    // 960 at 2x
+    REQUIRE(off.x + viewportW >= 1560.0f); // right edge now revealed
+    REQUIRE(off.y == Approx(curOffY));     // vertical already visible → unchanged
+}
+
+TEST_CASE("Focus follow: element larger than viewport falls back to centering",
+          "[ViewportTracker][Phase3]")
+{
+    // A 1700px-wide element cannot fit the 960px viewport; behavior matches the
+    // legacy centering offset.
+    ScreenRect huge{100, 100, 1800, 1000};
+    auto off = ViewportTracker::computeFocusOffset(0.0f, 0.0f, huge,
+                                                   2.0f, kScreenW, kScreenH, 0, 0);
+    auto centered = ViewportTracker::computeElementOffset(huge, 2.0f, kScreenW, kScreenH, 0, 0);
+    REQUIRE(off.x == Approx(centered.x));
+    REQUIRE(off.y == Approx(centered.y));
 }
 
 // ─── Edge cases ──────────────────────────────────────────────────────────

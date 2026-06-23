@@ -20,14 +20,23 @@ public:
     void onWinKeyDown();
     void onWinKeyUp();
     void markUsedForZoom();
+    // AC-2.1.18: the Win key was pressed in a non-SmoothZoom chord (e.g. Win+E/D/L).
+    // In that case onWinKeyUp() must NOT inject the Start-Menu-suppression Ctrl, or a
+    // stray Ctrl leaks into the launched app and the shell shortcut is disrupted.
+    void markUsedWithOtherKey();
 
-    void reset() { state_ = State::Idle; }
+    void reset() { state_ = State::Idle; usedWithOtherKey_ = false; }
 
     State state() const { return state_; }
-    bool shouldSuppressStartMenu() const { return state_ == State::HeldUsed; }
+    // Suppress only when Win was used for zoom AND not also used in another chord.
+    bool shouldSuppressStartMenu() const
+    {
+        return state_ == State::HeldUsed && !usedWithOtherKey_;
+    }
 
 private:
     State state_ = State::Idle;
+    bool usedWithOtherKey_ = false;
 };
 
 } // namespace SmoothZoom

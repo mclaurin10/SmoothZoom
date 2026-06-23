@@ -30,6 +30,15 @@ public:
                                         float zoom, int32_t screenW, int32_t screenH,
                                         int32_t originX = 0, int32_t originY = 0);
 
+    // Visibility-aware focus offset (AC-2.5.05 / AC-2.5.06): given the CURRENT
+    // viewport offset, returns it unchanged when the element is already fully
+    // visible (no pan), pans just far enough (+margin) when partially clipped, and
+    // only falls back to centering when the element is larger than the viewport.
+    static Offset computeFocusOffset(float currentOffsetX, float currentOffsetY,
+                                     const ScreenRect& elementRect,
+                                     float zoom, int32_t screenW, int32_t screenH,
+                                     int32_t originX = 0, int32_t originY = 0);
+
     // Determine active tracking source based on timestamps and priorities (Doc 3 §3.4)
     // Priority: Caret (if typing within caretIdleMs) > Focus (if recent, debounced) > Pointer
     TrackingSource determineActiveSource(int64_t now,
@@ -51,6 +60,10 @@ public:
 
     // Lookahead margin: fraction of viewport width ahead of caret (AC-2.6.06)
     static constexpr float kCaretLookaheadFraction = 0.15f; // ~15% of viewport width
+
+    // Reveal margin when panning a clipped focus element into view (AC-2.5.06).
+    // Virtual (pre-zoom) pixels kept between the element edge and the screen edge.
+    static constexpr float kFocusRevealMarginPx = 40.0f;
 };
 
 } // namespace SmoothZoom

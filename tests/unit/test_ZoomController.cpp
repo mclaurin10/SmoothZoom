@@ -63,18 +63,22 @@ TEST_CASE("Zoom clamps to maximum 10.0x", "[ZoomController]")
     REQUIRE(zc.currentZoom() <= 10.0f);
 }
 
-TEST_CASE("Zoom snaps to 1.0x within epsilon (R-17)", "[ZoomController]")
+TEST_CASE("Zoom snaps to exactly 1.0x within epsilon (R-17)", "[ZoomController]")
 {
+    // A sub-notch delta from 1.0× lands within the 0.005 snap epsilon
+    // (one 120-unit notch = 1.1×, so delta 1 → ~1.0008×). The result must snap to
+    // EXACTLY 1.0 — asserted unconditionally so a broken snap fails the test rather
+    // than silently skipping the assertion.
     ZoomController zc;
+    zc.applyScrollDelta(1);
+    REQUIRE(zc.currentZoom() == Approx(1.0f));
+    REQUIRE(zc.currentZoom() == 1.0f);   // exact snap, not merely approximate
 
-    // Zoom in slightly
-    zc.applyScrollDelta(5); // Small delta — might land near 1.0
-    // If the result is within 0.005 of 1.0, it should snap to exactly 1.0
-    float zoom = zc.currentZoom();
-    if (zoom < 1.005f && zoom > 0.995f)
-    {
-        REQUIRE(zoom == Approx(1.0f));
-    }
+    // A value clearly outside the epsilon band must NOT snap to 1.0.
+    ZoomController zc2;
+    zc2.applyScrollDelta(120);           // one full notch → 1.1×
+    REQUIRE(zc2.currentZoom() == Approx(1.1f));
+    REQUIRE(zc2.currentZoom() != Approx(1.0f));
 }
 
 TEST_CASE("Zero scroll delta is a no-op", "[ZoomController]")

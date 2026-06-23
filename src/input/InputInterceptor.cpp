@@ -307,6 +307,21 @@ static LRESULT CALLBACK keyboardHookProc(int nCode, WPARAM wParam, LPARAM lParam
                 steadyNowMs(), std::memory_order_relaxed);
         }
 
+        // AC-2.1.18: a non-SmoothZoom key pressed while Win is held (e.g. Win+E/D/L/R,
+        // a Windows shell shortcut) must NOT trigger Start-Menu suppression on Win
+        // release — the injected Ctrl would leak into the launched app and the shell
+        // shortcut should run normally. SmoothZoom's own Win-chord keys (zoom +/-,
+        // Esc reset, Ctrl+M settings) still suppress, so they are excluded here.
+        if (s_winKeyMgr.state() != WinKeyManager::State::Idle
+            && info->vkCode != VK_LWIN && info->vkCode != VK_RWIN
+            && !isModifierVK(static_cast<int>(info->vkCode))
+            && info->vkCode != VK_OEM_PLUS && info->vkCode != VK_ADD
+            && info->vkCode != VK_OEM_MINUS && info->vkCode != VK_SUBTRACT
+            && info->vkCode != VK_ESCAPE && info->vkCode != 'M')
+        {
+            s_winKeyMgr.markUsedWithOtherKey();
+        }
+
         // Modifier+key shortcuts (Phase 2: AC-2.8.01–AC-2.8.10, Phase 5B: AC-2.1.19)
         // Uses configurable modifier — not hardcoded to Win key.
         bool modHeld = isConfiguredModifierHeld();

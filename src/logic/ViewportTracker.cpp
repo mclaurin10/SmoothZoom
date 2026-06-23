@@ -94,6 +94,80 @@ ViewportTracker::Offset ViewportTracker::computeElementOffset(
     return {xOff, yOff};
 }
 
+// Visibility-aware focus offset (AC-2.5.05 / AC-2.5.06):
+// Unlike computeElementOffset (which always centers), this keeps the viewport
+// still when the focused element is already fully visible, and otherwise pans
+// only far enough to reveal it (plus a small margin). Falls back to centering
+// when the element cannot fit in the viewport.
+ViewportTracker::Offset ViewportTracker::computeFocusOffset(
+    float currentOffsetX, float currentOffsetY,
+    const ScreenRect& elementRect,
+    float zoom, int32_t screenW, int32_t screenH,
+    int32_t originX, int32_t originY)
+{
+    if (zoom <= 1.0f)
+        return {0.0f, 0.0f};
+
+    const float invZoom = 1.0f / zoom;
+
+    // Valid global-offset range that keeps this monitor's physical area within its
+    // virtual region (identical derivation to computeElementOffset's clamp).
+    const float minOffX = static_cast<float>(originX) * (1.0f - invZoom);
+    const float minOffY = static_cast<float>(originY) * (1.0f - invZoom);
+    const float maxOffX = static_cast<float>(originX + screenW) * (1.0f - invZoom);
+    const float maxOffY = static_cast<float>(originY + screenH) * (1.0f - invZoom);
+
+    // Minimal 1-D pan. The visible virtual span on this monitor is
+    // [curOff + origin/zoom, curOff + (origin+extent)/zoom). If [lo,hi] is already
+    // inside it, keep curOff (no pan — AC-2.5.05). If clipped, slide just enough to
+    // reveal the clipped edge + margin (AC-2.5.06). If the element is larger than
+    // the viewport, center it (legacy computeElementOffset behavior).
+    auto solve = [invZoom](float curOff, float lo, float hi,
+                           float origin, float extent,
+                           float minOff, float maxOff) -> float
+    {
+        const float viewportSpan = extent * invZoom;       // visible virtual extent
+        const float elementSpan  = hi - lo;
+
+        if (elementSpan >= viewportSpan)                   // cannot fit — center it
+        {
+            const float monCenter = origin + extent * 0.5f;
+            const float center = (lo + hi) * 0.5f;
+            return std::clamp(center - monCenter * invZoom, minOff, maxOff);
+        }
+
+        const float visibleLo = curOff + origin * invZoom;
+        const float visibleHi = curOff + (origin + extent) * invZoom;
+
+        if (lo >= visibleLo && hi <= visibleHi)            // already visible — no pan
+            return std::clamp(curOff, minOff, maxOff);
+
+        const float margin = std::min(kFocusRevealMarginPx,
+                                      (viewportSpan - elementSpan) * 0.5f);
+
+        float newOff = curOff;
+        if (lo < visibleLo)                                // clipped on the low edge
+            newOff = lo - margin - origin * invZoom;
+        else                                               // clipped on the high edge
+            newOff = hi + margin - (origin + extent) * invZoom;
+
+        return std::clamp(newOff, minOff, maxOff);
+    };
+
+    const float xOff = solve(currentOffsetX,
+                             static_cast<float>(elementRect.left),
+                             static_cast<float>(elementRect.right),
+                             static_cast<float>(originX),
+                             static_cast<float>(screenW), minOffX, maxOffX);
+    const float yOff = solve(currentOffsetY,
+                             static_cast<float>(elementRect.top),
+                             static_cast<float>(elementRect.bottom),
+                             static_cast<float>(originY),
+                             static_cast<float>(screenH), minOffY, maxOffY);
+
+    return {xOff, yOff};
+}
+
 // Caret offset with lookahead margin (AC-2.6.06):
 // Shifts the target ~15% of viewport width ahead of the caret so the user
 // can see upcoming text. Assumes LTR typing direction (positive X shift).

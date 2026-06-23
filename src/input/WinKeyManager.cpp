@@ -19,12 +19,15 @@ namespace SmoothZoom
 void WinKeyManager::onWinKeyDown()
 {
     if (state_ == State::Idle)
+    {
         state_ = State::HeldClean;
+        usedWithOtherKey_ = false;  // fresh chord
+    }
 }
 
 void WinKeyManager::onWinKeyUp()
 {
-    if (state_ == State::HeldUsed)
+    if (shouldSuppressStartMenu())
     {
         // Suppress Start Menu by injecting Ctrl press+release (AC-2.1.16).
         // Windows tracks whether Win was used in a chord; a Ctrl keystroke
@@ -46,12 +49,22 @@ void WinKeyManager::onWinKeyUp()
     }
 
     state_ = State::Idle;
+    usedWithOtherKey_ = false;
 }
 
 void WinKeyManager::markUsedForZoom()
 {
     if (state_ == State::HeldClean)
         state_ = State::HeldUsed;
+}
+
+void WinKeyManager::markUsedWithOtherKey()
+{
+    // Only meaningful while Win is held. Flags the chord as a non-SmoothZoom
+    // shortcut (e.g. Win+E/D/L/R) so onWinKeyUp() skips Start-Menu suppression
+    // and no stray Ctrl is injected into the launched app (AC-2.1.18).
+    if (state_ != State::Idle)
+        usedWithOtherKey_ = true;
 }
 
 } // namespace SmoothZoom

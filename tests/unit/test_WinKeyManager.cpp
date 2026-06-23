@@ -85,3 +85,41 @@ TEST_CASE("Full cycle: down, used, up, down (fresh start)", "[WinKeyManager]")
     REQUIRE(wkm.state() == WinKeyManager::State::HeldClean);
     REQUIRE_FALSE(wkm.shouldSuppressStartMenu());
 }
+
+TEST_CASE("Win used for zoom then another key does NOT suppress (AC-2.1.18)", "[WinKeyManager]")
+{
+    // Win+scroll (zoom) followed by Win+E (shell shortcut): the Start Menu must
+    // NOT be suppressed, or a stray Ctrl is injected into the launched app.
+    WinKeyManager wkm;
+    wkm.onWinKeyDown();
+    wkm.markUsedForZoom();
+    REQUIRE(wkm.shouldSuppressStartMenu());   // zoom-only so far → would suppress
+    wkm.markUsedWithOtherKey();               // ...then Win+E
+    REQUIRE_FALSE(wkm.shouldSuppressStartMenu());
+    wkm.onWinKeyUp();
+    REQUIRE(wkm.state() == WinKeyManager::State::Idle);
+}
+
+TEST_CASE("markUsedWithOtherKey is a no-op in Idle state", "[WinKeyManager]")
+{
+    WinKeyManager wkm;
+    wkm.markUsedWithOtherKey();
+    REQUIRE(wkm.state() == WinKeyManager::State::Idle);
+    REQUIRE_FALSE(wkm.shouldSuppressStartMenu());
+}
+
+TEST_CASE("Other-key flag clears on the next fresh Win press (AC-2.1.18)", "[WinKeyManager]")
+{
+    WinKeyManager wkm;
+    // First chord: zoom + other key → not suppressed.
+    wkm.onWinKeyDown();
+    wkm.markUsedForZoom();
+    wkm.markUsedWithOtherKey();
+    REQUIRE_FALSE(wkm.shouldSuppressStartMenu());
+    wkm.onWinKeyUp();
+
+    // Fresh press: zoom only → must suppress again (stale flag cleared).
+    wkm.onWinKeyDown();
+    wkm.markUsedForZoom();
+    REQUIRE(wkm.shouldSuppressStartMenu());
+}

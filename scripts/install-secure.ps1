@@ -28,16 +28,19 @@ if (-not (Test-Path $InstallDir)) {
     Write-Host "Created $InstallDir"
 }
 
-# Copy executables. Refuse to install an UNSIGNED binary: an unsigned exe in the
-# secure folder makes MagSetFullscreenTransform silently return FALSE (UIAccess,
-# R-12) with no error at runtime. Sign first with sign-binary.ps1 (or use
-# deploy-machinestore.ps1, which signs + installs in one step).
+# Copy executables. Refuse to install anything but an affirmatively-VALID
+# signature: an exe whose signature is NotSigned, HashMismatch, NotTrusted, or
+# expired in the secure folder makes MagSetFullscreenTransform silently return
+# FALSE (UIAccess, R-12) with no error at runtime. Gating only on 'NotSigned'
+# would let a tampered/untrusted binary through. Sign first with sign-binary.ps1
+# (or use deploy-machinestore.ps1, which signs + installs in one step).
 $files = @("SmoothZoom.exe", "Phase0Harness.exe")
 foreach ($file in $files) {
     $src = Join-Path $BuildDir $file
     if (Test-Path $src) {
-        if ((Get-AuthenticodeSignature -FilePath $src).Status -eq 'NotSigned') {
-            Write-Error "$file is NOT signed. Run .\scripts\sign-binary.ps1 -Config $Config (elevated) first, or use deploy-machinestore.ps1."
+        $sig = Get-AuthenticodeSignature -FilePath $src
+        if ($sig.Status -ne 'Valid') {
+            Write-Error "$file has an invalid signature (status '$($sig.Status)'); refusing to install. Run .\scripts\sign-binary.ps1 -Config $Config (elevated) first, or use deploy-machinestore.ps1, and ensure the signing cert is trusted in LocalMachine\Root."
             exit 1
         }
         Copy-Item $src $InstallDir -Force
