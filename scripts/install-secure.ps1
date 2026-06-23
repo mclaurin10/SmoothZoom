@@ -7,7 +7,8 @@
 # =============================================================================
 
 param(
-    [string]$Config = "Debug"
+    [ValidateSet("Debug", "Release")]
+    [string]$Config = "Release"
 )
 
 $InstallDir = "C:\Program Files\SmoothZoom"
@@ -27,11 +28,18 @@ if (-not (Test-Path $InstallDir)) {
     Write-Host "Created $InstallDir"
 }
 
-# Copy executables
+# Copy executables. Refuse to install an UNSIGNED binary: an unsigned exe in the
+# secure folder makes MagSetFullscreenTransform silently return FALSE (UIAccess,
+# R-12) with no error at runtime. Sign first with sign-binary.ps1 (or use
+# deploy-machinestore.ps1, which signs + installs in one step).
 $files = @("SmoothZoom.exe", "Phase0Harness.exe")
 foreach ($file in $files) {
     $src = Join-Path $BuildDir $file
     if (Test-Path $src) {
+        if ((Get-AuthenticodeSignature -FilePath $src).Status -eq 'NotSigned') {
+            Write-Error "$file is NOT signed. Run .\scripts\sign-binary.ps1 -Config $Config (elevated) first, or use deploy-machinestore.ps1."
+            exit 1
+        }
         Copy-Item $src $InstallDir -Force
         Write-Host "Installed: $InstallDir\$file"
     } else {

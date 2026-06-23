@@ -1,34 +1,43 @@
 # =============================================================================
-# SmoothZoom — Sign Binary (PowerShell, run on Windows)
-# Signs the built executable with the dev certificate.
-# Usage: .\scripts\sign-binary.ps1 [Debug|Release]
+# SmoothZoom — Sign Binary (machine-store, requires elevation)
+# -----------------------------------------------------------------------------
+# Signs the built executables with the LocalMachine "SmoothZoom Dev" cert via
+# signtool /sm. See _signing-common.ps1 for why the machine store is required on
+# this hardware (CurrentUser signing yields an unsigned binary -> UIAccess fails
+# silently, R-12). Run scripts\dev_sign_setup.ps1 once first to create the cert;
+# for build+sign+install in one step use deploy.ps1 / deploy-machinestore.ps1.
+#
+# Usage (elevated):  .\scripts\sign-binary.ps1 [-Config Release|Debug]
 # =============================================================================
 
 param(
-    [string]$Config = "Debug"
+    [ValidateSet("Debug", "Release")]
+    [string]$Config = "Release"
 )
 
-$CertName = "SmoothZoom Dev"
+$ErrorActionPreference = "Stop"
+. "$PSScriptRoot\_signing-common.ps1"
+
+Assert-Elevated
+
 $BuildDir = Join-Path $PSScriptRoot "..\build\$Config"
+$signtool = Get-SmoothZoomSignTool
+$cert     = Get-SmoothZoomSigningCert
+$thumb    = $cert.Thumbprint
+Write-Host "Signing from LocalMachine cert $thumb (signtool: $signtool)"
 
-# Find executables to sign
-$exes = @(
-    Join-Path $BuildDir "SmoothZoom.exe"
-    Join-Path $BuildDir "Phase0Harness.exe"
-)
-
-foreach ($exe in $exes) {
-    if (Test-Path $exe) {
-        Write-Host "Signing $exe ..."
-        & signtool sign /n $CertName /fd SHA256 /td SHA256 $exe
-        if ($LASTEXITCODE -ne 0) {
-            Write-Error "Failed to sign $exe. Have you run dev_sign_setup.ps1?"
-            exit 1
-        }
-        Write-Host "  Signed OK"
+$exes = @("SmoothZoom.exe", "Phase0Harness.exe", "smoothzoom_tests.exe")
+$signed = 0
+foreach ($name in $exes) {
+    $path = Join-Path $BuildDir $name
+    if (Test-Path $path) {
+        Invoke-SmoothZoomSign -SignTool $signtool -Thumbprint $thumb -Path $path
+        Write-Host "  Signed $name"
+        $signed++
     } else {
-        Write-Host "  Skipping $exe (not found)"
+        Write-Host "  Skipping $name (not found)"
     }
 }
+if ($signed -eq 0) { Write-Error "No executables found in $BuildDir."; exit 1 }
 
-Write-Host "`nAll binaries signed. Ready for secure-folder deployment."
+Write-Host "`nSigned $signed binaries. Deploy with install-secure.ps1 (verifies the signature)."

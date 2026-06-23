@@ -405,7 +405,14 @@ The threshold scales with display resolution: `threshold = basePx * (screenH / 1
 
 ```cpp
 IUIAutomation* pAutomation;
-CoCreateInstance(CLSID_CUIAutomation, ..., &pAutomation);
+// Use the CUIAutomation8 coclass, NOT CLSID_CUIAutomation: only CUIAutomation8
+// vends the newer IUIAutomation2..7 interfaces. QI for IUIAutomation6 against a
+// CLSID_CUIAutomation object returns E_NOINTERFACE even on OSes that support it
+// (observed on Win11 26200), silently disabling the R-11 query timeout.
+CoCreateInstance(CLSID_CUIAutomation8, ..., IID_IUIAutomation, &pAutomation);
+// R-11: bound cross-process property queries at the COM layer (100 ms).
+pAutomation->QueryInterface(IID_IUIAutomation6, &p6);  // reachable via CUIAutomation8
+p6->put_ConnectionTimeout(100);
 pAutomation->AddFocusChangedEventHandler(NULL, pFocusHandler);
 ```
 

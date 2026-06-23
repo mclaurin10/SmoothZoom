@@ -13,8 +13,17 @@ if not exist %BUILD_DIR% mkdir %BUILD_DIR%
 cd %BUILD_DIR%
 
 cmake -G "Visual Studio 17 2022" -A x64 ..
+if errorlevel 1 (
+    echo CMake configure FAILED.
+    exit /b 1
+)
 cmake --build . --config %CONFIG% --parallel
+if errorlevel 1 (
+    echo CMake build FAILED.
+    exit /b 1
+)
 
 echo.
 echo Build complete: %BUILD_DIR%\%CONFIG%\
-echo Remember to sign before running: signtool sign /n "SmoothZoom Dev" /fd SHA256 %CONFIG%\SmoothZoom.exe
+echo Sign + install ^(elevated^): scripts\deploy-machinestore.ps1 -Config %CONFIG%
+echo   ^(or: scripts\sign-binary.ps1 then scripts\install-secure.ps1^)

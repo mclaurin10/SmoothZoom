@@ -307,6 +307,8 @@ These risks concern the Windows UI Automation (UIA) framework used for focus fol
 **Contingency:** If a critical application consistently produces UIA callbacks exceeding the timeout: investigate caching the last-known bounding rectangle for that application's elements and using it as an estimate until a fresh query completes.
 
 > **Implementation note:** Implemented. FocusMonitor sets `IUIAutomation6::put_ConnectionTimeout(100)` so cross-process UIA property queries are bounded at the COM-infrastructure level (replacing an earlier `std::async`/`wait_for` pattern whose future destructor could still block). The UIA thread is isolated, so a slow provider only delays focus updates — it cannot drop frames or stall input. Slow (>50 ms) queries are logged.
+>
+> **Coclass requirement (fixed 2026-06-23):** `IUIAutomation6` must be obtained from the **`CUIAutomation8`** coclass (`CLSID_CUIAutomation8`), not the legacy `CUIAutomation` coclass. The original code created `CUIAutomation`, whose `QueryInterface(IUIAutomation6)` returns `E_NOINTERFACE` even on OSes that fully support the interface — observed on **Windows 11 build 26200**, where the shipped Info-level startup log read `IUIAutomation6 unavailable` and the timeout was **silently inactive**, leaving cross-process bounding-rect queries unbounded. FocusMonitor now creates `CUIAutomation8` (a superset available since Windows 8) and re-QIs for `IUIAutomation6`, keeping a graceful fallback to `CUIAutomation` for pre-Win8 systems. Confirmed active by the startup log line `UIA connection timeout set to 100ms`.
 
 ---
 

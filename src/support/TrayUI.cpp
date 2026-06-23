@@ -746,8 +746,13 @@ void TrayUI::validateAndApply()
     scrollSens = (std::max)(0.1f, (std::min)(5.0f, scrollSens));
     setEditFloat(GetDlgItem(settingsHwnd_, IDC_SCROLL_SENS_EDIT), scrollSens);
 
-    // Build snapshot
-    SettingsSnapshot snap;
+    // Build snapshot from the CURRENT one so fields that have no control in
+    // this window (e.g. logLevel — the on-device debug knob; see
+    // SettingsManager.h) are preserved instead of being reset to their defaults
+    // and persisted on every Apply. Mirrors the color-inversion persist path in
+    // main.cpp, which copies the live snapshot before mutating a single field.
+    auto current = settings_->snapshot();
+    SettingsSnapshot snap = current ? *current : SettingsSnapshot{};
     snap.modifierKeyVK = modVK;
     snap.toggleKey1VK = tog1VK;
     snap.toggleKey2VK = tog2VK;
