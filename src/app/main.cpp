@@ -587,11 +587,10 @@ static void handlePtpHidReport(const BYTE* reportData, DWORD reportSize)
     {
         USHORT lc = s_ptpDevice.slots[slot].linkCollection;
 
-        // Contact ID
+        // Contact ID (best-effort; diagnostics only — tracking is keyed by slot)
         ULONG contactId = 0;
-        if (HidP_GetUsageValue(HidP_Input, 0x0D, lc, 0x51, &contactId, ppd,
-                               report, reportSize) != HIDP_STATUS_SUCCESS)
-            continue;
+        HidP_GetUsageValue(HidP_Input, 0x0D, lc, 0x51, &contactId, ppd,
+                           report, reportSize);
 
         // Tip Switch (button usage 0x42 on digitizer page)
         USAGE usages[8] = {};
@@ -610,22 +609,27 @@ static void handlePtpHidReport(const BYTE* reportData, DWORD reportSize)
         ULONG y = 0;
         HidP_GetUsageValue(HidP_Input, 0x01, lc, 0x31, &y, ppd, report, reportSize);
 
-        // Update per-contact tracking state (clamped to valid ID range)
-        if (contactId < 5)
+        SZ_LOG_DEBUG("PTP", L"  slot=%d lc=%u contactId=%lu tip=%d y=%lu",
+                     slot, lc, contactId, tipSwitch ? 1 : 0, y);
+
+        // Track state per *slot*, not per contactId. Inactive PTP slots commonly
+        // report contactId=0, so indexing by contactId let an empty slot overwrite
+        // the real finger holding id 0 — capping scrollFingers at 1 and breaking
+        // two-finger scroll (observed on Synaptics/Elan laptop trackpads). A slot's
+        // link collection is stable for a contact's lifetime, so slot indexing
+        // tracks the same finger across reports.
+        auto& cs = s_ptpContacts[slot];
+        if (tipSwitch)
         {
-            auto& cs = s_ptpContacts[contactId];
-            if (tipSwitch)
-            {
-                cs.prevY = cs.y;
-                cs.hasPrev = cs.active; // Valid prev only if was already active
-                cs.y = static_cast<LONG>(y);
-                cs.active = true;
-            }
-            else
-            {
-                cs.active = false;
-                cs.hasPrev = false;
-            }
+            cs.prevY = cs.y;
+            cs.hasPrev = cs.active; // Valid prev only if was already active
+            cs.y = static_cast<LONG>(y);
+            cs.active = true;
+        }
+        else
+        {
+            cs.active = false;
+            cs.hasPrev = false;
         }
     }
 
@@ -1071,15 +1075,23 @@ static HWND createMessageWindow(HINSTANCE hInstance)
     wc.hIconSm = LoadIconW(hInstance, MAKEINTRESOURCE(IDI_APP_ICON));
     wc.lpszClassName = L"SmoothZoomMsgWindow";
 
-    RegisterClassExW(&wc);
+    if (RegisterClassExW(&wc) == 0)
+    {
+        DWORD err = GetLastError();
+        if (err != ERROR_CLASS_ALREADY_EXISTS)
+            SZ_LOG_ERROR("Main", L"RegisterClassExW(SmoothZoomMsgWindow) failed (GetLastError=%lu)", err);
+    }
 
     // Hidden top-level window (not HWND_MESSAGE) so it receives broadcast
     // messages like WM_DISPLAYCHANGE and WM_ENDSESSION. (AC-ERR.05)
-    return CreateWindowExW(
+    HWND hwnd = CreateWindowExW(
         0, L"SmoothZoomMsgWindow", nullptr,
         0, 0, 0, 0, 0,
         nullptr,
         nullptr, hInstance, nullptr);
+    if (!hwnd)
+        SZ_LOG_ERROR("Main", L"CreateWindowExW(SmoothZoomMsgWindow) failed (GetLastError=%lu)", GetLastError());
+    return hwnd;
 }
 
 int WINAPI wWinMain(
@@ -1095,8 +1107,21 @@ int WINAPI wWinMain(
     // logger flushes to disk synchronously per line on this thread — which also
     // services the low-level hooks. Running at Debug during a sustained touchpad
     // scroll would add input latency and risk hook-timeout deregistration (R-05).
-    // Raise to Debug only when actively diagnosing.
-    SmoothZoom::setLogLevel(SmoothZoom::LogLevel::Info);
+    // Raise to Debug only when actively diagnosing — set the SMOOTHZOOM_LOGLEVEL
+    // env var to DEBUG / INFO / WARN / ERROR to override (default Info).
+    {
+        SmoothZoom::LogLevel lvl = SmoothZoom::LogLevel::Info;
+        wchar_t envBuf[16];
+        DWORD n = GetEnvironmentVariableW(L"SMOOTHZOOM_LOGLEVEL", envBuf, 16);
+        if (n > 0 && n < 16)
+        {
+            if (lstrcmpiW(envBuf, L"DEBUG") == 0)      lvl = SmoothZoom::LogLevel::Debug;
+            else if (lstrcmpiW(envBuf, L"WARN") == 0)  lvl = SmoothZoom::LogLevel::Warn;
+            else if (lstrcmpiW(envBuf, L"ERROR") == 0) lvl = SmoothZoom::LogLevel::Error;
+            // any other value (incl. "INFO") keeps the Info default
+        }
+        SmoothZoom::setLogLevel(lvl);
+    }
 
     // ── 0-pre. Single-instance guard ─────────────────────────────────────────
     // Must run before the sentinel logic: without it, a second launch misreads
@@ -1315,6 +1340,11 @@ int WINAPI wWinMain(
         }
         else
             SZ_LOG_INFO("Main", L"RegisterRawInputDevices (mouse+touchpad) succeeded");
+    }
+    else
+    {
+        SZ_LOG_ERROR("Main", L"Message window is NULL — raw input (touchpad/mouse), watchdog, "
+                             L"Win+Ctrl+M, and display-change handling are DISABLED");
     }
 
     // Phase 5C: Register TaskbarCreated for Explorer restart detection

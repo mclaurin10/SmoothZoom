@@ -39,7 +39,7 @@ TEST_CASE("ptpUnitsPerNotch falls back when derived units < 1", "[ScrollNormaliz
 {
     // A tiny logical range would yield sub-1 units/notch (absurdly sensitive);
     // fall back to keep behaviour sane.
-    PtpAxisScale tiny{10}; // 10 * 0.02 = 0.2 < 1
+    PtpAxisScale tiny{10}; // 10 * 0.08 = 0.8 < 1
     REQUIRE(ptpUnitsPerNotch(tiny) == Approx(kPtpFallbackUnitsPerNotch));
 }
 

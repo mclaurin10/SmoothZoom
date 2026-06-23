@@ -46,9 +46,12 @@ struct PtpAxisScale
 };
 
 // Fraction of the touchpad's Y extent that equals one notch of zoom intent.
-// ~2% per notch → a full 1x..10x sweep (~24 notches) takes roughly half the pad.
-// Tunable; users further adjust feel via the scroll-sensitivity setting (A3).
-inline constexpr float kPtpSurfaceFractionPerNotch = 0.02f;
+// ~8% per notch → a full-pad two-finger swipe is ~12 notches (~3x zoom), and the
+// full 1x..10x sweep (~24 notches) takes about two full-pad swipes. The original
+// 2% was far too sensitive on real Synaptics/Elan trackpads — a half-pad flick
+// slammed straight to max zoom and back (erratic). Tunable; users further adjust
+// feel via the scroll-sensitivity setting (A3).
+inline constexpr float kPtpSurfaceFractionPerNotch = 0.08f;
 
 // Fallback device-units-per-notch when the descriptor lacks a usable Y range
 // (preserves the historical pre-normalization constant).
