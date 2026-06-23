@@ -75,7 +75,14 @@ $cmake = "C:\Program Files\Microsoft Visual Studio\18\Community\Common7\IDE\Comm
 
 ## 7. Remaining work (priority order) — see tasks #5–#8
 
-- **#5 A3-UI** — add a scroll-sensitivity slider + momentum checkbox to the settings window (`src/support/TrayUI.cpp`). Today `scrollSensitivity`/`momentumZoom` are editable only by hand-editing `config.json`. This is the smallest, highest-value next step to make A3 user-facing.
+- **#5 A3-UI** — ⚠️ **mostly DONE as of 2026-06-23** (this item was stale). The settings window
+  (`src/support/TrayUI.cpp`) already has a working **Scroll Sensitivity (0.1–5.0)** edit field
+  (`IDC_SCROLL_SENS_EDIT`, loaded/applied) and a **Momentum** checkbox (`IDC_MOMENTUM_CHECK`) —
+  the latter **deliberately disabled** ("not yet active") because B3 gating is deferred and needs
+  real-hardware tuning. So `scrollSensitivity` is already user-facing (no JSON editing required);
+  the R-08 sensitivity contingency is satisfied. What actually remains: (a) optional cosmetic
+  upgrade of the edit field to a trackbar slider, and (b) the per-device-normalization vs
+  single-`kPtpSurfaceFractionPerNotch`-constant decision. Both are lower-value than this item implied.
 - **#6 A2-consolidate** — move the Raw Input/PTP handlers out of `src/app/main.cpp` into the Input layer (e.g. a `ScrollIngest` component or `InputInterceptor`) so all three paths share one funnel, dedup, and modifier check; route mouse paths through `ScrollNormalizer::mouseWheelToWheelEquiv`. Behavior-preserving refactor; respect hot-path invariants.
 - **#7 P1 robustness (B1/B2/B3):**
   - B1 — per-device dedup via `RAWINPUTHEADER.hDevice`, replacing the coarse 50 ms global `lastLLHookScrollTime` window (can drop high-frequency events).

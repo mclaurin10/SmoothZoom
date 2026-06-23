@@ -46,6 +46,17 @@ struct SettingsSnapshot
     float   scrollSensitivity   = 1.0f;  // multiplier on scroll-gesture zoom rate
     bool    momentumZoom        = true;  // allow inertial/momentum scroll to drive zoom
 
+    // Diagnostics: file/debug log verbosity. 0=Debug 1=Info 2=Warn 3=Error —
+    // mirrors LogLevel in Logger.h (cast directly). config.json stores the
+    // human-friendly string form ("debug"/"info"/"warn"/"error"); an integer
+    // 0–3 is also accepted. Default Info: the per-event PTP / Raw-Input paths log
+    // at Debug and the logger flushes synchronously per line on the hook-servicing
+    // thread, so Debug adds input latency and risks hook deregistration (R-05) —
+    // raise it only for a diagnosis session. This is the reliable on-device knob:
+    // the brokered UIAccess launch does not inherit SMOOTHZOOM_LOGLEVEL from the
+    // environment (see docs/hardware-accommodation-handoff.md §6).
+    int     logLevel            = 1;     // LogLevel::Info
+
     // Phase 4 toggle combo (hardcoded until Phase 5B wires to InputInterceptor)
     int     toggleKey1VK        = 0xA2;  // VK_LCONTROL
     int     toggleKey2VK        = 0xA4;  // VK_LMENU (Alt)

@@ -12,6 +12,7 @@
 #include <json.hpp>
 
 #include <algorithm>
+#include <cctype>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
@@ -138,6 +139,32 @@ bool SettingsManager::loadFromFile(const char* path)
     readBool("reverseScrollDirection", settings.reverseScrollDirection);
     readBool("momentumZoom", settings.momentumZoom);
 
+    // ── Log level (diagnostics) ──
+    // Stored as a human-friendly string ("debug"/"info"/"warn"/"error",
+    // case-insensitive); an integer 0–3 is also accepted. Absent or invalid
+    // keeps the Info default. Mirrors LogLevel (0=Debug 1=Info 2=Warn 3=Error).
+    if (j.contains("logLevel"))
+    {
+        const auto& lv = j["logLevel"];
+        if (lv.is_string())
+        {
+            std::string s = lv.get<std::string>();
+            for (auto& c : s)
+                c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+            if      (s == "debug") settings.logLevel = 0;
+            else if (s == "info")  settings.logLevel = 1;
+            else if (s == "warn")  settings.logLevel = 2;
+            else if (s == "error") settings.logLevel = 3;
+            // else: unrecognized → keep default (Info)
+        }
+        else if (lv.is_number_integer())
+        {
+            int v = lv.get<int>();
+            if (v >= 0 && v <= 3)
+                settings.logLevel = v;
+        }
+    }
+
     // Freeze as const and atomic swap + version bump
     auto snap = std::make_shared<const SettingsSnapshot>(settings);
     std::atomic_store(&current_, snap);
@@ -175,6 +202,10 @@ bool SettingsManager::saveToFile(const char* path) const
     j["reverseScrollDirection"] = snap->reverseScrollDirection;
     j["scrollSensitivity"]     = snap->scrollSensitivity;
     j["momentumZoom"]          = snap->momentumZoom;
+    // logLevel written as a human-readable string (mirrors the load mapping).
+    j["logLevel"]              = (snap->logLevel == 0) ? "debug" :
+                                 (snap->logLevel == 2) ? "warn"  :
+                                 (snap->logLevel == 3) ? "error" : "info";
     j["toggleKey1VK"]          = snap->toggleKey1VK;
     j["toggleKey2VK"]          = snap->toggleKey2VK;
 

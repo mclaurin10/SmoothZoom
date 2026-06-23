@@ -7,6 +7,25 @@
 **Fix commit:** `25f785b` — *"fix: adjust touchpad sensitivity for scroll normalization and update related tests"*
 **Hardware under test:** HP EliteBook 1040 14-inch G11 Notebook PC (BIOS W90 Ver. 01.08.01), **I2C HID Precision Touchpad**.
 
+> **UPDATE (2026-06-23, same day — diagnostics slice landed):** The "biggest next-session
+> improvement" called out in §6.2 and §8 is now **implemented**. Diagnostic logging is no
+> longer compiled out of Release, and the log level is config-driven:
+> - **`SMOOTHZOOM_LOGGING` now defaults ON** (`CMakeLists.txt`) → the shipped Release binary
+>   has logging compiled in. At the default **Info** level there are **no per-event/per-frame
+>   logs** (every PTP/Raw-Input/source-transition trace is `SZ_LOG_DEBUG`), so this is R-05-
+>   and perf-audit-safe. §6.1 below ("header-only log in Release") is therefore **obsolete**.
+> - **`config.json` `"logLevel"`** (`"debug"`/`"info"`/`"warn"`/`"error"`, default `"info"`)
+>   sets verbosity and **reaches the brokered UIAccess launch** (the env var still doesn't —
+>   it now only overrides config for dev launches). To capture a DEBUG trace: set
+>   `"logLevel": "debug"` in `%APPDATA%\SmoothZoom\config.json`, relaunch, reproduce, then set
+>   it back. **No rebuild and no hard-coded `setLogLevel` needed** (§6.2 / §7 are superseded).
+> - A **one-shot per-device PTP characterization log** (`[SmoothZoom:PTP-Char]`, INFO) emits
+>   the first 8 normalized two-finger-scroll samples (avgDeltaY, logicalRangeY, unitsPerNotch,
+>   wheelEquiv, naturalScroll) so a new touchpad is fingerprinted from the shipped log — the
+>   §8 "PTP characterization mode" ask. The descriptor itself is already logged at INFO in
+>   `initPtpDevice`. **NOTE:** the existing `build/` cache was reconfigured to logging-ON, so
+>   the normal build→deploy flow already produces a logging-enabled binary.
+
 ---
 
 ## 1. Next-session goal (one line)
@@ -138,14 +157,14 @@ slot-indexed approach is the robust pattern; validate it holds on Synaptics/Elan
 
 These are machine/build realities that will bite again if not known up front:
 
-1. **`SMOOTHZOOM_LOGGING` is OFF in Release.** It's only auto-enabled for the **Debug** config
-   (`CMakeLists.txt`). In Release, `initLogFile` still writes the **session header**
-   (unconditional), but **every `SZ_LOG_*` macro compiles to `((void)0)`**. So
-   `%APPDATA%\SmoothZoom\smoothzoom.log` is **header-only and tells you nothing** in a stock
-   Release build. This masqueraded as "no code is running" for a while. To get logs you must
-   build with `-DSMOOTHZOOM_LOGGING=ON`.
+1. **[SUPERSEDED — see UPDATE banner at top]** ~~**`SMOOTHZOOM_LOGGING` is OFF in Release.**~~
+   This was true at the time of writing. `SMOOTHZOOM_LOGGING` now **defaults ON**, so a stock
+   Release build logs at Info (no longer header-only). Historical detail retained: it used to
+   be auto-enabled only for the **Debug** config; in Release every `SZ_LOG_*` compiled to
+   `((void)0)`, so the log was header-only and this masqueraded as "no code is running."
 
-2. **The env-driven log level does NOT reach the app through a normal launch.** A
+2. **[RESOLVED — config-driven `logLevel` now exists; see UPDATE banner]** The env-driven log
+   level does NOT reach the app through a normal launch. A
    `SMOOTHZOOM_LOGLEVEL` env var (the feature added this session) is read at startup, but:
    - The binary is **UIAccess** and runs from `C:\Program Files\` → its launch is **brokered**
      (like elevation). `Start-Process` (ShellExecute) does **not** pass the caller's in-memory
@@ -206,12 +225,15 @@ Start-Process 'C:\Program Files\SmoothZoom\SmoothZoom.exe'
 process's `TokenUIAccess` flag via P/Invoke (`OpenProcessToken` + `GetTokenInformation`,
 class 26). It returned **1 (TRUE)** this session — signed + secure-location + manifest all OK.
 
-**Getting DEBUG logs** (until log level is config-driven): build with
-`-DSMOOTHZOOM_LOGGING=ON`, **temporarily hard-code** `setLogLevel(LogLevel::Debug)` in
-`WinMain` (env won't reach the brokered launch), install, reproduce, then read
-`%APPDATA%\SmoothZoom\smoothzoom.log`. Expect **huge volume** at DEBUG during scroll — mark
-the line count before the repro and filter (e.g. for `scrollFingers`, `modHeld`, `PTP scroll`,
-`contactCount=[2-9]`). Revert the hard-code before shipping.
+**Getting DEBUG logs** (now config-driven — no rebuild, no hard-coding): logging ships in the
+stock Release build at Info. To capture a full DEBUG trace, set `"logLevel": "debug"` in
+`%APPDATA%\SmoothZoom\config.json`, relaunch, reproduce, then read
+`%APPDATA%\SmoothZoom\smoothzoom.log` and set `"logLevel"` back to `"info"`. Expect **huge
+volume** at DEBUG during scroll — mark the line count before the repro and filter (e.g. for
+`scrollFingers`, `modHeld`, `PTP scroll`, `contactCount=[2-9]`). For a quick device fingerprint
+**without** going to DEBUG, just two-finger-scroll once and read the INFO `[SmoothZoom:PTP-Char]`
+lines (descriptor is logged at INFO in `initPtpDevice`). DEBUG's per-line synchronous flush
+still adds input latency on the hook/`WM_INPUT` thread, so don't evaluate "feel" at DEBUG (§6.3).
 
 ---
 
@@ -238,10 +260,12 @@ What varies across devices and needs attention:
 - **Direction.** Windows "natural scrolling" state is queried at startup and compensated in
   the PTP path. Verify on devices/users with the opposite setting; `reverseScrollDirection`
   is also a config field (was `true` on this machine).
-- **Diagnostics.** The single biggest force-multiplier for hardware work: **config-driven log
-  level** + a lightweight **"PTP characterization" mode** that, on first two-finger scroll,
-  logs the descriptor + a handful of normalized samples. This turns "diagnose blind over
-  several rebuilds" (what happened this session) into "read one file."
+- **Diagnostics. ✅ DONE (2026-06-23).** The single biggest force-multiplier for hardware
+  work — **config-driven log level** + a one-shot **"PTP characterization" mode** — is now
+  shipped (see the UPDATE banner at the top). `config.json "logLevel"` controls verbosity and
+  reaches the brokered launch; the first 8 two-finger-scroll samples log at INFO as
+  `[SmoothZoom:PTP-Char]`. This turned "diagnose blind over several rebuilds" (what happened
+  this session) into "read one file." Remaining hardware-accommodation items below are still open.
 
 Possible larger direction (out of scope this session, flagged in interop handoff §9):
 adopting the **pointer-input stack** (`EnableMouseInPointer` / `WM_POINTER*`) could unify

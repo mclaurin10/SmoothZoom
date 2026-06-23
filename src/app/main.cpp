@@ -119,6 +119,15 @@ static PtpContactState s_ptpContacts[5] = {};
 // Device-unit→wheel-equivalent normalization lives in ScrollNormalizer (A1).
 static float s_ptpWheelRemainder = 0.0f;
 
+// One-shot per-device PTP characterization. Logs the first few normalized
+// two-finger-scroll samples at INFO so a new touchpad can be fingerprinted from
+// the shipped log (Info-level, no Debug build needed) — the descriptor itself is
+// already logged at INFO in initPtpDevice. Bounded sample count keeps this OFF
+// the per-event hot path (R-05). Reset on device (re)init. Turns "diagnose blind
+// over several rebuilds" into "read one file." (R-08; see hardware handoff §8.)
+static int s_ptpCharSamplesLogged = 0;
+static constexpr int kPtpCharSampleCount = 8;
+
 // Windows touchpad "natural scrolling" direction setting.
 // When true, the OS flips WM_MOUSEWHEEL deltas for touchpad gestures before
 // they reach the LL hook — but raw HID reports are unaffected. The PTP path
@@ -557,6 +566,7 @@ static bool initPtpDevice(HANDLE hDevice)
     // Reset tracking state and diagnostics flag (allow logging for future device changes)
     for (auto& c : s_ptpContacts) c = {};
     s_ptpWheelRemainder = 0.0f;
+    s_ptpCharSamplesLogged = 0;  // re-characterize whenever the active device changes
     s_ptpInitDiagLogged = false;
 
     SZ_LOG_INFO("Main", L"PTP device initialized: %d contact slot(s), contactCountLC=%u, logicalRangeY=%d",
@@ -666,6 +676,26 @@ static void handlePtpHidReport(const BYTE* reportData, DWORD reportSize)
                  scrollFingers, totalDeltaY, avgDeltaY);
     if (avgDeltaY == 0)
         return;
+
+    // One-shot device characterization (INFO): capture the first few normalized
+    // samples so a new touchpad's feel can be fingerprinted from the shipped log.
+    // Placed before the dedup/modifier gates so it fires on real two-finger motion
+    // regardless of modifier state; the bounded count keeps it off the per-event
+    // hot path (R-05). avgDeltaY is the device's raw (pre-direction-adjust) output;
+    // wheelEquiv is what ScrollNormalizer derives from it. (R-08, AC-2.1.05)
+    if (s_ptpCharSamplesLogged < kPtpCharSampleCount)
+    {
+        SmoothZoom::PtpAxisScale charScale{ s_ptpDevice.logicalRangeY };
+        SZ_LOG_INFO("PTP-Char",
+            L"sample %d/%d: contacts=%lu fingers=%d avgDeltaY=%ld logicalRangeY=%d "
+            L"unitsPerNotch=%.1f wheelEquiv=%.2f naturalScroll=%d",
+            s_ptpCharSamplesLogged + 1, kPtpCharSampleCount, contactCount, scrollFingers,
+            avgDeltaY, s_ptpDevice.logicalRangeY,
+            SmoothZoom::ptpUnitsPerNotch(charScale),
+            SmoothZoom::ptpDeltaToWheelEquiv(static_cast<float>(avgDeltaY), charScale),
+            s_ptpNaturalScrolling ? 1 : 0);
+        s_ptpCharSamplesLogged++;
+    }
 
     // Dedup with LL hook: skip if hook handled scroll recently
     int64_t lastLL = g_sharedState.lastLLHookScrollTime.load(std::memory_order_relaxed);
@@ -1094,6 +1124,17 @@ static HWND createMessageWindow(HINSTANCE hInstance)
     return hwnd;
 }
 
+// Parse a log-level name (case-insensitive) to LogLevel. Returns false if the
+// string is unrecognized so the caller can fall back to config/default.
+static bool parseLogLevelW(const wchar_t* s, SmoothZoom::LogLevel& out)
+{
+    if (lstrcmpiW(s, L"DEBUG") == 0) { out = SmoothZoom::LogLevel::Debug; return true; }
+    if (lstrcmpiW(s, L"INFO")  == 0) { out = SmoothZoom::LogLevel::Info;  return true; }
+    if (lstrcmpiW(s, L"WARN")  == 0) { out = SmoothZoom::LogLevel::Warn;  return true; }
+    if (lstrcmpiW(s, L"ERROR") == 0) { out = SmoothZoom::LogLevel::Error; return true; }
+    return false;
+}
+
 int WINAPI wWinMain(
     _In_ HINSTANCE hInstance,
     _In_opt_ HINSTANCE /*hPrevInstance*/,
@@ -1103,24 +1144,32 @@ int WINAPI wWinMain(
     // ── 0. Install crash handler (R-14) ──────────────────────────────────────
     SetUnhandledExceptionFilter(crashHandler);
 
-    // Default to Info. The per-event PTP / Raw-Input paths log at Debug, and the
-    // logger flushes to disk synchronously per line on this thread — which also
-    // services the low-level hooks. Running at Debug during a sustained touchpad
-    // scroll would add input latency and risk hook-timeout deregistration (R-05).
-    // Raise to Debug only when actively diagnosing — set the SMOOTHZOOM_LOGLEVEL
-    // env var to DEBUG / INFO / WARN / ERROR to override (default Info).
+    // Log level resolution — two sources, in precedence order:
+    //   1. config.json "logLevel" — the RELIABLE path for the shipped UIAccess
+    //      launch. The brokered launch does not inherit the caller's environment
+    //      (docs/hardware-accommodation-handoff.md §6), so the env var below
+    //      cannot reach it. Applied just after the config load (step 0c).
+    //   2. SMOOTHZOOM_LOGLEVEL env — a dev-only override that WINS over config
+    //      when set, for forcing a level from a debugger/console launch.
+    // Default is Info: the per-event PTP / Raw-Input paths log at Debug and the
+    // logger flushes synchronously per line on this (hook-servicing) thread, so
+    // Debug during a sustained touchpad scroll adds input latency and risks
+    // hook-timeout deregistration (R-05). Raise to Debug only when diagnosing.
+    // The Logger's static default is already Info, so when neither source raises
+    // it, early startup logs still emit at Info without an explicit call here.
+    bool envLogLevelSet = false;
     {
-        SmoothZoom::LogLevel lvl = SmoothZoom::LogLevel::Info;
         wchar_t envBuf[16];
         DWORD n = GetEnvironmentVariableW(L"SMOOTHZOOM_LOGLEVEL", envBuf, 16);
         if (n > 0 && n < 16)
         {
-            if (lstrcmpiW(envBuf, L"DEBUG") == 0)      lvl = SmoothZoom::LogLevel::Debug;
-            else if (lstrcmpiW(envBuf, L"WARN") == 0)  lvl = SmoothZoom::LogLevel::Warn;
-            else if (lstrcmpiW(envBuf, L"ERROR") == 0) lvl = SmoothZoom::LogLevel::Error;
-            // any other value (incl. "INFO") keeps the Info default
+            SmoothZoom::LogLevel lvl;
+            if (parseLogLevelW(envBuf, lvl))
+            {
+                SmoothZoom::setLogLevel(lvl);
+                envLogLevelSet = true;
+            }
         }
-        SmoothZoom::setLogLevel(lvl);
     }
 
     // ── 0-pre. Single-instance guard ─────────────────────────────────────────
@@ -1200,6 +1249,18 @@ int WINAPI wWinMain(
         g_sharedState.colorInversionActive.store(
             snap && snap->colorInversionEnabled, std::memory_order_relaxed);
     }
+
+    // Apply the configured log level now that config.json is loaded (the reliable
+    // path for the brokered UIAccess launch), unless an env override already won.
+    if (!envLogLevelSet)
+    {
+        auto snap = g_settingsManager.snapshot();
+        if (snap)
+            SmoothZoom::setLogLevel(static_cast<SmoothZoom::LogLevel>(snap->logLevel));
+    }
+    SZ_LOG_INFO("Main", L"Log level = %d (0=Debug 1=Info 2=Warn 3=Error), source=%s",
+                static_cast<int>(SmoothZoom::logLevelFilter()),
+                envLogLevelSet ? L"env" : L"config");
 
     // Initialize virtual screen dimensions in shared state (read by render thread)
     g_sharedState.screenWidth.store(GetSystemMetrics(SM_CXVIRTUALSCREEN), std::memory_order_relaxed);

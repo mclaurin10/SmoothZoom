@@ -27,7 +27,14 @@ endif()
 # ---------------------------------------------------------------------------
 option(SMOOTHZOOM_BUILD_TESTS  "Build unit tests"          ON)
 option(SMOOTHZOOM_SIGN_BINARY  "Sign output with dev cert"  OFF)
-option(SMOOTHZOOM_LOGGING      "Enable diagnostic logging via OutputDebugStringW" OFF)
+# ON by default so the shipped Release binary has logging compiled in. The
+# runtime VERBOSITY is config-driven (config.json "logLevel", default Info), which
+# is the only knob that reaches the brokered UIAccess launch — the env var does
+# not (hardware-accommodation-handoff §6). At Info there is NO per-event/per-frame
+# logging (every PTP/Raw-Input/source-transition trace is SZ_LOG_DEBUG), so this
+# is R-05- and perf-audit-safe; Debug verbosity is opt-in via config. Pass
+# -DSMOOTHZOOM_LOGGING=OFF for a fully logging-free build.
+option(SMOOTHZOOM_LOGGING      "Compile in diagnostic logging (file + OutputDebugStringW); level set at runtime" ON)
 # Per-event tracing INSIDE the low-level hook callbacks (scroll/modifier events).
 # Deliberately separate from SMOOTHZOOM_LOGGING and NOT auto-enabled for Debug:
 # these write OutputDebugStringW on every input event on the hook-servicing thread,
@@ -39,18 +46,14 @@ option(SMOOTHZOOM_INPUT_DIAG   "Enable per-event input-hook tracing (R-05 hazard
 # OFF by default; the shipping/certified binary MUST be built WITHOUT this. (Verification-only.)
 option(SMOOTHZOOM_PERF_AUDIT   "Enable frame-timing instrumentation (E6.12; OutputDebugStringW)" OFF)
 
-# Auto-enable logging for Debug builds
-# For multi-config generators (Visual Studio), CMAKE_BUILD_TYPE is empty at
-# configure time, so use a generator expression to add the define for Debug.
-if(CMAKE_BUILD_TYPE STREQUAL "Debug")
-    set(SMOOTHZOOM_LOGGING ON CACHE BOOL "" FORCE)
-endif()
-
-# Propagate logging define to all targets
+# Propagate logging define to all targets (ON by default → all configs incl.
+# Release; see the option comment above).
 if(SMOOTHZOOM_LOGGING)
     add_compile_definitions(SMOOTHZOOM_LOGGING)
 endif()
-# Always add logging for Debug config in multi-config generators (VS)
+# Belt-and-suspenders: always log for the Debug config even if someone explicitly
+# passes -DSMOOTHZOOM_LOGGING=OFF. The generator expression evaluates per-config,
+# so it covers both multi-config (VS) and single-config (Ninja) Debug builds.
 add_compile_definitions($<$<CONFIG:Debug>:SMOOTHZOOM_LOGGING>)
 
 # Input-hook tracing is opt-in only — intentionally NOT tied to Debug or

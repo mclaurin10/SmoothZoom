@@ -12,6 +12,7 @@
 #include <cstdio>
 #include <filesystem>
 #include <fstream>
+#include <sstream>
 #include <string>
 
 using namespace SmoothZoom;
@@ -324,6 +325,79 @@ TEST_CASE("scrollSensitivity out of range → keeps default", "[SettingsManager]
     SettingsManager mgrLo;
     REQUIRE(mgrLo.loadFromFile(pathLo.c_str()));
     REQUIRE(mgrLo.snapshot()->scrollSensitivity == Approx(1.0f));
+}
+
+// =============================================================================
+// Diagnostics setting: logLevel (config-driven log verbosity)
+// 0=Debug 1=Info 2=Warn 3=Error — the reliable on-device knob, since the
+// brokered UIAccess launch cannot see the SMOOTHZOOM_LOGLEVEL env var.
+// =============================================================================
+
+TEST_CASE("logLevel defaults to Info (1)", "[SettingsManager][Diagnostics]")
+{
+    SettingsManager mgr;
+    REQUIRE(mgr.snapshot()->logLevel == 1);
+}
+
+TEST_CASE("logLevel string forms parse (case-insensitive)", "[SettingsManager][Diagnostics]")
+{
+    struct Case { const char* json; int expected; };
+    const Case cases[] = {
+        {R"({"logLevel": "debug"})", 0},
+        {R"({"logLevel": "Info"})",  1},
+        {R"({"logLevel": "WARN"})",  2},
+        {R"({"logLevel": "error"})", 3},
+    };
+    for (const auto& c : cases)
+    {
+        auto path = writeTempFile(c.json, "loglevel_str.json");
+        SettingsManager mgr;
+        REQUIRE(mgr.loadFromFile(path.c_str()));
+        REQUIRE(mgr.snapshot()->logLevel == c.expected);
+    }
+}
+
+TEST_CASE("logLevel invalid string → keeps Info default", "[SettingsManager][Diagnostics]")
+{
+    auto path = writeTempFile(R"({"logLevel": "verbose"})", "loglevel_bad.json");
+    SettingsManager mgr;
+    REQUIRE(mgr.loadFromFile(path.c_str()));
+    REQUIRE(mgr.snapshot()->logLevel == 1);
+}
+
+TEST_CASE("logLevel integer form (0-3) accepted", "[SettingsManager][Diagnostics]")
+{
+    auto path = writeTempFile(R"({"logLevel": 3})", "loglevel_int.json");
+    SettingsManager mgr;
+    REQUIRE(mgr.loadFromFile(path.c_str()));
+    REQUIRE(mgr.snapshot()->logLevel == 3);
+
+    // Out-of-range integer → keeps default
+    auto bad = writeTempFile(R"({"logLevel": 9})", "loglevel_int_bad.json");
+    SettingsManager mgr2;
+    REQUIRE(mgr2.loadFromFile(bad.c_str()));
+    REQUIRE(mgr2.snapshot()->logLevel == 1);
+}
+
+TEST_CASE("logLevel round-trips as a human-readable string", "[SettingsManager][Diagnostics]")
+{
+    auto path = writeTempFile(R"({"logLevel": "warn"})", "loglevel_rt_in.json");
+    SettingsManager mgr;
+    REQUIRE(mgr.loadFromFile(path.c_str()));
+    REQUIRE(mgr.snapshot()->logLevel == 2);
+
+    std::string rt = (std::filesystem::temp_directory_path() / "smoothzoom_test_loglevel_rt.json").string();
+    REQUIRE(mgr.saveToFile(rt.c_str()));
+
+    // Saved as the string "warn", not an integer
+    std::ifstream f(rt);
+    std::stringstream ss;
+    ss << f.rdbuf();
+    REQUIRE(ss.str().find("\"warn\"") != std::string::npos);
+
+    SettingsManager mgr2;
+    REQUIRE(mgr2.loadFromFile(rt.c_str()));
+    REQUIRE(mgr2.snapshot()->logLevel == 2);
 }
 
 // =============================================================================
