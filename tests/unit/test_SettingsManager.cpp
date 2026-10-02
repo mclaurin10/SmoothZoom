@@ -34,7 +34,8 @@ TEST_CASE("SettingsManager starts with defaults", "[SettingsManager][Phase5]")
     SettingsManager mgr;
     auto snap = mgr.snapshot();
 
-    REQUIRE(snap->modifierKeyVK == 0x5B);
+    REQUIRE(snap->modifierKeyVK == 0xA0);  // VK_LSHIFT (AC-2.1.04)
+    REQUIRE(snap->keyboardShortcutsEnabled == false);  // AC-2.8.13
     REQUIRE(snap->minZoom == Approx(1.0f));
     REQUIRE(snap->maxZoom == Approx(10.0f));
     REQUIRE(snap->keyboardZoomStep == Approx(0.25f));
@@ -53,10 +54,10 @@ TEST_CASE("SettingsManager starts with defaults", "[SettingsManager][Phase5]")
 
 TEST_CASE("Load valid JSON → all fields parsed (AC-2.9.01)", "[SettingsManager][Phase5]")
 {
-    // Use VK_LSHIFT (0xA0 = 160) as modifier — VK_LCONTROL (0xA2 = 162) is
-    // blocked by the Ctrl-removal policy (commit c206950) and reverts to VK_LWIN.
+    // Use VK_RWIN (0x5C = 92), a valid non-default modifier — VK_LCONTROL
+    // (0xA2 = 162) is blocked by the Ctrl-removal policy (commit c206950).
     std::string json = R"({
-        "modifierKeyVK": 160,
+        "modifierKeyVK": 92,
         "minZoom": 1.5,
         "maxZoom": 8.0,
         "keyboardZoomStep": 0.5,
@@ -69,6 +70,7 @@ TEST_CASE("Load valid JSON → all fields parsed (AC-2.9.01)", "[SettingsManager
         "followTextCursor": false,
         "colorInversionEnabled": true,
         "reverseScrollDirection": true,
+        "keyboardShortcutsEnabled": true,
         "toggleKey1VK": 160,
         "toggleKey2VK": 164
     })";
@@ -78,7 +80,8 @@ TEST_CASE("Load valid JSON → all fields parsed (AC-2.9.01)", "[SettingsManager
     REQUIRE(mgr.loadFromFile(path.c_str()));
 
     auto snap = mgr.snapshot();
-    REQUIRE(snap->modifierKeyVK == 160);
+    REQUIRE(snap->modifierKeyVK == 92);
+    REQUIRE(snap->keyboardShortcutsEnabled == true);
     REQUIRE(snap->minZoom == Approx(1.5f));
     REQUIRE(snap->maxZoom == Approx(8.0f));
     REQUIRE(snap->keyboardZoomStep == Approx(0.5f));
@@ -97,10 +100,11 @@ TEST_CASE("Load valid JSON → all fields parsed (AC-2.9.01)", "[SettingsManager
 
 TEST_CASE("Save then load round-trip (AC-2.9.02)", "[SettingsManager][Phase5]")
 {
-    // Set non-default values — use VK_LSHIFT (0xA0), not VK_LCONTROL (0xA2)
-    // which is blocked by the Ctrl-removal policy and reverts to VK_LWIN.
+    // Set non-default values — use VK_LMENU (0xA4), not VK_LCONTROL (0xA2)
+    // which is blocked by the Ctrl-removal policy and reverts to the default.
     SettingsSnapshot custom;
-    custom.modifierKeyVK = 0xA0;
+    custom.modifierKeyVK = 0xA4;
+    custom.keyboardShortcutsEnabled = true;
     custom.minZoom = 1.5f;
     custom.maxZoom = 7.0f;
     custom.keyboardZoomStep = 0.1f;
@@ -127,6 +131,7 @@ TEST_CASE("Save then load round-trip (AC-2.9.02)", "[SettingsManager][Phase5]")
 
     auto snap = mgr2.snapshot();
     REQUIRE(snap->modifierKeyVK == custom.modifierKeyVK);
+    REQUIRE(snap->keyboardShortcutsEnabled == custom.keyboardShortcutsEnabled);
     REQUIRE(snap->minZoom == Approx(custom.minZoom));
     REQUIRE(snap->maxZoom == Approx(custom.maxZoom));
     REQUIRE(snap->keyboardZoomStep == Approx(custom.keyboardZoomStep));
@@ -177,7 +182,8 @@ TEST_CASE("Load JSON with missing fields → defaults fill in (AC-2.9.02)", "[Se
     REQUIRE(snap->maxZoom == Approx(5.0f));          // Changed
     REQUIRE(snap->minZoom == Approx(1.0f));           // Default
     REQUIRE(snap->keyboardZoomStep == Approx(0.25f)); // Default
-    REQUIRE(snap->modifierKeyVK == 0x5B);             // Default
+    REQUIRE(snap->modifierKeyVK == 0xA0);             // Default (Shift)
+    REQUIRE(snap->keyboardShortcutsEnabled == false); // Default (off)
     REQUIRE(snap->defaultZoomLevel == Approx(2.0f));  // Default (within [1.0, 5.0])
 }
 
@@ -448,4 +454,66 @@ TEST_CASE("defaultZoomLevel out of range for custom bounds → keeps default", "
     auto snap = mgr.snapshot();
     REQUIRE(snap->maxZoom == Approx(3.0f));
     REQUIRE(snap->defaultZoomLevel == Approx(2.0f)); // 5.0 > 3.0 → kept default
+}
+
+// =============================================================================
+// Shift default modifier + "Keyboard shortcuts" setting (AC-2.1.04, AC-2.8.13–15)
+// =============================================================================
+
+TEST_CASE("Existing config keeps its saved modifier (Win stays Win)", "[SettingsManager][ShiftScroll]")
+{
+    // The shape of a pre-change config.json: Win modifier, no shortcuts key.
+    auto path = writeTempFile(R"({"schemaVersion": 1, "modifierKeyVK": 91})", "legacy_win.json");
+    SettingsManager mgr;
+    REQUIRE(mgr.loadFromFile(path.c_str()));
+    REQUIRE(mgr.snapshot()->modifierKeyVK == 0x5B);
+    // Absent key ⇒ the default (off), whatever the modifier.
+    REQUIRE(mgr.snapshot()->keyboardShortcutsEnabled == false);
+
+    for (int vk : { 0x5C, 0xA0, 0xA1, 0xA4, 0xA5, 0x10, 0x12 })
+    {
+        auto p = writeTempFile("{\"modifierKeyVK\": " + std::to_string(vk) + "}", "legacy_mod.json");
+        SettingsManager m;
+        REQUIRE(m.loadFromFile(p.c_str()));
+        CHECK(m.snapshot()->modifierKeyVK == vk);
+    }
+}
+
+TEST_CASE("Invalid modifier (e.g. retired Ctrl) falls back to the Shift default", "[SettingsManager][ShiftScroll]")
+{
+    for (int vk : { 0xA2, 0xA3, 0x11, 0x41, 0 })
+    {
+        auto p = writeTempFile("{\"modifierKeyVK\": " + std::to_string(vk) + "}", "bad_mod.json");
+        SettingsManager m;
+        REQUIRE(m.loadFromFile(p.c_str()));
+        CHECK(m.snapshot()->modifierKeyVK == kDefaultModifierVK);
+    }
+    REQUIRE(kDefaultModifierVK == 0xA0);
+}
+
+TEST_CASE("keyboardShortcutsEnabled persists both ways; non-boolean keeps default", "[SettingsManager][ShiftScroll]")
+{
+    for (bool on : { true, false })
+    {
+        SettingsSnapshot s;
+        s.keyboardShortcutsEnabled = on;
+        SettingsManager mgr1;
+        mgr1.applySnapshot(s);
+        std::string rt = (std::filesystem::temp_directory_path() / "smoothzoom_test_kbshortcuts_rt.json").string();
+        REQUIRE(mgr1.saveToFile(rt.c_str()));
+
+        std::ifstream f(rt);
+        std::stringstream text;
+        text << f.rdbuf();
+        CHECK(text.str().find("\"keyboardShortcutsEnabled\"") != std::string::npos);
+
+        SettingsManager mgr2;
+        REQUIRE(mgr2.loadFromFile(rt.c_str()));
+        CHECK(mgr2.snapshot()->keyboardShortcutsEnabled == on);
+    }
+
+    auto p = writeTempFile(R"({"keyboardShortcutsEnabled": 1})", "kb_nonbool.json");
+    SettingsManager m;
+    REQUIRE(m.loadFromFile(p.c_str()));
+    CHECK(m.snapshot()->keyboardShortcutsEnabled == false);
 }

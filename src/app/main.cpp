@@ -755,7 +755,7 @@ static void handlePtpHidReport(const BYTE* reportData, DWORD reportSize)
 
     // Check modifier key
     auto snap = std::atomic_load(&g_sharedState.settingsSnapshot);
-    int modVK = snap ? snap->modifierKeyVK : VK_LWIN;
+    int modVK = snap ? snap->modifierKeyVK : SmoothZoom::kDefaultModifierVK;
     int genericVK = SmoothZoom::toGenericVK(modVK);
     bool modHeld = (GetAsyncKeyState(genericVK) & 0x8000) != 0;
     SZ_LOG_DEBUG("PTP", L"handlePtpHidReport: modVK=0x%X, genericVK=0x%X, modHeld=%d, asyncState=0x%04X",
@@ -1117,7 +1117,7 @@ static LRESULT CALLBACK msgWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lP
 
         // Check modifier via GetAsyncKeyState (can't access WinKeyManager from here)
         auto snap = std::atomic_load(&g_sharedState.settingsSnapshot);
-        int modVK = snap ? snap->modifierKeyVK : VK_LWIN;
+        int modVK = snap ? snap->modifierKeyVK : SmoothZoom::kDefaultModifierVK;
         int genericVK = SmoothZoom::toGenericVK(modVK);
         bool modHeld = (GetAsyncKeyState(genericVK) & 0x8000) != 0;
 

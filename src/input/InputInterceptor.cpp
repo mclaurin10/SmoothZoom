@@ -60,7 +60,7 @@ static int64_t steadyNowMs()
 
 // Phase 5B: Configurable keys — updated by settings observer on main thread.
 // Safe to read from hook callbacks (same thread). (AC-2.1.19, AC-2.1.20)
-static int s_modifierKeyVK = VK_LWIN;
+static int s_modifierKeyVK = kDefaultModifierVK;  // until the first settings notification
 static int s_toggleKey1VK  = VK_LCONTROL;
 static int s_toggleKey2VK  = VK_LMENU;
 static HWND s_msgWindow    = nullptr;

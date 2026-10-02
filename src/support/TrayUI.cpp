@@ -10,6 +10,7 @@
 #include "smoothzoom/common/SharedState.h"
 #include "smoothzoom/common/Types.h"
 #include "smoothzoom/support/SettingsManager.h"
+#include "smoothzoom/input/ModifierUtils.h"
 
 #ifndef UNICODE
 #define UNICODE
@@ -123,19 +124,26 @@ static bool isAutoStartEnabled()
 
 static int comboIndexFromVK(int vk)
 {
+    // Match the whole family, so a config holding VK_RSHIFT / VK_SHIFT / VK_RWIN /
+    // VK_RMENU shows the right entry instead of silently becoming "Win" on Apply.
     for (int i = 0; i < kModifierCount; ++i)
     {
-        if (kModifierVKs[i] == vk)
+        if (isModifierMatch(vk, kModifierVKs[i]))
             return i;
     }
-    return 0; // Default to Win
+    for (int i = 0; i < kModifierCount; ++i)
+    {
+        if (kModifierVKs[i] == kDefaultModifierVK)
+            return i;
+    }
+    return 0;
 }
 
 static int vkFromComboIndex(int idx)
 {
     if (idx >= 0 && idx < kModifierCount)
         return kModifierVKs[idx];
-    return VK_LWIN;
+    return kDefaultModifierVK;
 }
 
 static int toggleComboIndexFromVK(int vk)

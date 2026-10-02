@@ -22,13 +22,19 @@ namespace SmoothZoom
 // default of changed fields.)
 inline constexpr int kSettingsSchemaVersion = 1;
 
+// Default scroll-gesture modifier for new settings: VK_LSHIFT (Shift+Scroll,
+// AC-2.1.04). Also the fallback for an invalid modifierKeyVK in config.json.
+// A config that already names a valid modifier keeps it. Raw value so this
+// header stays free of <windows.h>.
+inline constexpr int kDefaultModifierVK = 0xA0;  // VK_LSHIFT
+
 struct SettingsSnapshot
 {
     // Schema version this snapshot was loaded from (kSettingsSchemaVersion for a
     // fresh/default snapshot; 0 when loaded from a pre-versioning config file).
     int     schemaVersion       = kSettingsSchemaVersion;
 
-    int     modifierKeyVK       = 0x5B;  // VK_LWIN
+    int     modifierKeyVK       = kDefaultModifierVK;  // VK_LSHIFT
     float   minZoom             = 1.0f;
     float   maxZoom             = 10.0f;
     float   keyboardZoomStep    = 0.25f;
@@ -41,6 +47,12 @@ struct SettingsSnapshot
     bool    followTextCursor    = true;
     bool    colorInversionEnabled = false;
     bool    reverseScrollDirection = false;
+
+    // Modifier + Plus/Minus/Esc zoom shortcuts (AC-2.8.13–15). Off by default:
+    // with Shift as the modifier, Shift+= / Shift+- are how '+' and '_' are
+    // typed, so the shortcuts would eat those characters. Toggled from the tray
+    // menu ("Keyboard shortcuts"); takes effect immediately.
+    bool    keyboardShortcutsEnabled = false;
 
     // Input interoperability (A3, B3):
     float   scrollSensitivity   = 1.0f;  // multiplier on scroll-gesture zoom rate

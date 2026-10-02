@@ -92,7 +92,7 @@ bool SettingsManager::loadFromFile(const char* path)
                       vk == 0xA4 || vk == 0xA5 ||    // LMENU, RMENU
                       vk == 0x10 || vk == 0x12);      // SHIFT, MENU
         if (!valid)
-            settings.modifierKeyVK = 0x5B;  // Default to LWIN
+            settings.modifierKeyVK = kDefaultModifierVK;  // Default (Shift)
     }
 
     readInt("animationSpeed", settings.animationSpeed, 0, 2);
@@ -138,6 +138,7 @@ bool SettingsManager::loadFromFile(const char* path)
     readBool("colorInversionEnabled", settings.colorInversionEnabled);
     readBool("reverseScrollDirection", settings.reverseScrollDirection);
     readBool("momentumZoom", settings.momentumZoom);
+    readBool("keyboardShortcutsEnabled", settings.keyboardShortcutsEnabled);
 
     // ── Log level (diagnostics) ──
     // Stored as a human-friendly string ("debug"/"info"/"warn"/"error",
@@ -202,6 +203,7 @@ bool SettingsManager::saveToFile(const char* path) const
     j["reverseScrollDirection"] = snap->reverseScrollDirection;
     j["scrollSensitivity"]     = snap->scrollSensitivity;
     j["momentumZoom"]          = snap->momentumZoom;
+    j["keyboardShortcutsEnabled"] = snap->keyboardShortcutsEnabled;
     // logLevel written as a human-readable string (mirrors the load mapping).
     j["logLevel"]              = (snap->logLevel == 0) ? "debug" :
                                  (snap->logLevel == 2) ? "warn"  :
