@@ -28,3 +28,9 @@ keep or revert. Full gate (5 runs/trace) runs on every stop attempt (Stop hook, 
 |------|------|------|--------|-------|
 | 1 | 2026-10-01 22:34 | f14bc09 | FAIL 7 / 172 | tp-edge C-08 2.05 P; tp-flick C-05 6.7 %, C-07 1.101 P, C-08 4.9 P; tp-terminal C-05 2.4 %, C-08 4.0 P, C-18 24.0 %. All wheel traces, cold start, anchor error, latency and guards pass. |
 | 2 | 2026-10-01 22:46 | f14bc09 | **Invalid** (FAIL 13 / 172) | Laptop on battery during the run, and real two-finger touchpad input during the tp-edge replay (PTP contacts in its log; 2 of 5 runs aborted, settle up to 1.1 s, anchor up to 676× floor). Counted by the stop gate (2 of 15) but not a code result. |
+| 3 | 2026-10-02 00:54 | 2957702 | **Invalid** (FAIL 13 / 172) | After an unplanned reboot at 00:40: DwmFlush wake 2.4–3.4 ms after vblank (was 1.5–2.1), C-07 fails on most traces. Same-code control quick gates agree (15–16 fails). |
+| 4 | 2026-10-02 01:12 | 2957702 | **Invalid** (FAIL 12 / 172) | Same post-reboot timing. |
+| 5 | 2026-10-02 03:06 | 2957702 | **Invalid** | Same post-reboot timing. |
+| 6–8 | 2026-10-02 07:46–08:23 | 2957702 | **Invalid** (FAIL 23–25 / 172) | After a clean reboot (07:56): timing partly recovered, but the viewport followed keyboard **focus** for whole runs (detented-sweep / wheel-sweep: every update on the focus source), so anchor metrics went missing and pacing broke. Desktop state, not code. |
+
+**Loop paused 2026-10-02 08:24** with the user's approval (`bench/.loop-active` removed; the hook config is unchanged). Stop-gate counter stands at 8 of 15. To resume: quiet foreground, control quick gate back to the pre-reboot numbers, then restore the marker.
