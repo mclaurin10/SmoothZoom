@@ -72,3 +72,30 @@ latency (input→update p95 ≤ 16.2 ms), settle, round-trip drift (≤ 2e-5 %) 
    magnitude would reach 1.0× without the floor attenuation (AC-2.1.13/15 interplay). The free-spin
    trace ends at 1.01×.
 4. **Refresh rate depends on the power source:** 60.00 Hz on AC, 59.89 Hz on battery.
+
+## Session 2 re-check: Shift traces (2026-10-01, branch `feature/shift-scroll`)
+
+The synthetic traces now hold **Shift** (`modifier_vk 0xA0`, `shift=1, win=0` on every wheel row). Timing and deltas are byte-for-byte unchanged (`tools/bench/gen_synthetic.py`). The question was whether making Shift the default modifier, and the hook changes behind it, changed smoothness. **It did not.**
+
+| | |
+|---|---|
+| Build | `7e96646` (`build-dev`, Release, `SMOOTHZOOM_DEV_TOOLS=ON`) |
+| Power | AC, 16.667 ms (60.00 Hz) |
+| Method | `run-bench.ps1 -All -Runs 3`, three sets. `shift-scroll-1` and `shift-scroll-2` used the Shift traces. `shift-scroll-ab-win` replayed the **session-1 Win traces on the new build**, an A/B on the modifier with the build held fixed. Raw data is in `bench/results/` (gitignored). |
+
+| Check | Baseline (Win) | Shift set 1 | Win traces, new build | Shift set 2 |
+|---|---|---|---|---|
+| Gate (`criteria.json`) | 15 / 51 fail | 15 / 51, same checks | 15 / 51, same checks | 15 / 51, same checks |
+| Updates (detented / free-spin / touchpad) | 58 / 22–23 / 106 | 58 / 22 / 105–107 | 58 / 22 / 105–106 | 58 / 22 / 106 |
+| Missed refreshes during gesture | 46.3 % / 38.9 % / 0 % | same | same | same |
+| Wheel events consumed | all | 60 / 38 / 245, all | all | all |
+| Late ticks; max render tick | 0; 19.0 ms | 0; 19.4 ms | 0; 19.5 ms | 0; 19.5 ms |
+
+Two cells moved in set 1, and the A/B shows both are noise, not the modifier:
+
+- **Detented update-interval p95**: 2.25 (set 1) vs 2.94 baseline. The distribution is bimodal (2 or 3 periods per notch, depending on where the 26–38 ms gaps fall against vblank), and one interval more or less flips p95. The Win traces on the new build gave 2.93, 2.96 and **2.27** in three runs. Free-spin p50 flips between about 1.07 and 1.52 in the same way, in every set.
+- **`MagSetFullscreenTransform` max**: 0.05–0.31 ms (one run 1.0 ms), against 0.02–0.08 ms in the baseline. This was equally high with the Win traces, so it is the machine's state that day, not Shift. It is far under the C-10 ceiling (2 ms).
+
+**No R-25 stall** in any of the 27 runs (no late ticks, no gap in `cRefresh`), so nothing was rerun or set aside.
+
+From this commit on, `run-bench.ps1` passes `--config <run dir>\config.json` (a file that does not exist, so built-in defaults load as before). A bench never reads or writes `%APPDATA%\SmoothZoom\` again. The runs above predate that flag; `--bench` did not load or save `config.json` then either.

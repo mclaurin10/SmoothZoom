@@ -305,7 +305,7 @@ These are documented as out-of-scope until Desktop Duplication API migration:
 
 ---
 
-## 5. Full Acceptance-Criteria Tracker (139 ACs) — VER-1
+## 5. Full Acceptance-Criteria Tracker (143 ACs: 139 + 4 added 2026-10-01) — VER-1
 
 The authoritative AC list is Document 2. This table is the v1.0 verification record. Status
 legend:
@@ -317,7 +317,7 @@ legend:
 - `⊘ def` — deferred or reframed (see §4 and Doc 2 §15)
 - `—` — not yet exercised
 
-### 2.1 Scroll-Gesture Zoom (21)
+### 2.1 Scroll-Gesture Zoom (22)
 
 | AC | Description | Status |
 |----|-------------|--------|
@@ -342,6 +342,7 @@ legend:
 | AC-2.1.19 | Changing modifier in settings takes effect immediately | ⚠ open (earlier: no effect) |
 | AC-2.1.20 | Non-Win modifier: no Start Menu suppression logic | ⚠ open (clarify expected) |
 | AC-2.1.21 | Ctrl-exclusion rationale + alt-modifier warning | ⊘ def (reframed, Doc 2 §15.2) |
+| AC-2.1.22 | Shift modifier: Shift keys never consumed; only Shift+wheel consumed; works with shortcuts off | UT (KeyDecision, WheelDecision); injected wheel 10-01 (zoom in on wheel-up; plain/Ctrl/Alt pass) — real touchpad + mouse pending |
 
 ### 2.2 Smooth Zoom Animation (10)
 
@@ -412,7 +413,7 @@ legend:
 |----|-------------|--------|
 | AC-2.7.01–12 | Peek to/from 1.0× and to last-used; brief tap; toggle-during-scroll; scroll-during-toggle; toggle-during-animation; configurable combo; no conflict with modifier | UT (8) ; MAN — pending |
 
-### 2.8 Keyboard Shortcuts (12)
+### 2.8 Keyboard Shortcuts (15)
 
 | AC | Description | Status |
 |----|-------------|--------|
@@ -422,6 +423,9 @@ legend:
 | AC-2.8.10 | Esc saves pre-escape level as last-used | — |
 | AC-2.8.11 | Win+Ctrl+M opens settings window | — |
 | AC-2.8.12 | Keyboard shortcut during Win+Scroll: step applied | — |
+| AC-2.8.13 | Tray "Keyboard shortcuts" item; persisted; off on fresh install, on for upgraded config | UT (SettingsManager); fresh-install default seen in log 10-01 — tray click pending |
+| AC-2.8.14 | Shortcuts off: Modifier+Plus/Minus/Esc, Ctrl+Alt peek, Ctrl+Alt+I all pass through; Win+Ctrl+M still works | UT (KeyDecision); injected `+_` typed into Notepad, no zoom, 10-01 — peek/inversion live pending |
+| AC-2.8.15 | Shortcuts on: Modifier+Plus/Minus consumed incl. injected; immediate toggle; off mid-peek ends peek | UT (KeyDecision); injected `+_` consumed + zoom 1.0→1.24→1.0, 10-01 — tray toggle live pending |
 
 ### 2.9 Settings & Configuration (18; 1 deferred)
 

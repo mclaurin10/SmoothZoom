@@ -27,14 +27,15 @@ Every hook callback must:
 ```
 WH_MOUSE_LL callback:
   WM_MOUSEWHEEL + modifier held → atomic-add delta to scrollAccumulator,
-                                   set winKeyUsedForZoom = true,
+                                   mark Win used for zoom (ONLY if modifier is Win),
                                    return 1 (CONSUME)
+  WM_MOUSEHWHEEL + Shift modifier held → same, delta negated (R-27)
   WM_MOUSEMOVE                  → write (x, y) to shared state,
                                    return CallNextHookEx (PASS THROUGH)
   Everything else               → return CallNextHookEx (PASS THROUGH)
 ```
 
-**Only `WM_MOUSEWHEEL` with the modifier held is consumed.** All other mouse events pass through unconditionally. Consuming the wrong event breaks other applications. (AC-2.1.02)
+**Only `WM_MOUSEWHEEL` with the modifier held is consumed** (plus `WM_MOUSEHWHEEL` when Shift is the modifier). All other mouse events pass through unconditionally. Consuming the wrong event breaks other applications. (AC-2.1.02) The default modifier is **Shift**, so Shift+wheel is swallowed in every app (R-26). The decision is `decideWheel` in `WheelDecision.h` and must never depend on the keyboard-shortcuts setting (AC-2.1.22).
 
 **Do NOT rely on `WM_MOUSEMOVE` from the hook for pointer position in the RenderLoop.** These events are unreliable when the fullscreen magnifier is active. The RenderLoop reads pointer position via `GetCursorPos()` directly. The hook writes to shared state as a secondary signal only.
 
@@ -42,15 +43,18 @@ WH_MOUSE_LL callback:
 
 ```
 WH_KEYBOARD_LL callback:
-  Modifier key down/up          → update modifier state, delegate to WinKeyManager
-  Shortcut combos (Phase 2+)    → post command to lock-free queue
+  Modifier key down/up          → update modifier state (always — Shift+scroll needs it)
+  Win key down/up               → WinKeyManager, ONLY if Win is the modifier
+  Shortcut combos               → post command to lock-free queue, ONLY if
+                                   keyboardShortcutsEnabled (modifier+Plus/Minus/Esc,
+                                   Ctrl+Alt peek, Ctrl+Alt+I). Win+Ctrl+M: never gated.
   All keyboard events           → record timestamp to lastKeyboardInputTime
   Zoom key + modifier held      → return 1 (CONSUME) — VK_OEM_PLUS / VK_ADD /
-                                   VK_OEM_MINUS / VK_SUBTRACT, on down AND up
+    + shortcuts on                 VK_OEM_MINUS / VK_SUBTRACT, on down AND up, injected too
   Everything else               → return CallNextHookEx (PASS THROUGH)
 ```
 
-**The keyboard hook returns 1 only for the four zoom keys (`VK_OEM_PLUS`, `VK_ADD`, `VK_OEM_MINUS`, `VK_SUBTRACT`), and only while the configured modifier is held — on both key-down and key-up.** This is a deliberate, bounded exception: when the modifier is Shift, `Shift+=`/`Shift+-` would otherwise leak a `+`/`_` character into the focused app, and peripheral macros (Logitech Options+, AHK) synthesize those same chords via `SendInput`. The zoom command is posted on key-down; consuming both edges blocks the character without affecting any other key. Every other keyboard event passes through unchanged (observe-only). WinKeyManager's Start Menu suppression is a separate mechanism — it injects a synthetic keystroke and does not consume the Win key event.
+**The keyboard hook returns 1 only for the four zoom keys (`VK_OEM_PLUS`, `VK_ADD`, `VK_OEM_MINUS`, `VK_SUBTRACT`), only while keyboard shortcuts are on and the configured modifier is held — on both key-down and key-up.** With shortcuts off it returns 1 for nothing; the hook stays installed because it also tracks modifier/toggle state. The decisions are pure functions in `KeyDecision.h` — change them there, with tests. This is a deliberate, bounded exception: when the modifier is Shift, `Shift+=`/`Shift+-` would otherwise leak a `+`/`_` character into the focused app, and peripheral macros (Logitech Options+, AHK) synthesize those same chords via `SendInput`. The zoom command is posted on key-down; consuming both edges blocks the character without affecting any other key. Every other keyboard event passes through unchanged (observe-only). WinKeyManager's Start Menu suppression is a separate mechanism — it injects a synthetic keystroke and does not consume the Win key event.
 
 ## WinKeyManager — Start Menu Suppression State Machine
 
@@ -76,7 +80,7 @@ IDLE ──────────────────► WIN_HELD
 
 **Critical edge case: Win+E, Win+D, Win+L, etc.** If the user presses Win, scrolls, then presses another key, `usedWithOtherKey` is set. On release, do NOT suppress — the user expects the Win+key shortcut to execute normally. Suppressing would break the shortcut. (AC-2.1.18)
 
-**When modifier is not Win:** WinKeyManager is disabled entirely. It does nothing. Start Menu suppression is irrelevant for Ctrl/Alt/Shift modifiers. (AC-2.1.20, Phase 5)
+**When modifier is not Win:** WinKeyManager is disabled entirely — the keyboard hook does not feed it Win key events, so it stays `Idle` and never injects. Start Menu suppression is irrelevant for Alt/Shift modifiers. (AC-2.1.20) Shift is the default modifier, so this is the default state.
 
 ## Hook Health Watchdog
 

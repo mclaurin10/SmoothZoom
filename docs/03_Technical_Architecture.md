@@ -141,11 +141,13 @@ Threads communicate through shared state structures protected by lightweight syn
 
 The mouse hook callback:
 1. Reads `MSLLHOOKSTRUCT` from `lParam`.
-2. If the event is `WM_MOUSEWHEEL` and the modifier key is currently held:
+2. If the event is `WM_MOUSEWHEEL` and the configured modifier (default `Shift`) is currently held:
    a. Extracts scroll delta from `HIWORD(mouseData)`.
    b. Atomically adds delta to the scroll accumulator.
-   c. Sets `winKeyUsedForZoom = true` (if the modifier is Win).
+   c. Marks the Win key as used for zoom (WinKeyManager) **only if the modifier is Win**.
    d. Returns `1` (consume the event — do not pass to next hook).
+
+   The decision is the pure function `decideWheel` (`WheelDecision.h`, §7.3). It does not depend on the "Keyboard shortcuts" setting: Shift+scroll zooms with shortcuts on or off. Plain, Ctrl+ and Alt+wheel pass through when Shift is the modifier. `WM_MOUSEHWHEEL` is a zoom candidate only when Shift is the modifier (a driver may convert Shift+wheel to horizontal scroll, R-27); it is negated so scroll-up still zooms in.
 3. If the event is `WM_MOUSEMOVE`:
    a. Writes pointer position (x, y) to shared state.
    b. Returns `CallNextHookEx(...)` (pass through).
@@ -153,11 +155,14 @@ The mouse hook callback:
 
 The keyboard hook callback:
 1. Reads `KBDLLHOOKSTRUCT` from `lParam`.
-2. Checks for modifier key down/up, shortcut key combinations, and toggle key combinations.
-3. Delegates Win key state management to WinKeyManager.
-4. For recognized shortcuts (zoom in/out, toggle, settings, color inversion): posts a command to the keyboard command queue.
-5. For all keyboard events: records timestamp to `lastKeyboardInputTime`.
-6. Consumes (returns `1`) only the four zoom keys (`VK_OEM_PLUS`, `VK_ADD`, `VK_OEM_MINUS`, `VK_SUBTRACT`), and only while the configured modifier is held — on both key-down and key-up. This prevents a `+`/`_` character leak when the modifier is Shift, and from peripheral macros (Logitech Options+, AHK) that synthesize `Shift+=`/`Shift+-` via `SendInput`. All other keyboard events return `CallNextHookEx(...)` (observe-only). (WinKeyManager's Start Menu suppression is separate — it injects a synthetic keystroke and does not consume the Win key event.)
+2. Always tracks key state: the scroll modifier (needed by Shift+scroll), the two toggle keys, and the inversion chord's edge filter.
+3. Feeds Win key-down/up to WinKeyManager **only when Win is the configured modifier**. With Shift (the default) or Alt, WinKeyManager stays idle and never injects.
+4. Gated by the **"Keyboard shortcuts"** setting (`keyboardShortcutsEnabled`, AC-2.8.13–15): modifier + Plus/Minus/Esc, the Ctrl+Alt peek toggle, and Ctrl+Alt+I. When on, the hook posts the matching command to the keyboard command queue. When off, it posts nothing and consumes nothing. Turning the setting off mid-peek releases the peek. The decisions are pure functions in `KeyDecision.h` (`decideShortcutKey`, `decideToggleChord`, `decideInvertChord`), unit-tested like `WheelDecision.h`.
+5. Not gated: Win+Ctrl+M (open settings, AC-2.8.11) works with any modifier and either setting, as the keyboard route into settings.
+6. For all keyboard events: records timestamp to `lastKeyboardInputTime`.
+7. Consumes (returns `1`) only the four zoom keys (`VK_OEM_PLUS`, `VK_ADD`, `VK_OEM_MINUS`, `VK_SUBTRACT`), only while shortcuts are on and the configured modifier is held, on both key-down and key-up, injected or not. This prevents a `+`/`_` character leak when the modifier is Shift, and from peripheral macros (Logitech Options+, AHK) that synthesize `Shift+=`/`Shift+-` via `SendInput`. The cost is R-28: with shortcuts on and Shift as the modifier, `+` and `_` cannot be typed. Modifier keys themselves (including Shift) are never consumed. All other keyboard events return `CallNextHookEx(...)` (observe-only). WinKeyManager's Start Menu suppression is separate: it injects a synthetic keystroke and does not consume the Win key event.
+
+   The hook stays installed while shortcuts are off, because it also carries modifier tracking, toggle-key tracking, Win+Ctrl+M and the caret-priority timestamp. There is no `RegisterHotKey`, accelerator table or keyboard Raw Input path.
 
 **Precision Touchpad (PTP) support via Raw Input:**
 
@@ -183,6 +188,8 @@ All three scroll-ingest paths — the LL hook (`WM_MOUSEWHEEL`/`WM_MOUSEHWHEEL`)
 ### 3.2 WinKeyManager
 
 **Purpose:** Tracks the state of the `Win` key and handles Start Menu suppression. This is factored out of InputInterceptor because the logic is stateful and has subtle edge cases that warrant isolation and focused testing.
+
+**Scope:** Active only when `Win` is the configured scroll modifier. With `Shift` (the default) or `Alt`, InputInterceptor does not feed it Win key events, so it stays `Idle` and never injects the suppression `Ctrl` (AC-2.1.20).
 
 **State machine:**
 
@@ -611,7 +618,7 @@ If the application crashes without running this sequence, the screen may be left
 ```
 struct SettingsSnapshot {
     int     schemaVersion;          // kSettingsSchemaVersion (currently 1)
-    int     modifierKeyVK;          // VK_LWIN, VK_MENU, etc. (Ctrl excluded as scroll modifier)
+    int     modifierKeyVK;          // VK_LSHIFT default (kDefaultModifierVK); VK_LWIN, VK_LMENU also valid (Ctrl excluded)
     int     toggleKey1VK;           // VK_LCONTROL  (temporary-toggle combo, key 1)
     int     toggleKey2VK;           // VK_LMENU     (temporary-toggle combo, key 2)
     float   minZoom;                // 1.0
@@ -627,10 +634,13 @@ struct SettingsSnapshot {
     bool    colorInversionEnabled;  // false (persisted; toggled by Ctrl+Alt+I)
     float   scrollSensitivity;      // 1.0  (0.1–5.0; input-interop P0)
     bool    momentumZoom;           // true (input-interop P0; gating logic is Phase 8)
+    bool    keyboardShortcutsEnabled; // false on fresh install; true for an existing config without the key
 };
 ```
 
-**Validation on load:** Each field is validated against its allowed range (from Scope §2.9). Invalid values are silently replaced with defaults. A log entry records the correction.
+**Validation on load:** Each field is validated against its allowed range (from Scope §2.9). Invalid values are silently replaced with defaults. A log entry records the correction. An invalid `modifierKeyVK` (e.g. the retired Ctrl) falls back to the default, `Shift`.
+
+**Shift default and upgrades (2026-10-01):** A fresh install (no `config.json`) starts with `Shift` as the modifier and keyboard shortcuts **off**. An existing `config.json` keeps its saved modifier. If it has no `keyboardShortcutsEnabled` key (written before the setting existed), it loads as **on**, so upgrading users keep their shortcuts. The first save writes the key, so this rule applies once.
 
 **Schema versioning:** `schemaVersion` (constant `kSettingsSchemaVersion`, currently `1`) is stamped on every save. A legacy config without the key is read as version 0 and migrated forward on first save, so new fields can be introduced without silently discarding a user's existing settings.
 
@@ -641,6 +651,8 @@ struct SettingsSnapshot {
 **Purpose:** Provides the system tray icon, right-click context menu, and settings window.
 
 **Implementation:** Standard Win32 tray icon using `Shell_NotifyIcon` with `NIF_ICON | NIF_TIP | NIF_MESSAGE`. The tray message handler responds to `WM_RBUTTONUP` (show context menu) and `WM_LBUTTONDBLCLK` (open settings).
+
+**Context menu:** Settings · Toggle Zoom On/Off · **Keyboard shortcuts** (checkable, AC-2.8.13) · Exit. The checkmark is read from the live settings snapshot each time the menu opens. Selecting it flips `keyboardShortcutsEnabled`, applies the snapshot and saves `config.json`. InputInterceptor's observer runs synchronously on the main thread, so the change applies to the next key event.
 
 **Explorer restart detection:** At startup, TrayUI registers for the `TaskbarCreated` window message via `RegisterWindowMessageW(L"TaskbarCreated")`. Windows broadcasts this message when `explorer.exe` restarts (e.g., after a crash or Shell update). On receipt, TrayUI calls `Shell_NotifyIcon` to re-add the tray icon, ensuring the icon remains visible without requiring a manual application restart.
 
@@ -686,12 +698,12 @@ User holds Win + scrolls mouse wheel
 ### 4.2 Keyboard-Shortcut Zoom
 
 ```
-User presses Win+Plus
+User presses Modifier+Plus (Keyboard shortcuts on)
          │
          ▼
  ┌─────────────────────┐
  │  InputInterceptor    │  WH_KEYBOARD_LL callback
- │  (Main Thread)       │  Detects: Win held + VK_OEM_PLUS
+ │  (Main Thread)       │  Detects: modifier held + VK_OEM_PLUS
  │                      │  Posts ZOOM_IN command to keyboard queue
  └──────────┬──────────┘
             │  (command in lock-free queue)
@@ -873,7 +885,8 @@ Added in Phase 7 (2026-10-01) to tune zoom smoothness per machine with a build �
 | Argument | Effect |
 |---|---|
 | `--record <file>` | Normal operation, plus a trace CSV of every wheel message the `WH_MOUSE_LL` hook sees (QPC, WHEEL/HWHEEL, delta, `MSLLHOOKSTRUCT::flags` incl. injected, Shift/Ctrl/Alt/Win, cursor, the hook's modifier verdict, consumed). Also records the Raw Input and PTP accumulator writes in `main.cpp` (kinds `RAW`/`PTP`), because precision-touchpad scroll in Direct-Manipulation apps never reaches the hook. Does not change behavior: loads `config.json` as usual. |
-| `--bench <trace> --out <dir>` | Replays a trace at its recorded timestamps from the **main thread**, through the hook's own decision (§7.3) and side effects. The render thread consumes the input as in production and drives the real `MagSetFullscreenTransform`. Writes `frames.csv`, `events.csv` and `summary.json`. Uses built-in default settings (no `config.json` load/save) plus the trace's `modifier_vk`. Modal dialogs become exit codes. |
+| `--bench <trace> --out <dir>` | Replays a trace at its recorded timestamps from the **main thread**, through the hook's own decision (§7.3) and side effects. The render thread consumes the input as in production and drives the real `MagSetFullscreenTransform`. Writes `frames.csv`, `events.csv` and `summary.json`. Uses built-in default settings plus the trace's `modifier_vk`, and never saves. It loads a config only when `--config` names one. Modal dialogs become exit codes. |
+| `--config <path>` | Use this `config.json` instead of `%APPDATA%\SmoothZoom\config.json`. `smoothzoom.log` and the `.running` sentinel go next to it. **Use it for every test and bench run**, so the user's real config, log and crash sentinel are never touched. A path that does not exist means built-in defaults (a "fresh install"), and normal mode creates the file on the first settings change or on exit. `run-bench.ps1` passes `<run dir>\config.json`. |
 | `--cold` | Bench without the warm-up, to measure the first gesture after launch (R-24). |
 | `--no-cursor`, `--settle-ms N`, `--label S` | Don't `SetCursorPos` to trace positions; quiet time after the last event (default 750 ms); free-form label in the summary. |
 | `--timeout S`, `--selfkill-ms N` | Watchdog: request a clean exit after S s (bench default 180 s); `TerminateProcess` after N ms with no cleanup (kill test). |
@@ -894,7 +907,7 @@ No component boundary moves. `Magnification.h` stays confined to MagBridge (the 
 
 ### 7.3 WheelDecision (compiled in all builds)
 
-`include/smoothzoom/input/WheelDecision.h` holds the `WM_MOUSEWHEEL`/`WM_MOUSEHWHEEL` decision as a pure, header-only function: `wheelIsZoomCandidate`, `decideWheel` → `{consume, accumulatorDelta, markWinUsedForZoom}`, and `modifierHeldFromState`. The mouse hook calls it, and `--bench` calls the same function through `InputInterceptor::devInjectWheel`, so replay and live input cannot diverge. It is behavior-preserving: the modifier test is still evaluated lazily (horizontal wheel only with a Shift modifier), and int16 negation matches the old code (`tests/unit/test_WheelDecision.cpp`). The keyboard hook is unchanged.
+`include/smoothzoom/input/WheelDecision.h` holds the `WM_MOUSEWHEEL`/`WM_MOUSEHWHEEL` decision as a pure, header-only function: `wheelIsZoomCandidate`, `decideWheel` → `{consume, accumulatorDelta, markWinUsedForZoom}`, and `modifierHeldFromState`. The mouse hook calls it, and `--bench` calls the same function through `InputInterceptor::devInjectWheel`, so replay and live input cannot diverge. It is behavior-preserving: the modifier test is still evaluated lazily (horizontal wheel only with a Shift modifier), and int16 negation matches the old code (`tests/unit/test_WheelDecision.cpp`). The keyboard hook's shortcut decisions were extracted the same way into `KeyDecision.h` (2026-10-01, `tests/unit/test_KeyDecision.cpp`).
 
 ### 7.4 Bench Metrics (`summary.json`) and Gate Criteria
 

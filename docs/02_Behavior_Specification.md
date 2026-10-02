@@ -4,12 +4,14 @@
 
 ### Document 2 of 5 — Development Plan Series
 
-**Version:** 1.1
+**Version:** 1.2
 **Status:** Baselined (v1.0 behavior spec)
-**Last Updated:** 2026-06-18
+**Last Updated:** 2026-10-01
 **Prerequisite:** Document 1 — Project Scope and Non-Scope (v1.2)
 
 > **Status (2026-06-18):** These 139 acceptance criteria are the authoritative v1.0 behavior set and are frozen for the Phase 7 verification sweep (see `07_v1.0_Release_Verification_PRD.md`, tracked in `manual_test_checklist_v2.md`). Three ACs are formally deferred (§15). Two scroll-tuning settings that landed early — `scrollSensitivity` and `momentumZoom` — are intentionally **not** part of these 139; their behavioral acceptance criteria belong to the deferred Phase 8 (Input Interoperability) and will be authored there.
+
+> **Change (2026-10-01, approved scope during Phase 7):** `Shift` is now the default scroll-gesture modifier, and a persisted **"Keyboard shortcuts"** setting (tray menu) gates every keyboard zoom shortcut. Four ACs were added: **AC-2.1.22** and **AC-2.8.13–15**, for a total of **143**. Reworded to match: AC-2.1.01–05, AC-2.1.19–21, AC-2.2.04/06/07, AC-2.8.01–12, AC-2.9.14 and AC-2.10.01. Related risks: R-26 to R-30 (Doc 5).
 
 ---
 
@@ -27,15 +29,15 @@ Where a criterion involves timing, distances, or thresholds, the stated value is
 
 ### 2A. Core Interaction
 
-**AC-2.1.01** — While the `Win` key is held and the user scrolls the mouse wheel up (away from the user), the zoom level increases smoothly. Scrolling down decreases the zoom level smoothly.
+**AC-2.1.01** — While the configured scroll-gesture modifier key (default `Shift`) is held and the user scrolls the mouse wheel up (away from the user), the zoom level increases smoothly. Scrolling down decreases the zoom level smoothly.
 
-**AC-2.1.02** — While the `Win` key is NOT held, all scroll events pass through to the foreground application with no modification, delay, or side effects. SmoothZoom is completely transparent to scroll input when the modifier is not engaged.
+**AC-2.1.02** — While the modifier key is NOT held, all scroll events pass through to the foreground application with no modification, delay, or side effects. SmoothZoom is completely transparent to scroll input when the modifier is not engaged. With `Shift` as the modifier, plain, `Ctrl`+ and `Alt`+scroll all pass through.
 
-**AC-2.1.03** — When the user releases the `Win` key, the zoom level remains at whatever value it had reached. It does not snap back to 1.0× or to any other level.
+**AC-2.1.03** — When the user releases the modifier key, the zoom level remains at whatever value it had reached. It does not snap back to 1.0× or to any other level.
 
-**AC-2.1.04** — The scroll-gesture modifier key is configurable: `Win` (default), `Alt`, or `Shift`. Both left and right variants of the configured modifier function identically (e.g., `VK_LWIN`/`VK_RWIN`, `VK_LMENU`/`VK_RMENU`, `VK_LSHIFT`/`VK_RSHIFT`).
+**AC-2.1.04** — The scroll-gesture modifier key is configurable: `Shift` (default), `Win`, or `Alt`. Both left and right variants of the configured modifier function identically (e.g., `VK_LSHIFT`/`VK_RSHIFT`, `VK_LWIN`/`VK_RWIN`, `VK_LMENU`/`VK_RMENU`). A fresh install uses `Shift`; an existing configuration keeps the modifier it saved.
 
-**AC-2.1.05** — Two-finger vertical scroll on a Windows Precision Touchpad, while `Win` is held, produces the same zoom behavior as the mouse wheel. The continuous (non-notched) nature of touchpad scroll input produces correspondingly smooth, continuous zoom changes.
+**AC-2.1.05** — Two-finger vertical scroll on a Windows Precision Touchpad, while the modifier is held, produces the same zoom behavior as the mouse wheel. The continuous (non-notched) nature of touchpad scroll input produces correspondingly smooth, continuous zoom changes. Zoom direction follows the touchpad's own scrolling-direction setting, so with natural scrolling on, a two-finger swipe and a wheel roll in the same physical direction may zoom opposite ways (R-29).
 
 ### 2B. Zoom Scaling Model
 
@@ -65,6 +67,8 @@ Where a criterion involves timing, distances, or thresholds, the stated value is
 
 ### 2E. Start Menu Suppression
 
+*AC-2.1.16–18 apply only when `Win` is the configured modifier (see AC-2.1.20).*
+
 **AC-2.1.16** — If the user presses `Win`, scrolls (one or more notches in either direction), then releases `Win`, the Start Menu does NOT open.
 
 **AC-2.1.17** — If the user presses `Win` and releases it WITHOUT scrolling, the Start Menu opens normally. SmoothZoom only suppresses the Start Menu when a scroll event was actually consumed during the `Win` key-down period.
@@ -73,11 +77,15 @@ Where a criterion involves timing, distances, or thresholds, the stated value is
 
 ### 2F. Modifier Key Configuration
 
-**AC-2.1.19** — When the user changes the scroll-gesture modifier key in settings (e.g., from `Win` to `Ctrl`), the new modifier takes effect immediately. The old modifier ceases to activate zoom. No application restart is required.
+**AC-2.1.19** — When the user changes the scroll-gesture modifier key in settings (e.g., from `Shift` to `Win`), the new modifier takes effect immediately. The old modifier ceases to activate zoom. No application restart is required.
 
-**AC-2.1.20** — When a non-`Win` modifier is configured (e.g., `Ctrl`), Start Menu suppression logic is not active (it is not needed).
+**AC-2.1.20** — When a non-`Win` modifier is configured (e.g., `Shift`, the default), Start Menu suppression logic is not active: SmoothZoom does not track the `Win` key for suppression and never injects a suppression keystroke.
 
-**AC-2.1.21** — [RETIRED — Ctrl removed as modifier option. Ctrl conflicts with Ctrl+Scroll conventions in browsers/IDEs and is no longer offered in the settings UI. Existing config files with Ctrl as modifier silently revert to Win on load.]
+**AC-2.1.21** — [RETIRED — Ctrl removed as modifier option. Ctrl conflicts with Ctrl+Scroll conventions in browsers/IDEs and is no longer offered in the settings UI. Existing config files with Ctrl as modifier silently revert to the default (`Shift`) on load.]
+
+### 2G. Shift as the Modifier
+
+**AC-2.1.22** — With `Shift` as the modifier, SmoothZoom never consumes `Shift` key-down or key-up events, so `Shift` keeps working for typing, selection and every `Shift`+key combination. Only scroll events received while `Shift` is held are consumed. That includes applications that use `Shift`+scroll for horizontal scrolling (R-26). Scroll-gesture zoom works whether "Keyboard shortcuts" is on or off.
 
 ---
 
@@ -93,13 +101,13 @@ Where a criterion involves timing, distances, or thresholds, the stated value is
 
 ### 3B. Keyboard-Shortcut Animation
 
-**AC-2.2.04** — When a keyboard shortcut changes the zoom level (e.g., `Win+Plus`), the zoom animates from the current level to the target level over 100–150ms. **[tunable]**
+**AC-2.2.04** — When a keyboard shortcut changes the zoom level (e.g., `Modifier+Plus`), the zoom animates from the current level to the target level over 100–150ms. **[tunable]**
 
 **AC-2.2.05** — The keyboard-shortcut animation uses an ease-out timing curve: it starts at full speed and decelerates to a stop at the target level. The onset feels immediate; the arrival feels stable.
 
-**AC-2.2.06** — If the user presses a zoom keyboard shortcut while a previous keyboard-shortcut animation is still in progress, the new target replaces the old one. The animation smoothly redirects toward the new target without pausing, reversing, or restarting. For example: pressing `Win+Plus` three times rapidly animates smoothly to the level that is three steps above the starting point, not three sequential start-stop animations.
+**AC-2.2.06** — If the user presses a zoom keyboard shortcut while a previous keyboard-shortcut animation is still in progress, the new target replaces the old one. The animation smoothly redirects toward the new target without pausing, reversing, or restarting. For example: pressing `Modifier+Plus` three times rapidly animates smoothly to the level that is three steps above the starting point, not three sequential start-stop animations.
 
-**AC-2.2.07** — If the user presses `Win+Plus` and then immediately `Win+Minus` (opposing directions), the animation smoothly reverses toward the new target. There is no visual "bounce" or stutter at the reversal point.
+**AC-2.2.07** — If the user presses `Modifier+Plus` and then immediately `Modifier+Minus` (opposing directions), the animation smoothly reverses toward the new target. There is no visual "bounce" or stutter at the reversal point.
 
 ### 3C. Animation Interruption
 
@@ -265,6 +273,8 @@ Where a criterion involves timing, distances, or thresholds, the stated value is
 
 ## 8. Temporary Zoom Toggle (Scope §2.7)
 
+*The temporary toggle is a keyboard shortcut: it works only while "Keyboard shortcuts" is on (AC-2.8.14).*
+
 ### 8A. State: Zoomed In → Peek at 1.0×
 
 **AC-2.7.01** — When the zoom level is above 1.0× and the user presses and holds the temporary toggle key combination (default: `Ctrl+Alt`), the zoom level smoothly animates to 1.0× over 200–300ms. **[tunable]**
@@ -301,29 +311,31 @@ Where a criterion involves timing, distances, or thresholds, the stated value is
 
 ## 9. Keyboard Shortcuts (Scope §2.8)
 
+*`Modifier` below means the configured scroll-gesture modifier (default `Shift`, so `Modifier+Plus` is `Shift+=`). The shortcuts in §9A, §9B and §9D work only while "Keyboard shortcuts" is on (§9E). `Win+Ctrl+M` (§9C) always works.*
+
 ### 9A. Zoom In / Zoom Out
 
-**AC-2.8.01** — Pressing `Win+Plus` increases the zoom level by the configured step size (default: 25%). The step is multiplicative: target = current × (1 + step). At 2.0×, a 25% step targets 2.5×. At 4.0×, it targets 5.0×. This ensures perceptually uniform zoom increments across the range.
+**AC-2.8.01** — Pressing `Modifier+Plus` increases the zoom level by the configured step size (default: 25%). The step is multiplicative: target = current × (1 + step). At 2.0×, a 25% step targets 2.5×. At 4.0×, it targets 5.0×. This ensures perceptually uniform zoom increments across the range.
 
-**AC-2.8.02** — Pressing `Win+Minus` decreases the zoom level by the configured step size. At 2.0×, a 25% step targets 1.6× (2.0 ÷ 1.25). At 1.25×, it targets 1.0× (1.25 ÷ 1.25).
+**AC-2.8.02** — Pressing `Modifier+Minus` decreases the zoom level by the configured step size. At 2.0×, a 25% step targets 1.6× (2.0 ÷ 1.25). At 1.25×, it targets 1.0× (1.25 ÷ 1.25).
 
-**AC-2.8.03** — If a zoom-in step would exceed the configured maximum (10.0×), the zoom level animates to exactly the maximum. For example: at 9.90×, pressing `Win+Plus` with a 25% step targets 12.375× (9.90 × 1.25), which is clamped to 10.0×.
+**AC-2.8.03** — If a zoom-in step would exceed the configured maximum (10.0×), the zoom level animates to exactly the maximum. For example: at 9.90×, pressing `Modifier+Plus` with a 25% step targets 12.375× (9.90 × 1.25), which is clamped to 10.0×.
 
 **AC-2.8.04** — If a zoom-out step would go below the configured minimum (1.0×), the zoom level animates to exactly the minimum.
 
-**AC-2.8.05** — Pressing `Win+Plus` at the maximum zoom level produces no effect. Pressing `Win+Minus` at the minimum produces no effect. No error, no sound, no visual feedback beyond the zoom level not changing.
+**AC-2.8.05** — Pressing `Modifier+Plus` at the maximum zoom level produces no effect. Pressing `Modifier+Minus` at the minimum produces no effect. No error, no sound, no visual feedback beyond the zoom level not changing.
 
 **AC-2.8.06** — All keyboard-shortcut zoom changes animate smoothly per §3 (Smooth Zoom Animation). They do not snap.
 
-**AC-2.8.07** — Pressing `Win+Plus` multiple times rapidly (e.g., three times within 300ms) smoothly animates to the cumulative target (three steps above the starting point), not three sequential animations.
+**AC-2.8.07** — Pressing `Modifier+Plus` multiple times rapidly (e.g., three times within 300ms) smoothly animates to the cumulative target (three steps above the starting point), not three sequential animations.
 
 ### 9B. Toggle Off
 
-**AC-2.8.08** — Pressing `Win+Esc` while zoomed (above 1.0×) smoothly animates the zoom level to 1.0×.
+**AC-2.8.08** — Pressing `Modifier+Esc` while zoomed (above 1.0×) smoothly animates the zoom level to 1.0×.
 
-**AC-2.8.09** — Pressing `Win+Esc` while already at 1.0× has no effect.
+**AC-2.8.09** — Pressing `Modifier+Esc` while already at 1.0× has no effect.
 
-**AC-2.8.10** — After pressing `Win+Esc` to zoom out, the temporary toggle (§2.7) remembers the pre-escape zoom level as the "last-used" level.
+**AC-2.8.10** — After pressing `Modifier+Esc` to zoom out, the temporary toggle (§2.7) remembers the pre-escape zoom level as the "last-used" level.
 
 ### 9C. Open Settings
 
@@ -331,7 +343,15 @@ Where a criterion involves timing, distances, or thresholds, the stated value is
 
 ### 9D. Interaction with Scroll-Gesture
 
-**AC-2.8.12** — If the user presses a keyboard zoom shortcut while the `Win` key is held for scroll-gesture zoom (e.g., holding `Win`, scrolling, then pressing `Plus`), the keyboard shortcut's step is applied as an animated jump on top of the current scroll-gesture position. This is an uncommon interaction and does not need to be perfectly fluid — it simply must not crash or produce an incorrect zoom level.
+**AC-2.8.12** — If the user presses a keyboard zoom shortcut while the modifier key is held for scroll-gesture zoom (e.g., holding the modifier, scrolling, then pressing `Plus`), the keyboard shortcut's step is applied as an animated jump on top of the current scroll-gesture position. This is an uncommon interaction and does not need to be perfectly fluid — it simply must not crash or produce an incorrect zoom level.
+
+### 9E. Keyboard Shortcuts Setting
+
+**AC-2.8.13** — The tray menu has a checkable "Keyboard shortcuts" item that shows the current state. Selecting it turns the setting on or off, and the setting persists across sessions. Default: **off** on a fresh install (no configuration file), because with `Shift` as the modifier `Shift+=` and `Shift+-` are how `+` and `_` are typed. **On** when an existing configuration file predates the setting, so upgrading users keep their shortcuts.
+
+**AC-2.8.14** — While "Keyboard shortcuts" is off, every zoom shortcut passes through to the foreground application untouched and does nothing: `Modifier+Plus`, `Modifier+Minus`, `Modifier+Esc`, the temporary toggle (`Ctrl+Alt` hold) and `Ctrl+Alt+I`. With `Shift` as the modifier, typing `+` and `_` works normally. `Win+Ctrl+M` still opens settings. Scroll-gesture zoom is unaffected.
+
+**AC-2.8.15** — While "Keyboard shortcuts" is on, `Modifier+Plus` and `Modifier+Minus` keystrokes are consumed on press and release, so no `=`, `+`, `-` or `_` character reaches the foreground application. That includes keystrokes synthesized by mouse or keyboard software such as Logitech Options+. No other key is consumed (R-28). Turning the setting on or off takes effect immediately, with no restart. Turning it off during a temporary-toggle hold ends the hold.
 
 ---
 
@@ -369,7 +389,7 @@ Where a criterion involves timing, distances, or thresholds, the stated value is
 
 **AC-2.9.13** — SmoothZoom displays an icon in the system tray (notification area) at all times while running.
 
-**AC-2.9.14** — Right-clicking the tray icon shows a context menu with: "Settings", "Toggle Zoom On/Off", and "Exit".
+**AC-2.9.14** — Right-clicking the tray icon shows a context menu with: "Settings", "Toggle Zoom On/Off", "Keyboard shortcuts" (checkable, AC-2.8.13), and "Exit".
 
 **AC-2.9.15** — Selecting "Toggle Zoom On/Off" from the tray menu animates the zoom to 1.0× if zoomed, or to the last-used / default zoom level if at 1.0×.
 
@@ -387,7 +407,7 @@ Where a criterion involves timing, distances, or thresholds, the stated value is
 
 ## 11. Color Inversion (Scope §2.10)
 
-**AC-2.10.01** — Pressing `Ctrl+Alt+I` toggles color inversion on the magnified view. White becomes black, black becomes white, and all colors are inverted. The toggle is instantaneous (no animation).
+**AC-2.10.01** — Pressing `Ctrl+Alt+I` toggles color inversion on the magnified view. White becomes black, black becomes white, and all colors are inverted. The toggle is instantaneous (no animation). Requires "Keyboard shortcuts" on (AC-2.8.14); inversion can always be toggled from the settings UI (AC-2.10.03).
 
 **AC-2.10.02** — Color inversion applies to all magnified content including the cursor. The inversion is a property of the magnified output, not a system-wide display setting.
 
@@ -469,17 +489,17 @@ For quick reference, all acceptance criteria organized by ID prefix:
 
 | Prefix | Feature Area | Count |
 |--------|-------------|-------|
-| AC-2.1 | Scroll-Gesture Zoom | 21 |
+| AC-2.1 | Scroll-Gesture Zoom | 22 |
 | AC-2.2 | Smooth Zoom Animation | 10 |
 | AC-2.3 | Full-Screen Magnification | 11 |
 | AC-2.4 | Continuous Viewport Tracking | 13 |
 | AC-2.5 | Keyboard Focus Following | 14 |
 | AC-2.6 | Text Cursor Following | 11 |
 | AC-2.7 | Temporary Zoom Toggle | 12 |
-| AC-2.8 | Keyboard Shortcuts | 12 |
+| AC-2.8 | Keyboard Shortcuts | 15 |
 | AC-2.9 | Settings and Configuration | 18 |
 | AC-2.10 | Color Inversion | 5 |
 | AC-MM | Multi-Monitor Basics | 4 |
 | AC-ERR | Conflict and Error Handling | 5 |
 | Deferred | Post-v1 (R-01) | 3 |
-| **Total** | | **139** |
+| **Total** | | **143** (139 baselined + 4 added 2026-10-01) |

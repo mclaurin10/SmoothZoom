@@ -57,4 +57,15 @@ The dev build is the same app, so it shares `%APPDATA%\SmoothZoom\` with any ins
 build: `config.json`, `smoothzoom.log` and the crash sentinel. It also shares the single-instance
 mutex, so **only one of the two can run at a time**. `--bench` does *not* load or save
 `config.json`; it runs on built-in defaults so baselines don't drift with user settings.
-`--record` runs with your real config.
+`--record` runs with your real config unless you pass `--config <path>`.
+
+**Use `--config <path>` for every test and bench run.** It replaces
+`%APPDATA%\SmoothZoom\config.json`, and `smoothzoom.log` and the `.running` sentinel go
+next to it, so your real config, log and crash sentinel are never read or written. A path
+that does not exist gives built-in defaults (a fresh install: Shift modifier, keyboard
+shortcuts off); the app creates it on the first settings change or on exit. `run-bench.ps1`
+passes `<run dir>\config.json` for every run. Example:
+
+    tools\deploy.ps1 -NoBuild -LaunchArgs '--config','C:\src\SmoothZoom\bench\results\manual\config.json'
+
+The single-instance mutex is shared, so quit any running SmoothZoom first.

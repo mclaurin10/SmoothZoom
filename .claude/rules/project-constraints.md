@@ -16,6 +16,13 @@ The current work is verification/certification, not new features (see
   GPU/memory/latency audit is pending (R-18 adaptive frame-rate held in reserve)
 - Interactive/elevated matrix + carried-over findings to confirm or close
 
+**Approved exception (2026-10-01):** Shift as the default scroll modifier + the tray
+"Keyboard shortcuts" setting (Doc 2 AC-2.1.22, AC-2.8.13–15; Doc 5 R-26–R-30) landed
+during Phase 7 by explicit user approval. Do not assume Win is the modifier: WinKeyManager
+only runs when Win is configured, and shortcuts/peek/Ctrl+Alt+I are gated by
+`keyboardShortcutsEnabled`. Dev/test runs pass `--config <path>` so the user's real
+`config.json` is never touched.
+
 **Phase 8 — Input Interoperability** is the deferred next phase (input-interop P0 has
 already landed: `ScrollNormalizer`, `scrollSensitivity`, `momentumZoom`). Do not start it
 before v1.0 ships — see `docs/input-interop-handoff.md`.
@@ -116,5 +123,6 @@ slated to move into the Input layer — see `docs/input-interop-handoff.md` item
 - **Build:** `scripts\build.bat` or CMake directly. Sign: `scripts\sign-binary.ps1`.
   Install: `scripts\install-secure.ps1`.
 - **Unit tests** cover pure logic (ZoomController, ViewportTracker, WinKeyManager,
-  SettingsManager, ScrollNormalizer, ModifierUtils) with no Win32 API dependencies.
+  SettingsManager, ScrollNormalizer, ModifierUtils, WheelDecision, KeyDecision) with no
+  Win32 API dependencies.
   Run via `ctest -C Debug` from the build directory.

@@ -15,7 +15,7 @@
 
 ## 1. How to Read This Document
 
-Each risk is assigned a unique identifier (R-01 through R-22) and rated on two dimensions:
+Each risk is assigned a unique identifier (R-01 through R-30) and rated on two dimensions:
 
 **Likelihood** — how probable is it that this risk materializes?
 - **Low:** Unlikely given current evidence, but not impossible.
@@ -198,13 +198,13 @@ These risks concern the global low-level hooks that intercept mouse and keyboard
 - **Shift+Scroll:** Used by some applications for horizontal scrolling.
 
 **Mitigation:**
-1. Win is the default modifier precisely because it has no known scroll-combination conflicts.
+1. Win was the default modifier because it has no known scroll-combination conflicts. Since 2026-10-01 the default is `Shift` (one-handed). Win remains selectable, and the Shift trade-offs are tracked as R-26 to R-30.
 2. The settings UI for alternative modifiers includes a clear warning about the trade-off (AC-2.1.21).
 3. The application never consumes scroll events when the modifier key is NOT held — this is a hard requirement (AC-2.1.02).
 
 **Contingency:** If users discover a Win+Scroll conflict with a specific application: document it and offer the alternative modifier keys. If a Win+Scroll conflict is found with a widely-used application, evaluate whether a two-key modifier (e.g., `Ctrl+Win+Scroll`) is practical as the new default.
 
-> **Implementation note:** Win is the default modifier; `Ctrl` is excluded outright as a scroll modifier (Scope §5) so Ctrl+Scroll zoom is never consumed in apps. Alternative modifiers (`Alt`, `Shift`, combos) are configurable. Residual modifier behaviors are confirmed during Phase 7 verification (see AC-2.1.19–21 reconciliation, Doc 2 §15.2).
+> **Implementation note:** `Shift` is the default modifier since 2026-10-01 (previously Win; existing configurations keep their saved modifier); `Ctrl` is excluded outright as a scroll modifier (Scope §5) so Ctrl+Scroll zoom is never consumed in apps. Alternative modifiers (`Alt`, `Shift`, combos) are configurable. Residual modifier behaviors are confirmed during Phase 7 verification (see AC-2.1.19–21 reconciliation, Doc 2 §15.2).
 
 ---
 
@@ -225,6 +225,86 @@ These risks concern the global low-level hooks that intercept mouse and keyboard
 **Contingency:** If a specific touchpad configuration produces unusable zoom behavior: add a sensitivity multiplier to the settings that the user can adjust. This is a last-resort affordance — the goal is for the default to work well on all input devices.
 
 > **Implementation note:** Partially mitigated. The input-interop P0 slice added the header-only `ScrollNormalizer` (normalizes every device's input to wheel-equivalent units, with device-range normalization and continuous sub-notch handling for precision touchpads) and the contingency's `scrollSensitivity` multiplier (0.1–5.0) now exists as a setting. Deeper per-device robustness (per-device dedup, free-spin rate clamp, momentum gating) is the deferred Phase 8.
+
+---
+
+### R-26: Shift+Scroll Is Swallowed in Every Application
+
+| Attribute | Value |
+|-----------|-------|
+| Likelihood | **High** (certain for anyone who uses Shift+Scroll) |
+| Impact | **Medium** |
+| First Exposed | Phase 7 change, 2026-10-01 (Shift became the default modifier) |
+
+**Description:** Browsers, Excel, VS Code, File Explorer and most document viewers treat `Shift`+wheel as horizontal scroll. With `Shift` as the scroll-gesture modifier, the `WH_MOUSE_LL` hook consumes every wheel event while `Shift` is held (AC-2.1.22), in every application. Horizontal scrolling by `Shift`+wheel is lost system-wide while SmoothZoom runs. Tilt wheels and two-finger horizontal swipes (`WM_MOUSEHWHEEL` without Shift) are unaffected.
+
+**Mitigation:** The trade-off is documented (Scope §2.1, AC-2.1.22). `Win` and `Alt` remain selectable for users who rely on `Shift`+Scroll. Plain, `Ctrl`+ and `Alt`+wheel always pass through (unit-tested, `test_WheelDecision.cpp`).
+
+**Contingency:** A per-application exclusion list, or a "Shift+Scroll passes through in these apps" setting. Both are out of v1.0 scope.
+
+---
+
+### R-27: A Driver or Options+ Converts Shift+Wheel to Horizontal Wheel
+
+| Attribute | Value |
+|-----------|-------|
+| Likelihood | **Low–Medium** (not seen on TEMPLAPTOP) |
+| Impact | **Medium** (zoom direction or activation wrong for that device) |
+| First Exposed | Phase 5 (Shift modifier); default since 2026-10-01 |
+
+**Description:** Some mouse drivers and utilities (Logitech Options+, some Synaptics/ELAN stacks) turn `Shift`+wheel into `WM_MOUSEHWHEEL` before low-level hooks see it, with the opposite sign convention. On TEMPLAPTOP every `Shift` gesture arrived as `WM_MOUSEWHEEL`: touchpad, Logitech Bolt wheel, and Windows Terminal, with no conversion (`bench/hardware/TEMPLAPTOP.md`).
+
+**Mitigation:** The existing Shift-only path treats `WM_MOUSEHWHEEL` as a zoom candidate when `Shift` is the modifier and negates it so scroll-up still zooms in (`WheelDecision.h`, unit-tested). It has never been exercised on real hardware. No new HWHEEL handling was added in this change.
+
+**Contingency:** Capture `--record` traces on a converting device and verify the direction. If a device converts only some events, the sign rule may need per-device handling (Phase 8).
+
+---
+
+### R-28: With Keyboard Shortcuts On, `+` and `_` Cannot Be Typed
+
+| Attribute | Value |
+|-----------|-------|
+| Likelihood | **High** whenever shortcuts are on with the Shift modifier |
+| Impact | **Medium** |
+| First Exposed | Phase 7 change, 2026-10-01 |
+
+**Description:** With `Shift` as the modifier, `Shift+=` and `Shift+-` are both the zoom shortcuts and the only way to type `+` and `_` on the main keyboard. When "Keyboard shortcuts" is on, the hook consumes those keys while `Shift` is held (the character-leak fix, AC-2.8.15), so the characters never reach any application. That includes keystrokes from macro software. The numpad `+` (`VK_ADD`) is also consumed while `Shift` is held.
+
+**Mitigation:** Shortcuts are **off** on a fresh install (AC-2.8.13), and the tray "Keyboard shortcuts" item turns them on or off instantly with no restart. Upgraded configurations default to on, so a user upgrading with a `Shift` modifier already saved will see this until they turn shortcuts off.
+
+**Contingency:** A separate shortcut modifier (e.g. `Win`+Plus while scrolling with `Shift`).
+
+---
+
+### R-29: Touchpad and Mouse Zoom Directions May Differ Under Natural Scrolling
+
+| Attribute | Value |
+|-----------|-------|
+| Likelihood | **High** on touchpads with natural scrolling on (TEMPLAPTOP's default) |
+| Impact | **Low** (confusing, not broken) |
+| First Exposed | Phase 1 |
+
+**Description:** Windows applies the touchpad's scrolling-direction setting to the `WM_MOUSEWHEEL` deltas it synthesizes. With natural scrolling on, a two-finger swipe up produces a negative delta (zoom out), while a wheel rolled away from the user produces a positive delta (zoom in). Shift+two-finger and Shift+wheel in the same physical direction can therefore zoom opposite ways. The PTP HID path (`main.cpp`) deliberately matches the hook's convention (`s_ptpNaturalScrolling`). Direction handling was not changed in this session.
+
+**Mitigation:** Documented (AC-2.1.05). The existing `reverseScrollDirection` setting flips both paths together.
+
+**Contingency:** A touchpad-only direction setting (Phase 8, input interoperability).
+
+---
+
+### R-30: Shift+Two-Finger Scroll Cannot Be Swallowed in Direct-Manipulation Apps
+
+| Attribute | Value |
+|-----------|-------|
+| Likelihood | **High** in Edge, File Explorer, Settings and other DManip apps |
+| Impact | **Medium** (the page scrolls sideways while zooming) |
+| First Exposed | Phase 1 (PTP path); more visible with Shift as the default |
+
+**Description:** In applications that take precision-touchpad input directly (Direct Manipulation: Edge, File Explorer, Settings), the two-finger gesture never reaches `WH_MOUSE_LL`. SmoothZoom sees it only through the PTP Raw Input path in `main.cpp`, which can observe but cannot consume input. So the zoom happens, and the application also receives the gesture: with `Shift` held, many of these apps scroll the page horizontally at the same time.
+
+**Mitigation:** None in v1.0 beyond documentation. The mouse wheel is consumed correctly in the same apps, because wheel input goes through the hook.
+
+**Contingency:** Investigate suppressing the gesture at the source (e.g. a per-window `DirectManipulation` interaction hook). This is research-grade, so it goes to Phase 8.
 
 ---
 
@@ -638,6 +718,11 @@ The native Windows Magnifier has this same issue — `Win+Plus`/`Win+Minus` may 
 | R-23 | Integer viewport offsets quantize the zoom anchor | High | Medium | 1 (found 7) | Performance |
 | R-24 | Cold-start stall on first transform | High | Medium | 1 (found 7) | Performance |
 | R-25 | Render/main-thread stalls while DWM idle | Low–Medium | High | 7 | Performance |
+| R-26 | Shift+Scroll swallowed in every application | High | Medium | 7 | Input |
+| R-27 | Driver/Options+ converts Shift+wheel to HWHEEL | Low–Medium | Medium | 5 | Input |
+| R-28 | `+` and `_` untypeable with shortcuts on (Shift modifier) | High | Medium | 7 | Input |
+| R-29 | Touchpad vs mouse zoom direction under natural scrolling | High | Low | 1 | Input |
+| R-30 | Shift+two-finger not swallowed in DManip apps | High | Medium | 1 | Input |
 
 ---
 

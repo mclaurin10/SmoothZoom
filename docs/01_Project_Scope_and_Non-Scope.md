@@ -6,7 +6,9 @@
 
 **Version:** 1.2
 **Status:** Baselined (v1.0 feature spec)
-**Last Updated:** 2026-06-18
+**Last Updated:** 2026-10-01
+
+> **Scope change (2026-10-01, approved during Phase 7):** `Shift` replaces `Win` as the default scroll-gesture modifier, and a persisted "Keyboard shortcuts" setting (tray menu) gates every keyboard zoom shortcut. It is off on a fresh install and on for an upgraded configuration. See §2.1, §2.8, §2.9, Doc 2 AC-2.1.22 and AC-2.8.13–15, and Doc 5 R-26 to R-30.
 
 > **Status (2026-06-18):** All in-scope features are implemented, integrated, and merged — Phases 0–6 complete. The project is in **Phase 7 — v1.0 Release Verification & Certification** (`07_v1.0_Release_Verification_PRD.md`). Image smoothing toggle (AC-2.3.08, 2.3.09, 2.9.07) remains formally deferred to post-v1 — depends on Desktop Duplication API (R-01). Two scroll-tuning settings (`scrollSensitivity`, `momentumZoom`) landed early as part of the input-interoperability P0 slice; the rest of that work is the deferred Phase 8. No other scope changes.
 
@@ -40,13 +42,13 @@ Each feature is described from the user's perspective. These descriptions are th
 
 ### 2.1 Scroll-Gesture Zoom
 
-The user holds the `Win` key and scrolls the mouse wheel or performs a two-finger vertical swipe on a precision touchpad. The screen zooms in or out smoothly, centered on the pointer's current position. Faster scrolling produces faster zoom changes. Releasing the `Win` key stops zoom changes but the screen remains at whatever zoom level it has reached. When `Win` is not held, scroll events pass through to applications normally with no interference.
+The user holds the modifier key (default `Shift`) and scrolls the mouse wheel or performs a two-finger vertical swipe on a precision touchpad. The screen zooms in or out smoothly, centered on the pointer's current position. Faster scrolling produces faster zoom changes. Releasing the modifier stops zoom changes but the screen remains at whatever zoom level it has reached. When the modifier is not held, scroll events pass through to applications normally with no interference.
 
 **Key behavioral details:**
 
-- The default modifier key is `Win` (the Windows logo key, virtual key codes `VK_LWIN` / `VK_RWIN`). Alternative options configurable in settings: `Ctrl`, `Alt`, `Shift`, and two-key combinations of these.
-- `Win+Scroll` has no known conflicts with any mainstream Windows application or built-in OS behavior, making it an ideal default.
-- **Start Menu suppression:** Pressing and releasing the `Win` key by itself normally opens the Start Menu. When SmoothZoom detects that a scroll event was consumed while `Win` was held, it must suppress the Start Menu activation on key release. This is a well-established technique used by tools such as PowerToys and AutoHotkey, typically accomplished by injecting a no-op keypress (e.g., a phantom `VK_NONAME` or `Ctrl` down/up) before the `Win` key-up event reaches the shell.
+- The default modifier key is `Shift` (`VK_LSHIFT` / `VK_RSHIFT`). Alternatives configurable in settings: `Win` and `Alt` (`Ctrl` is excluded, see §5). A fresh install uses `Shift`; an existing configuration keeps its saved modifier.
+- `Shift` was chosen as the one-handed default. Its trade-off: `Shift+Scroll` is horizontal scroll in browsers and Excel, and SmoothZoom consumes it in every application (Doc 5 R-26). `Win+Scroll` remains available for users who need `Shift+Scroll`. The `Shift` key itself is never consumed.
+- **Start Menu suppression (only when `Win` is the modifier):** Pressing and releasing the `Win` key by itself normally opens the Start Menu. When SmoothZoom detects that a scroll event was consumed while `Win` was held, it must suppress the Start Menu activation on key release. This is a well-established technique used by tools such as PowerToys and AutoHotkey, typically accomplished by injecting a no-op keypress (e.g., a phantom `VK_NONAME` or `Ctrl` down/up) before the `Win` key-up event reaches the shell.
 - Scroll events are consumed (not forwarded to applications) only while the modifier key is held.
 - The zoom center point is the pointer's screen position at the moment each scroll event arrives. If the user moves the pointer while scrolling, the zoom center tracks with it.
 - Zoom level is bounded by a configurable minimum (default: 1.0×, i.e., normal size) and maximum (default: 10.0×). The user cannot scroll past either bound.
@@ -124,11 +126,14 @@ In addition to scroll-gesture zoom, the application provides keyboard shortcuts 
 
 | Action | Default Binding |
 |--------|----------------|
-| Zoom in one step | `Win + Plus` |
-| Zoom out one step | `Win + Minus` |
-| Toggle zoom off | `Win + Esc` |
-| Open settings | `Win + Ctrl + M` |
+| Zoom in one step | `Modifier + Plus` (`Shift + =` by default) |
+| Zoom out one step | `Modifier + Minus` (`Shift + -` by default) |
+| Toggle zoom off | `Modifier + Esc` |
+| Open settings | `Win + Ctrl + M` (always available) |
 | Temporary zoom toggle | `Ctrl + Alt` (hold) |
+| Toggle color inversion | `Ctrl + Alt + I` |
+
+All of these except `Win + Ctrl + M` work only while the **"Keyboard shortcuts"** setting is on. With `Shift` as the modifier, `Shift + =` and `Shift + -` are how `+` and `_` are typed, so the setting is off on a fresh install. It is on for an upgraded configuration, so existing users keep their shortcuts. It is toggled from the tray menu.
 
 **Key behavioral details:**
 
@@ -144,7 +149,8 @@ The application provides a settings interface accessible via a system tray icon 
 
 | Setting | Default | Range / Options |
 |---------|---------|-----------------|
-| Scroll-gesture modifier key | `Win` | `Win`, `Ctrl`, `Alt`, `Shift`, two-key combos |
+| Scroll-gesture modifier key | `Shift` | `Shift`, `Win`, `Alt` (`Ctrl` excluded) |
+| Keyboard shortcuts | Off (fresh install); On (upgraded config) | On / Off (tray menu; gates all zoom shortcuts except `Win+Ctrl+M`) |
 | Temporary toggle key combo | `Ctrl+Alt` | Any two-key modifier combo |
 | Minimum zoom level | 1.0× | 1.0× to 5.0× |
 | Maximum zoom level | 10.0× | 2.0× to 10.0× |
@@ -163,7 +169,7 @@ The application provides a settings interface accessible via a system tray icon 
 **Key behavioral details:**
 
 - Settings are persisted to a local configuration file (`%AppData%\SmoothZoom\config.json` or equivalent). No registry writes are required for basic operation.
-- The system tray icon provides quick access to: open settings, toggle zoom on/off, and exit the application.
+- The system tray icon provides quick access to: open settings, toggle zoom on/off, turn keyboard shortcuts on/off, and exit the application.
 - Settings changes take effect immediately — no restart required.
 
 ### 2.10 Color Inversion
