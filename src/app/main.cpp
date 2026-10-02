@@ -163,9 +163,14 @@ static bool queryTouchpadNaturalScrolling()
 
 // ── Dirty-Shutdown Sentinel Helpers (R-14) ──────────────────────────────────
 
+// config.json location: %APPDATA%\SmoothZoom\ normally; dev-tools builds
+// accept --config <path> so test and bench runs never touch the user's file.
+// The log and the .running sentinel live next to whichever file is used.
+static std::string resolveConfigPath();
+
 static std::filesystem::path getSentinelPath()
 {
-    std::string configPath = SmoothZoom::SettingsManager::getDefaultConfigPath();
+    std::string configPath = resolveConfigPath();
     if (configPath.empty())
         return {};
     return std::filesystem::path(configPath).parent_path() / ".running";
@@ -446,6 +451,26 @@ static bool devPumpMessages();
 #else
 static bool devUnattended() { return false; }
 #endif
+
+static std::string resolveConfigPath()
+{
+#ifdef SMOOTHZOOM_DEV_TOOLS
+    std::string overridePath = SmoothZoom::DevTools::configOverridePath();
+    if (!overridePath.empty())
+        return overridePath;
+#endif
+    return SmoothZoom::SettingsManager::getDefaultConfigPath();
+}
+
+// --bench skips config.json unless --config names one explicitly.
+static bool devConfigExplicit()
+{
+#ifdef SMOOTHZOOM_DEV_TOOLS
+    return !SmoothZoom::DevTools::configOverridePath().empty();
+#else
+    return false;
+#endif
+}
 
 // ── PTP HID Device Initialization ────────────────────────────────────────────
 // Called once per device when the first HID report arrives. Parses the device's
@@ -1315,7 +1340,7 @@ int WINAPI wWinMain(
     // Register observers BEFORE loading so the initial load triggers them.
     g_settingsManager.addObserver(publishToSharedState, &g_sharedState);
     SmoothZoom::InputInterceptor::registerSettingsObserver(g_settingsManager);
-    g_configPath = SmoothZoom::SettingsManager::getDefaultConfigPath();
+    g_configPath = resolveConfigPath();
 
     // ── 0c½. Initialize file logging alongside config.json ──────────────────
     if (!g_configPath.empty())
@@ -1325,9 +1350,11 @@ int WINAPI wWinMain(
     }
 
     // --bench runs on built-in defaults so baselines don't drift with the
-    // user's config.json (and never writes it back).
-    if (!g_configPath.empty() && !devUnattended())
+    // user's config.json (and never writes it back), unless --config names a
+    // file explicitly; then that file is loaded (still never written).
+    if (!g_configPath.empty() && (!devUnattended() || devConfigExplicit()))
         g_settingsManager.loadFromFile(g_configPath.c_str());
+    SZ_LOG_INFO("Main", L"Config: %S", g_configPath.c_str());
     // Ensure SharedState has settings even if load failed (defaults apply):
     {
         auto snap = g_settingsManager.snapshot();

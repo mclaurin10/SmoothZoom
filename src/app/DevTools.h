@@ -53,8 +53,15 @@ enum ExitCode : int
 // Parse the process command line. Returns false (and fills err) on bad args.
 bool parseCommandLine(std::wstring& err);
 Mode mode();
-// Bench mode suppresses modal dialogs and does not load/save config.json.
+// Bench mode suppresses modal dialogs and never saves config.json. It loads
+// built-in defaults unless --config names a file.
 bool unattended();
+
+// --config <path>: use this config.json instead of %APPDATA%\SmoothZoom\.
+// smoothzoom.log and the .running sentinel go next to it, so test and bench
+// runs never touch the user's real files. Empty when not given. Returned in
+// the narrow (ANSI) form SettingsManager takes.
+std::string configOverridePath();
 
 // Called once early in WinMain (after the single-instance check). Creates the
 // quit event and the watchdog thread. emergencyReset is invoked from the

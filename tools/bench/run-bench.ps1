@@ -6,6 +6,10 @@
 #   tools\bench\run-bench.ps1 -All -Runs 3 -OutRoot bench\results\baseline-TEMPLAPTOP
 #
 # Each run:   SmoothZoom.exe --bench <trace> --out <dir>\<trace>\run<N> --timeout <s>
+#                            --config <dir>\<trace>\run<N>\config.json
+# The --config file does not exist, so the run uses built-in defaults (as
+# before), and smoothzoom.log + the .running sentinel land in the run folder:
+# a bench never reads or writes %APPDATA%\SmoothZoom\.
 # After an abnormal exit (non-zero, timeout, kill) it runs `SmoothZoom.exe --reset`
 # so the screen is never left magnified (R-14). Writes <dir>\aggregate.json:
 # for every trace, each metric's median across runs plus the per-run values.
@@ -60,7 +64,8 @@ foreach ($t in $Trace) {
     for ($r = 1; $r -le $Runs; $r++) {
         $dir = Join-Path $OutRoot "$name\run$r"
         New-Item -ItemType Directory -Force $dir | Out-Null
-        $a = @('--bench', "`"$tPath`"", '--out', "`"$dir`"", '--timeout', "$TimeoutSec")
+        $a = @('--bench', "`"$tPath`"", '--out', "`"$dir`"", '--timeout', "$TimeoutSec",
+               '--config', "`"$(Join-Path $dir 'config.json')`"")
         if ($Label) { $a += @('--label', "`"$Label`"") }
         if ($NoCursor) { $a += '--no-cursor' }
         $res = Invoke-SzDev $a ($TimeoutSec + 20)

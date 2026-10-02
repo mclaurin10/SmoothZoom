@@ -75,6 +75,7 @@ static bool         s_moveCursor = true;
 static bool         s_cold = false;      // --cold: no warm-up (measure the first-gesture stall)
 static int          s_settleMs = 750;
 static std::wstring s_label;
+static std::wstring s_configPath;   // --config
 
 static std::atomic<int>  s_exitCode{kExitOk};
 static std::atomic<bool> s_abort{false};
@@ -128,6 +129,7 @@ bool parseCommandLine(std::wstring& err)
         else if (a == L"--no-cursor")   { s_moveCursor = false; }
         else if (a == L"--cold")        { s_cold = true; }
         else if (a == L"--label")       { s_label = need(i); }
+        else if (a == L"--config")      { s_configPath = need(i); }
         else { err = L"unknown argument: " + a; ok = false; }
     }
     if (ok && s_mode == Mode::Bench && s_outDir.empty()) { err = L"--bench needs --out <dir>"; ok = false; }
@@ -138,6 +140,15 @@ bool parseCommandLine(std::wstring& err)
 
 Mode mode() { return s_mode; }
 bool unattended() { return s_mode == Mode::Bench; }
+
+std::string configOverridePath()
+{
+    if (s_configPath.empty())
+        return {};
+    std::error_code ec;
+    std::filesystem::path p = std::filesystem::absolute(std::filesystem::path(s_configPath), ec);
+    return (ec ? std::filesystem::path(s_configPath) : p).string();
+}
 void setExitCode(int code) { s_exitCode.store(code); }
 int exitCode() { return s_exitCode.load(); }
 
