@@ -912,41 +912,51 @@ No component boundary moves. `Magnification.h` stays confined to MagBridge (the 
 
 `include/smoothzoom/input/WheelDecision.h` holds the `WM_MOUSEWHEEL`/`WM_MOUSEHWHEEL` decision as a pure, header-only function: `wheelIsZoomCandidate`, `decideWheel` → `{consume, accumulatorDelta, markWinUsedForZoom}`, and `modifierHeldFromState`. The mouse hook calls it, and `--bench` calls the same function through `InputInterceptor::devInjectWheel`, so replay and live input cannot diverge. It is behavior-preserving: the modifier test is still evaluated lazily (horizontal wheel only with a Shift modifier), and int16 negation matches the old code (`tests/unit/test_WheelDecision.cpp`). The keyboard hook's shortcut decisions were extracted the same way into `KeyDecision.h` (2026-10-01, `tests/unit/test_KeyDecision.cpp`).
 
-### 7.4 Bench Metrics (`summary.json`) and Gate Criteria
+### 7.4 Bench Metrics and Gate Criteria (yardstick v2, frozen at tag `loop-start`)
 
-A **gesture** is a run of consumed inputs with no gap over 100 ms. Its **active refresh range** runs from the refresh of its first transform update to the refresh of its last. A refresh index is computed as `cRefresh + floor((t − qpcVBlank) / period)`. Metrics exclude the warm-up.
+A **gesture** is a run of consumed inputs with no gap over 100 ms, grouped on the trace's own timestamps (identical in every run). Its **active refresh range** runs from the refresh of its first transform update to the refresh of its last. A refresh index is `cRefresh + floor((t − qpcVBlank) / period)`. Metrics exclude the warm-up.
 
-| Metric | Definition |
+Two producers:
+- **`summary.json`** (app, `DevTools.cpp`): run validity, tick cadence, `MagSetFullscreenTransform` call cost, cold start, round trip, plus the original pacing/latency/anchor numbers (informational since v2).
+- **`derived.json`** (`tools/bench/derive.py`, run by `run-bench.ps1` after every run): every pacing, latency and anchor metric the gate judges. It works from the raw `frames.csv`/`events.csv` columns, so app code under tuning cannot change how it is scored. Applied zoom and offsets are the **`MagGetFullscreenTransform` read-back** (`rb_zoom`, `rb_x`, `rb_y`), not a model of MagBridge's conversion.
+
+| Metric (`derived.`) | Definition |
 |---|---|
-| `update_interval_ms` / `_periods` | Gap between consecutive transform updates within a gesture (p50/p95/p99/max), in ms and in refresh periods |
-| `refreshes.missed` / `missed_pct` | Refreshes in an active range with no transform update |
-| `refreshes.multi_update` | Refreshes that received more than one update |
-| `tick_interval_ms`, `late_ticks` | Render-loop frame cadence; ticks later than 1.5 periods |
-| `vblank_phase_ms` | When in the refresh interval each update is issued |
-| `set_call_ms`, `cold_start` | Duration of the `MagSetFullscreenTransform` call; first-transform stall in the warm-up (R-24) |
-| `anchor_error_px` | `‖ideal − applied‖ × zoom` in physical px, for pointer-source updates. *ideal* is the float proportional offset from the raw cursor, *applied* the ints sent to the API. Split into `anchor_quantization_px` (truncation, R-23) and `anchor_deadzone_px` |
-| `roundtrip` | Zoom at trace `MARK 2` ÷ zoom at `MARK 1` − 1 |
-| `latency_ms.input_to_update` | Input injection → first transform update at or after it |
-| `latency_ms.input_to_next_vblank` | Input injection → the vblank after that update completes (lower bound on photon latency) |
-| `settle_ms` | Last input of a gesture → its last transform update |
+| `gesture.refreshes.missed_pct`, `.multi_update` | Refreshes in an active range with no update / with more than one. **Bound-aware:** refreshes where the zoom is pinned at 1× or 10× (displayed and target both at the bound) are not scored |
+| `gesture.update_interval_periods` | Gap between consecutive updates within a gesture, in refresh periods; intervals that start pinned at a bound are not scored |
+| `gesture.latency_ms.input_to_update` / `.input_to_next_vblank` | Input injection → first update at or after it / → the vblank after that update completes. Inputs that left ZoomController's target unchanged (pushing into a bound) are not scored |
+| `gesture.settle_ms` | Last effective input of a gesture → its last update |
+| `gesture.zoom_wobble.pct` | Direction reversals of the displayed zoom (step ≥ 0.01 %) inside a gesture while the input direction did not change, per moving update pair |
+| `gesture.half_response_ms` | Isolated input step (no target change in the previous 50 ms): input → first update that has covered half of the log-zoom step |
+| `anchor_rel` | Anchor error relative to the whole-pixel floor: the larger over both axes of abs(ideal − applied) ÷ 0.5, in desktop px. *ideal* = committed pointer × (1 − 1/zoom), with RenderLoop's deadzone re-simulated from the raw cursor (deliberate deadzone lag is reported separately as `anchor_deadzone_px`). 1.0 = rounding; truncation reaches 2.0 |
+| `anchor_snapback.pct` | Per still-pointer update pair in a gesture: the anchor's on-screen error `e = zoom·(ideal−applied)` moves ≥ 1 physical px opposite to its previous ≥ 1 px move, on either axis |
+| `stall.r25` | R-25 signature: render-tick gap ≥ 100 ms **and** DWM `cRefresh` advanced < half the expected refreshes **and** an input scheduled inside the gap was injected ≥ 50 ms late (main thread paused too) |
+| `env.ok` | DWM reported refresh timing during the run |
 
-`bench/criteria.json` thresholds are derived from the refresh period *P* (16.667 ms on TEMPLAPTOP AC) and from what smooth motion requires. They are **not** derived from the baseline:
+**Gate procedure** (`tools/bench/gate.ps1`): environment pre-flight (session unlocked, display on, DWM timing; else exit 3) → build/sign/deploy/unit tests → every trace × 5 runs (`-Quick`: 1). A run with the R-25 signature is set aside and rerun up to twice; if stalls recur (all three attempts, or more than 3 runs in total), the result is an **environment** error (exit 3), not a code failure. Distributions are judged on the **median of the runs**, so a bimodal metric cannot flip the result; run-validity invariants use the worst run. Exit 0 pass, 2 fail, 3 environment.
 
-| Id | Threshold | Rationale |
-|---|---|---|
-| C-01–C-04 | completed, UIAccess, 0 failed updates, 0 dropped samples | Validity of the run (R-12: without UIAccess the API fails silently) |
-| C-05 | missed ≤ 1% | Smooth motion = a new zoom value every refresh while a gesture is in progress (AC-2.2.02/03) |
-| C-06 | 0 refreshes with >1 update | DWM composes once per refresh; a second update hides the first, so steps become uneven |
-| C-07 / C-08 | interval p95 ≤ 1.10 P, max ≤ 1.5 P | One refresh between updates (10% for DwmFlush wake jitter); never a 2-refresh hole |
-| C-09 | 0 late ticks | No render-loop hitch (AC-2.3.10) |
-| C-10 | set call ≤ 2 ms | Small fraction of the frame budget |
-| C-11 | cold start ≤ P | The first zoom must also land on the next frame (AC-2.2.01, R-24) |
-| C-12 / C-13 | input→update p95 ≤ P (+0.3 ms); input→next vblank p95 ≤ 2 P | AC-2.2.01; R-03 tolerable bound |
-| C-14 | settle ≤ 100 ms | No perceptible catch-up (AC-2.2.03, AC-2.4.08); below the AC-2.2.04 animation band |
-| C-15 / C-16 | anchor p95 ≤ 0.5 px, max ≤ 1 px | The point under a stationary pointer must not visibly move (AC-2.1.09–11, R-23) |
-| C-17 | round trip ≤ 0.1 % | In-band scroll in/out by equal input returns to the same zoom (AC-2.1.06, R-17) |
+`bench/criteria.json` (schema 2). Thresholds come from the refresh period *P* (16.667 ms on TEMPLAPTOP AC) and from what smooth zoom requires; anchor/snap-back thresholds were calibrated on the 2026-10-01 logs against what simple rounding scores.
 
-Aggregation over N runs: invariants use the worst run; distributions use the median.
+| Id | Metric | Threshold | Agg | Rationale |
+|---|---|---|---|---|
+| C-01–C-04 | completed, UIAccess, 0 failed updates, 0 dropped samples | — | worst | Run validity (R-12) |
+| C-05 | `gesture.refreshes.missed_pct` | ≤ 1 % | median | A new zoom value every refresh while a gesture is in motion (AC-2.2.02/03) |
+| C-06 | `gesture.refreshes.multi_update` | 0 | median | A second update in one refresh is never shown, so steps become uneven |
+| C-07 / C-08 | `gesture.update_interval_periods` p95 / max | ≤ 1.10 P / ≤ 1.5 P | median | One refresh apart (10 % DwmFlush jitter); never a 2-refresh hole. With C-14 this asks wheel motion to keep moving ~90–100 ms after a notch (recorded notch gaps reach 97 ms) |
+| C-09 | `late_ticks` | 0 | median | No render-loop hitch (AC-2.3.10) |
+| C-10 | `set_call_ms.max` | ≤ 2 ms | median | Small fraction of the frame |
+| C-11 | `cold_start.max_set_call_ms` | ≤ P | median | First zoom after launch lands on the next frame (AC-2.2.01, R-24) |
+| C-12 / C-13 | `gesture.latency_ms` input→update p95 / input→next vblank p95 | ≤ 17.0 ms / ≤ 33.4 ms | median | AC-2.2.01; at most two periods input-to-photon (R-03) |
+| C-14 | `gesture.settle_ms.max` | ≤ 100 ms | median | No perceptible catch-up (AC-2.2.03) |
+| C-15 / C-16 | `anchor_rel` p95 / max | ≤ 1.0 / ≤ 1.01 | median | At or below the rounding floor (rounding scores 0.94–0.98 / ≤ 1.000; truncation 1.76–1.96 / ~2.0). AC-2.1.09–11, R-23 |
+| C-17 | `roundtrip_error_pct_max` | ≤ 0.1 % | worst | AC-2.1.06, R-17 |
+| C-18 | `anchor_snapback.pct` | ≤ 15 % | median | Stricter than rounding (13–51 %); a monotone zoom nudge ≤ 0.5 % reached 0–11 % in simulation |
+| C-19 | `gesture.zoom_wobble.pct` | ≤ 0.5 % | median | Guard for C-18: no zoom pumping (baseline 0 %; a free per-frame nudge scored 1–21 %) |
+| C-20 | `gesture.half_response_ms.p95` | ≤ 40 ms | median | Guard for C-05/07/08: smoothing must not buy pacing with lag (baseline 4–16 ms) |
+| C-21 / C-22 | touchpad traces: input→update p95 / input→next vblank p95 | ≤ 16.5 ms / ≤ 31.7 ms | median | Touchpad latency no worse than baseline (15.7–16.1 / 30.8–31.2 ms), AC-2.2.03 |
+| C-23 | touchpad traces: `gesture.half_response_ms.p95` | ≤ 16.7 ms | median | Touchpad stays effectively direct (baseline 4–14 ms) |
+
+Baseline under v2 (`e90ca18`, before tuning): 49 of 172 checks fail, all in four families: stepping (C-05/07/08), cold start (C-11), anchor (C-15/16) and snap-backs (C-18).
 
 ### 7.5 Trace Format
 

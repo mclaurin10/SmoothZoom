@@ -30,6 +30,8 @@ function Invoke-SzEvaluate([string]$AggregatePath, [string]$CriteriaPath) {
     foreach ($tp in $agg.traces.PSObject.Properties) {
         $runs = @($tp.Value.runs)
         foreach ($c in $crit.criteria) {
+            # Optional "traces": regex on the trace name; the criterion applies only to matching traces.
+            if ($c.PSObject.Properties["traces"] -and $c.traces -and ($tp.Name -notmatch $c.traces)) { continue }
             $vals = @($runs | ForEach-Object { Get-SzMetric $_ $c.metric })
             $nonNull = @($vals | Where-Object { $null -ne $_ })
             $row = [ordered]@{ Trace = $tp.Name; Id = $c.id; Metric = $c.metric; Op = $c.op; Threshold = $c.value;

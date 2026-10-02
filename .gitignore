@@ -42,3 +42,6 @@ desktop.ini
 
 # Bench scratch runs (baselines are committed under bench/baseline/)
 bench/results/
+
+# Tuning-loop marker (tools/bench/stop-gate.ps1 is active only while it exists)
+bench/.loop-active

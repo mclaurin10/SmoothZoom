@@ -13,6 +13,8 @@
 
 > **Change (2026-10-01, approved scope during Phase 7):** `Shift` is now the default scroll-gesture modifier, and a persisted **"Keyboard shortcuts"** setting (tray menu) gates every keyboard zoom shortcut. Six ACs were added: **AC-2.1.22–24** and **AC-2.8.13–15**, for a total of **145** (AC-2.1.23/24, Sticky Keys, added the same day after R-31 was observed). Reworded to match: AC-2.1.01–05, AC-2.1.19–21, AC-2.2.04/06/07, AC-2.8.01–12, AC-2.9.14 and AC-2.10.01. Related risks: R-26 to R-31 (Doc 5).
 
+> **Change (2026-10-01, smoothness tuning, approved before the loop started):** **AC-2.2.03** reworded. Scroll zoom was "direct, not an animated transition"; it is now "tightly coupled to input": touchpad input stays effectively direct, while whole-notch wheel input is smoothed in log-zoom space toward the accumulated target, within the bench bounds C-14, C-19, C-20 and C-21–C-23 (Doc 3 §7.4). The AC count is unchanged (145).
+
 ---
 
 ## 1. Purpose of This Document
@@ -101,7 +103,10 @@ Where a criterion involves timing, distances, or thresholds, the stated value is
 
 **AC-2.2.02** — During scroll-gesture zoom, there are no visible frame drops, stutters, or momentary freezes under normal desktop workloads (web browser, text editor, file explorer, and system tray active simultaneously).
 
-**AC-2.2.03** — Scroll-gesture zoom is direct and continuous — the zoom level is the accumulated result of scroll input, not an animated transition to a target. There is no perceptible "lag behind" or "catch-up" effect.
+**AC-2.2.03** — Scroll-gesture zoom stays tightly coupled to input. The *target* zoom is always the accumulated result of scroll input (AC-2.1.06), and the displayed zoom follows it with no perceptible "lag behind" or "catch-up" effect:
+- **Continuous, high-resolution input** (precision-touchpad scrolling and other sub-notch deltas) is applied effectively directly: each input is at least half applied by the first frame after it, and its latency is no worse than applying it in one step.
+- **Whole-notch input** (detented and free-spin wheels, in multiples of 120) is *smoothed* in log-zoom space, so a notch spreads over several refreshes instead of landing as a single step. This is continuous smoothing toward the moving target, not a fixed-duration animation: each new notch moves the target and the smoothing carries on toward it without pausing, reversing or restarting.
+- **Bounds** (measured by the smoothness bench, Doc 3 §7.4): the zoom comes to rest within 100 ms of the last input (C-14); an isolated input is at least half applied within 40 ms (C-20); touchpad latency and response are no worse than direct application (C-21–C-23); the displayed zoom never reverses direction unless the input does (C-19).
 
 ### 3B. Keyboard-Shortcut Animation
 
