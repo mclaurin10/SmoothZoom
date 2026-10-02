@@ -76,6 +76,7 @@ static bool         s_cold = false;      // --cold: no warm-up (measure the firs
 static int          s_settleMs = 750;
 static std::wstring s_label;
 static std::wstring s_configPath;   // --config
+static bool         s_openSettings = false;   // --open-settings
 
 static std::atomic<int>  s_exitCode{kExitOk};
 static std::atomic<bool> s_abort{false};
@@ -130,6 +131,7 @@ bool parseCommandLine(std::wstring& err)
         else if (a == L"--cold")        { s_cold = true; }
         else if (a == L"--label")       { s_label = need(i); }
         else if (a == L"--config")      { s_configPath = need(i); }
+        else if (a == L"--open-settings") { s_openSettings = true; }
         else { err = L"unknown argument: " + a; ok = false; }
     }
     if (ok && s_mode == Mode::Bench && s_outDir.empty()) { err = L"--bench needs --out <dir>"; ok = false; }
@@ -140,6 +142,7 @@ bool parseCommandLine(std::wstring& err)
 
 Mode mode() { return s_mode; }
 bool unattended() { return s_mode == Mode::Bench; }
+bool openSettingsAtStart() { return s_openSettings; }
 
 std::string configOverridePath()
 {

@@ -1660,6 +1660,10 @@ int WINAPI wWinMain(
     // ── 2d. Create tray icon (Phase 5C: AC-2.9.13–16) ──────────────────────
     g_trayUI.create(hInstance, g_msgWindow, g_sharedState, g_settingsManager,
                     g_configPath.c_str());
+#ifdef SMOOTHZOOM_DEV_TOOLS
+    if (SmoothZoom::DevTools::openSettingsAtStart())
+        g_trayUI.showSettingsWindow();
+#endif
 
     // Start tray icon zoom-state polling timer
     if (g_msgWindow)

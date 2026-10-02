@@ -15,6 +15,7 @@
 //   --selfkill-ms <ms>          TerminateProcess after <ms> (kill-mid-zoom test)
 //   --no-cursor                 bench: do not move the cursor to trace positions
 //   --settle-ms <ms>            bench: quiet time after the last event (default 750)
+//   --open-settings             open the settings window at launch (screenshots)
 //
 // Every dev-tools build also creates the named quit event
 // Local\SmoothZoom.DevTools.Quit (signalled by tools\deploy.ps1) so a medium-IL
@@ -57,6 +58,8 @@ Mode mode();
 // Bench mode suppresses modal dialogs and never saves config.json. It loads
 // built-in defaults unless --config names a file.
 bool unattended();
+// --open-settings: open the settings window at launch (tools\capture-settings.ps1).
+bool openSettingsAtStart();
 
 // --config <path>: use this config.json instead of %APPDATA%\SmoothZoom\.
 // smoothzoom.log and the .running sentinel go next to it, so test and bench
