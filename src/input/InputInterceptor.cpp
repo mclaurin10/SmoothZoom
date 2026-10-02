@@ -15,6 +15,7 @@
 #include "smoothzoom/input/WinKeyManager.h"
 #include "smoothzoom/input/ModifierUtils.h"
 #include "smoothzoom/input/WheelDecision.h"
+#include "smoothzoom/input/KeyDecision.h"
 #include "smoothzoom/common/AppMessages.h"
 #include "smoothzoom/common/SharedState.h"
 #include "smoothzoom/common/Types.h"
@@ -293,6 +294,23 @@ static LRESULT CALLBACK keyboardHookProc(int nCode, WPARAM wParam, LPARAM lParam
     if (info->vkCode == 'I' && isUp)
         s_invertChordDown = false;
 
+    // Modifier+key zoom shortcuts (Phase 2: AC-2.8.01–AC-2.8.10, Phase 5B: AC-2.1.19).
+    // Uses the configurable modifier — not hardcoded to Win. See KeyDecision.h.
+    const KeyDecision kd = decideShortcutKey(
+        static_cast<int>(info->vkCode), isDown, isUp,
+        (info->flags & LLKHF_INJECTED) != 0,
+        s_modifierKeyVK, isConfiguredModifierHeld(), /*shortcutsEnabled*/ true);
+
+    switch (kd.action)
+    {
+    case ShortcutAction::ZoomIn:    s_state->commandQueue.push(ZoomCommand::ZoomIn);    break;
+    case ShortcutAction::ZoomOut:   s_state->commandQueue.push(ZoomCommand::ZoomOut);   break;
+    case ShortcutAction::ResetZoom: s_state->commandQueue.push(ZoomCommand::ResetZoom); break;
+    case ShortcutAction::None:      break;
+    }
+    if (kd.markWinUsedForZoom)
+        s_winKeyMgr.markUsedForZoom();
+
     if (isDown)
     {
         // Record keyboard activity timestamp (for caret tracking priority — Phase 3)
@@ -319,32 +337,6 @@ static LRESULT CALLBACK keyboardHookProc(int nCode, WPARAM wParam, LPARAM lParam
             && info->vkCode != VK_ESCAPE && info->vkCode != 'M')
         {
             s_winKeyMgr.markUsedWithOtherKey();
-        }
-
-        // Modifier+key shortcuts (Phase 2: AC-2.8.01–AC-2.8.10, Phase 5B: AC-2.1.19)
-        // Uses configurable modifier — not hardcoded to Win key.
-        bool modHeld = isConfiguredModifierHeld();
-        if (modHeld)
-        {
-            switch (info->vkCode)
-            {
-            case VK_OEM_PLUS:   // '=' / '+' on main keyboard
-            case VK_ADD:        // '+' on numpad
-                s_state->commandQueue.push(ZoomCommand::ZoomIn);
-                if (isWinModifier()) s_winKeyMgr.markUsedForZoom();
-                break;
-
-            case VK_OEM_MINUS:  // '-' on main keyboard
-            case VK_SUBTRACT:   // '-' on numpad
-                s_state->commandQueue.push(ZoomCommand::ZoomOut);
-                if (isWinModifier()) s_winKeyMgr.markUsedForZoom();
-                break;
-
-            case VK_ESCAPE:
-                s_state->commandQueue.push(ZoomCommand::ResetZoom);
-                if (isWinModifier()) s_winKeyMgr.markUsedForZoom();
-                break;
-            }
         }
 
         // Win+Ctrl+M → open settings (AC-2.8.11)
@@ -380,35 +372,21 @@ static LRESULT CALLBACK keyboardHookProc(int nCode, WPARAM wParam, LPARAM lParam
         // exit mechanism (AC-2.9.16); no AC mandates a keyboard exit.
     }
 
-    // Consume zoom-in/zoom-out action keys when the configured modifier is held.
-    // Required for non-Win modifiers (e.g., Shift) where Shift+= produces '+' and
-    // Shift+- produces '_', leaking into focused text fields. Also required for
-    // peripheral macros (Logitech Options+, AHK, etc.) that send Shift+=/Shift+-
-    // via SendInput — those events have LLKHF_INJECTED set but must still be
-    // consumed, otherwise the character leaks into the focused app. The zoom
-    // command was already posted above (lines 278-299) on key-down; this gate
-    // blocks the keystroke from reaching applications on BOTH key-down and key-up.
+    // Consume the zoom-in/zoom-out keys (decided above) on BOTH key-down and
+    // key-up while the configured modifier is held. Required for non-Win
+    // modifiers (e.g., Shift) where Shift+= produces '+' and Shift+- produces '_',
+    // leaking into focused text fields, and for peripheral macros (Logitech
+    // Options+, AHK, etc.) that send Shift+=/Shift+- via SendInput with
+    // LLKHF_INJECTED set — those are consumed too (no injected guard for these
+    // four keys; see KeyDecision.h).
     //
     // Why only zoom-in/out (not Esc/settings/toggle/inversion):
     //   - VK_ESCAPE produces no character — safe to pass through (apps may need it).
     //   - Win+Ctrl+M, Ctrl+Alt+I, Ctrl+Alt toggle — all use Ctrl/Alt/Win
     //     which never produce printable characters. Consuming them could break
     //     standard app behavior (e.g., Esc closing dialogs).
-    //
-    // No LLKHF_INJECTED guard: WinKeyManager only injects VK_CONTROL, never any
-    // of the four zoom keys below, so consuming injected variants is safe and
-    // required for peripheral-macro use cases.
-    if ((isDown || isUp) && isConfiguredModifierHeld())
-    {
-        switch (info->vkCode)
-        {
-        case VK_OEM_PLUS:   // '=' / '+' on main keyboard
-        case VK_ADD:        // '+' on numpad
-        case VK_OEM_MINUS:  // '-' on main keyboard
-        case VK_SUBTRACT:   // '-' on numpad
-            return 1;       // Consume — prevent character insertion
-        }
-    }
+    if (kd.consume)
+        return 1;   // Consume — prevent character insertion
 
     // Never consume non-zoom keyboard events (Doc 3 §3.1, AC-2.1.18)
     return CallNextHookEx(s_keyboardHook, nCode, wParam, lParam);

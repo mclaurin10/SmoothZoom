@@ -31,16 +31,6 @@ struct WheelDecision
     bool    markWinUsedForZoom = false; // WinKeyManager::markUsedForZoom() (AC-2.1.16)
 };
 
-inline bool isWinModifierVK(int modifierVK)
-{
-    return modifierVK == VK_LWIN || modifierVK == VK_RWIN;
-}
-
-inline bool isShiftModifierVK(int modifierVK)
-{
-    return modifierVK == VK_LSHIFT || modifierVK == VK_RSHIFT || modifierVK == VK_SHIFT;
-}
-
 // Whether the hook needs to evaluate modifier state for this message at all.
 // WM_MOUSEHWHEEL is only ever a zoom candidate when Shift is the modifier
 // (Windows/drivers may convert Shift+Scroll into horizontal scroll, R-07);
