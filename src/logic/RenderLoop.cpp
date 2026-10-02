@@ -608,7 +608,10 @@ void RenderLoop::frameTick()
     //      exact zoom is shown, so resting levels and round trips are unchanged.
     const float trueZoom = zoom;
     const bool trueZoomChanged = (zoom != s_prevTrueZoom);
-    s_framesSinceTrueZoomChange = trueZoomChanged ? 0 : s_framesSinceTrueZoomChange + 1;
+    if (trueZoomChanged)
+        s_framesSinceTrueZoomChange = 0;
+    else if (s_framesSinceTrueZoomChange < kAnchorCatchUpFrames)
+        ++s_framesSinceTrueZoomChange;   // saturates: no overflow while zoomed for days
     if (newSource == TrackingSource::Pointer && s_activeSource == TrackingSource::Pointer
         && !s_sourceTransitionActive && zoom > 1.0f)
     {
@@ -616,12 +619,13 @@ void RenderLoop::frameTick()
             && s_anchorPtrX == s_committedPtrX && s_anchorPtrY == s_committedPtrY;
         if (!samePtr)
             s_anchorDirX = s_anchorDirY = 0;
-        // Align while the zoom moves, and while closing a leftover lag for a
-        // few frames after it stops (touchpad input between events). Not on
-        // the frame where the controller comes to rest (Idle): that frame must
-        // show the exact zoom, or landing on it costs one more frame.
-        const bool moving = trueZoomChanged
-            && s_zoomController.mode() != ZoomController::Mode::Idle;
+        // Align only during wheel-notch smoothing: that motion is already a
+        // smoothed display of the target, so a small extra lag is invisible.
+        // Touchpad input stays direct (AC-2.2.03) and keyboard/toggle
+        // animations exact. The frame where smoothing comes to rest shows the
+        // exact zoom; a leftover lag (smoothing interrupted mid-flight) is
+        // closed over a few frames instead of in one jump.
+        const bool moving = trueZoomChanged && s_zoomController.scrollSmoothing();
         const bool catchingUp = !trueZoomChanged && s_lastZoom != zoom
             && s_framesSinceTrueZoomChange < kAnchorCatchUpFrames;
         ViewportTracker::AnchorAlign a;

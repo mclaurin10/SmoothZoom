@@ -53,7 +53,7 @@ Where a criterion involves timing, distances, or thresholds, the stated value is
 
 ### 2C. Zoom Center Point
 
-**AC-2.1.09** — When the user scrolls to zoom in, the point on the desktop underneath the pointer moves toward the center of the screen. When the user scrolls to zoom out, it moves away from center. The pointer position is the zoom's focal point. A scroll gesture counts as pointer input for source arbitration (AC-2.5.10): it re-anchors the view on the pointer even if keyboard focus changed since the mouse last moved (e.g. after clicking into a text field). A focus change *after* the scroll still pans to the focused element (AC-2.5.12).
+**AC-2.1.09** — When the user scrolls to zoom in, the point on the desktop underneath the pointer moves toward the center of the screen. When the user scrolls to zoom out, it moves away from center. The pointer position is the zoom's focal point. A scroll gesture counts as pointer input for source arbitration (AC-2.5.10): it re-anchors the view on the pointer even if keyboard focus changed since the mouse last moved (e.g. after clicking into a text field). Switching from a focus position to the pointer uses the usual 200 ms source transition (AC-2.5.11), so the first ~200 ms of such a zoom blend toward the pointer. Caret tracking while the user is typing (AC-2.6.07) still takes priority, and a focus change *after* the scroll still pans to the focused element (AC-2.5.12).
 
 **AC-2.1.10** — If the user moves the pointer while scrolling, each successive scroll event uses the pointer's current position as its zoom center. The zoom center tracks the pointer in real time.
 

@@ -44,7 +44,9 @@ public:
     // (0.5 x zoom screen px) from where proportional mapping wants it, and while
     // the zoom moves that error jumps back and forth. While the zoom is moving
     // from prevZoom to zoom, this picks the zoom to display: within
-    // kAnchorNudgeMax of `zoom`, never ahead of it, and at least
+    // kAnchorNudgeMax of `zoom` and within 0.5*zoom/D (D = distance from the
+    // pointer to the farthest screen corner, so no pixel moves more than the
+    // anchor error it saves), never ahead of it, and at least
     // kAnchorMinStepFraction of the way from prevZoom (so the zoom stays
     // monotone and keeps an even pace). It prefers the candidate whose on-screen
     // anchor error (zoom * (ideal - round(ideal)), per axis) moves less than

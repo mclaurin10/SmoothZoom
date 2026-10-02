@@ -716,7 +716,21 @@ TEST_CASE("alignZoomForAnchor cuts anchor snap-backs during a smooth zoom", "[Vi
     };
     const int exact = reversals(false), aligned = reversals(true);
     REQUIRE(exact > 10);
-    REQUIRE(aligned * 2 <= exact);
+    REQUIRE(aligned * 4 <= exact * 3);   // a measurable cut (>= 25 %) within the edge-movement cap
+}
+
+TEST_CASE("alignZoomForAnchor never moves the screen edge more than the anchor error it saves",
+          "[ViewportTracker][Anchor]")
+{
+    const int32_t W = 1920, H = 1200, px = 710, py = 444;
+    const float farD = std::hypot(float(W - px), float(H - py));
+    for (float prev = 1.3f; prev < 9.0f; prev *= 1.05f)
+    {
+        float zoom = prev * 1.03f;
+        auto a = ViewportTracker::alignZoomForAnchor(zoom, prev, true, 0.0f, 0.0f, px, py, W, H);
+        // Scaling by d moves the farthest pixel by farD * d screen px; at most 0.5 * zoom.
+        REQUIRE(farD * std::fabs(a.zoom / zoom - 1.0f) <= 0.5f * zoom + 1e-3f);
+    }
 }
 
 // RenderLoop records a zoom-scroll frame as pointer activity (AC-2.1.09: the

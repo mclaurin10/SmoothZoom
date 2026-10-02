@@ -80,10 +80,22 @@ ViewportTracker::AnchorAlign ViewportTracker::alignZoomForAnchor(float zoom, flo
     // Allowed window: behind `zoom` (never ahead), within the nudge limit, and
     // at least kAnchorMinStepFraction of the step from prevZoom.
     const double z = zoom, p = prevZoom;
+    // Nudging the scale by d moves a screen pixel D px from the pointer by
+    // D*d. Cap d so the farthest visible pixel moves no more than the anchor
+    // error being saved (at most 0.5 desktop px = 0.5*zoom screen px): the fix
+    // must not trade anchor jitter for edge judder. Also never above
+    // kAnchorNudgeMax.
+    const double farX = std::max(std::fabs(double(pointerX) - originX), std::fabs(double(originX + screenW) - pointerX));
+    const double farY = std::max(std::fabs(double(pointerY) - originY), std::fabs(double(originY + screenH) - pointerY));
+    const double farD = std::hypot(farX, farY);
+    double nudgeMax = kAnchorNudgeMax;
+    if (farD > 0.0)
+        nudgeMax = std::min(nudgeMax, 0.5 * z / farD);
+
     const double minStep = p + (z - p) * kAnchorMinStepFraction;
     double lo, hi;
-    if (z > p) { lo = std::max(z * (1.0 - kAnchorNudgeMax), minStep); hi = z; }
-    else       { lo = z; hi = std::min(z * (1.0 + kAnchorNudgeMax), minStep); }
+    if (z > p) { lo = std::max(z * (1.0 - nudgeMax), minStep); hi = z; }
+    else       { lo = z; hi = std::min(z * (1.0 + nudgeMax), minStep); }
     if (lo < 1.0) lo = 1.0;
     if (hi <= lo)
         return anchorError(zoom, pointerX, pointerY, screenW, screenH, originX, originY);

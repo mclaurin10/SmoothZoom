@@ -37,7 +37,7 @@ static constexpr float kSoftMarginFraction = 0.15f;
 // Whole-notch scroll smoothing (AC-2.2.03, Doc 3 §3.5). The displayed log-zoom
 // follows log(target) as a critically damped system: smooth onset, no
 // overshoot, retargets on every notch. kSmoothOmega sets the response (an
-// isolated notch is ~55% applied on its first frame at 60 Hz). The tail ends
+// isolated notch is ~50% applied on its first frame at 60 Hz). The tail ends
 // on the last frame that is still within kSmoothRestBy of the newest
 // target-moving notch (timed from the input, not the frame), so the zoom
 // rests within the bench's 100 ms settle bound (C-14) yet keeps moving
