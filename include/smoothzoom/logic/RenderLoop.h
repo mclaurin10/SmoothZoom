@@ -12,6 +12,7 @@ namespace SmoothZoom
 {
 
 struct SharedState;
+struct TransformTelemetry;
 class ZoomController;
 class ViewportTracker;
 
@@ -29,6 +30,12 @@ public:
     // itself must stay on the render thread (Mag* affinity, R-01). Valid to read
     // once start() has returned (it spin-waits on initComplete_).
     bool magnifierConflictActive() const;
+
+#ifdef SMOOTHZOOM_DEV_TOOLS
+    // --bench: per-frame transform telemetry sink. Call before start(); the
+    // buffer must outlive the render thread. Compiled only in dev-tools builds.
+    static void setDevTelemetry(TransformTelemetry* telemetry);
+#endif
 
     // Legacy no-op. MagUninitialize now happens on the render thread.
     void finalizeShutdown();

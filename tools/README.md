@@ -31,6 +31,15 @@ folder and get UIAccess, which bypasses UIPI and can drive elevated windows. Tha
 medium → high escalation path that does not exist on a default install. The cert is also
 trusted for code signing machine-wide, for every user of this PC.
 
+**Measured on TEMPLAPTOP (2026-10-01).** The dev build launched this way runs with:
+- `TokenUIAccess = 1`
+- the *limited* token (Administrators deny-only, not elevated)
+- integrity level **High (0x3000)**, raised from the shell's Medium
+
+So it can send input to and drive elevated windows without holding admin rights. A
+medium-IL shell gets **Access denied** on `Stop-Process -Force` against it. That is why
+`deploy.ps1` stops it through the named quit event instead.
+
 **Bounded by:**
 - Basic Constraints `CA=false`, so the cert cannot issue other certs.
 - Code-signing EKU only.

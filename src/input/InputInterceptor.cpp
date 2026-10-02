@@ -14,6 +14,7 @@
 #include "smoothzoom/input/InputInterceptor.h"
 #include "smoothzoom/input/WinKeyManager.h"
 #include "smoothzoom/input/ModifierUtils.h"
+#include "smoothzoom/input/WheelDecision.h"
 #include "smoothzoom/common/AppMessages.h"
 #include "smoothzoom/common/SharedState.h"
 #include "smoothzoom/common/Types.h"
@@ -109,6 +110,51 @@ static bool isWinModifier()
     return s_modifierKeyVK == VK_LWIN || s_modifierKeyVK == VK_RWIN;
 }
 
+// Side effects of a consumed wheel event (shared by the hook and --bench replay).
+// Hook-safe: two atomic writes and a WinKeyManager flag (no-op unless Win is held).
+static void applyWheelDecision(const WheelDecision& d)
+{
+    // Record LL hook scroll timestamp for Raw Input dedup
+    s_state->lastLLHookScrollTime.store(
+        static_cast<int64_t>(GetTickCount64()), std::memory_order_relaxed);
+
+    // Atomically accumulate delta (render thread will exchange-with-0)
+    s_state->scrollAccumulator.fetch_add(d.accumulatorDelta, std::memory_order_release);
+
+    // Suppress Start Menu only when Win is the modifier (AC-2.1.16, AC-2.1.20)
+    if (d.markWinUsedForZoom)
+        s_winKeyMgr.markUsedForZoom();
+}
+
+#ifdef SMOOTHZOOM_DEV_TOOLS
+// --record tap. Runs inside the hook: fills a POD on the stack and hands it to
+// the tap, which copies it into a pre-allocated ring (DevTools.cpp). The extra
+// GetAsyncKeyState reads exist only in dev builds with recording active.
+static WheelTapFn s_wheelTap = nullptr;
+
+static void tapHookWheel(WheelKind kind, int16_t rawDelta, const MSLLHOOKSTRUCT* info,
+                         bool modifierHeld, bool consumed)
+{
+    WheelTapEvent e;
+    LARGE_INTEGER q;
+    QueryPerformanceCounter(&q);
+    e.qpc = q.QuadPart;
+    e.x = info->pt.x;
+    e.y = info->pt.y;
+    e.flags = info->flags;
+    e.delta = rawDelta;
+    e.source = (kind == WheelKind::Vertical) ? WheelSource::HookWheel : WheelSource::HookHWheel;
+    e.mods = static_cast<uint8_t>(
+        ((GetAsyncKeyState(VK_SHIFT) & 0x8000) ? kModShift : 0)
+        | ((GetAsyncKeyState(VK_CONTROL) & 0x8000) ? kModCtrl : 0)
+        | ((GetAsyncKeyState(VK_MENU) & 0x8000) ? kModAlt : 0)
+        | (((GetAsyncKeyState(VK_LWIN) | GetAsyncKeyState(VK_RWIN)) & 0x8000) ? kModWin : 0));
+    e.modifierHeld = modifierHeld;
+    e.consumed = consumed;
+    s_wheelTap(e);
+}
+#endif
+
 // ─── Mouse Hook Callback ────────────────────────────────────────────────────
 // Minimal: read event, check modifier via WinKeyManager, update atomics, return.
 static LRESULT CALLBACK mouseHookProc(int nCode, WPARAM wParam, LPARAM lParam)
@@ -120,14 +166,26 @@ static LRESULT CALLBACK mouseHookProc(int nCode, WPARAM wParam, LPARAM lParam)
 
     auto* info = reinterpret_cast<MSLLHOOKSTRUCT*>(lParam);
 
-    switch (wParam)
+    if (wParam == WM_MOUSEWHEEL || wParam == WM_MOUSEHWHEEL)
     {
-    case WM_MOUSEWHEEL:
-    {
+        const WheelKind kind = (wParam == WM_MOUSEWHEEL) ? WheelKind::Vertical
+                                                         : WheelKind::Horizontal;
+        const int16_t rawDelta = static_cast<int16_t>(HIWORD(info->mouseData));
+
+        // Windows (and some mouse drivers) may convert Shift+Scroll into
+        // horizontal scroll (WM_MOUSEHWHEEL) before it reaches low-level hooks,
+        // so WM_MOUSEHWHEEL is a zoom candidate only when Shift IS the
+        // configured modifier; otherwise horizontal scroll passes through
+        // untouched (AC-2.1.02, R-07). The modifier test is evaluated only for
+        // candidates, as before the WheelDecision extraction.
+        const bool candidate = wheelIsZoomCandidate(kind, s_modifierKeyVK);
+
 #ifdef SMOOTHZOOM_INPUT_DIAG  // opt-in per-event hook tracing — deliberately NOT enabled by Debug/SMOOTHZOOM_LOGGING (R-05: hook callbacks must do no I/O)
+        if (candidate)
         {
             wchar_t dbg[256];
-            swprintf_s(dbg, L"[SZ-DIAG] WM_MOUSEWHEEL: nonWinMod=%d, modVK=0x%X, asyncMod=%d, fg=0x%p\n",
+            swprintf_s(dbg, L"[SZ-DIAG] %s: nonWinMod=%d, modVK=0x%X, asyncMod=%d, fg=0x%p\n",
+                kind == WheelKind::Vertical ? L"WM_MOUSEWHEEL" : L"WM_MOUSEHWHEEL (Shift mod)",
                 s_nonWinModifierHeld ? 1 : 0,
                 s_modifierKeyVK,
                 (GetAsyncKeyState(toGenericVK(s_modifierKeyVK)) & 0x8000) ? 1 : 0,
@@ -136,79 +194,20 @@ static LRESULT CALLBACK mouseHookProc(int nCode, WPARAM wParam, LPARAM lParam)
         }
 #endif
         // Phase 5B: Configurable modifier key (AC-2.1.19, AC-2.1.20)
-        bool modifierHeld = isConfiguredModifierHeld();
+        const bool modifierHeld = candidate && isConfiguredModifierHeld();
+        const WheelDecision d = decideWheel(kind, rawDelta, s_modifierKeyVK, modifierHeld);
 
-        if (modifierHeld)
+#ifdef SMOOTHZOOM_DEV_TOOLS
+        if (s_wheelTap)
+            tapHookWheel(kind, rawDelta, info, modifierHeld, d.consume);
+#endif
+
+        if (d.consume)
         {
-            // Extract scroll delta from high word of mouseData
-            int16_t delta = static_cast<int16_t>(HIWORD(info->mouseData));
-
-            // Record LL hook scroll timestamp for Raw Input dedup
-            s_state->lastLLHookScrollTime.store(
-                static_cast<int64_t>(GetTickCount64()), std::memory_order_relaxed);
-
-            // Atomically accumulate delta (render thread will exchange-with-0)
-            s_state->scrollAccumulator.fetch_add(delta, std::memory_order_release);
-
-            // Suppress Start Menu only when Win is the modifier (AC-2.1.16, AC-2.1.20)
-            if (s_modifierKeyVK == VK_LWIN || s_modifierKeyVK == VK_RWIN)
-                s_winKeyMgr.markUsedForZoom();
-
+            applyWheelDecision(d);
             // Consume the event — do not pass to next hook or applications (AC-2.1.02)
             return 1;
         }
-        break;
-    }
-
-    case WM_MOUSEHWHEEL:
-    {
-        // Windows (and some mouse drivers) convert Shift+Scroll into horizontal
-        // scroll (WM_MOUSEHWHEEL) before it reaches low-level hooks. Only
-        // intercept when Shift IS the configured modifier — otherwise let
-        // horizontal scroll pass through to applications normally (AC-2.1.02).
-        // R-07: Shift+Scroll conflict mitigation.
-        bool isShiftMod = (s_modifierKeyVK == VK_LSHIFT || s_modifierKeyVK == VK_RSHIFT
-                           || s_modifierKeyVK == VK_SHIFT);
-
-        if (isShiftMod)
-        {
-#ifdef SMOOTHZOOM_INPUT_DIAG  // opt-in per-event hook tracing — deliberately NOT enabled by Debug/SMOOTHZOOM_LOGGING (R-05: hook callbacks must do no I/O)
-            {
-                wchar_t dbg[256];
-                swprintf_s(dbg, L"[SZ-DIAG] WM_MOUSEHWHEEL (Shift mod): nonWinMod=%d, modVK=0x%X, asyncMod=%d, fg=0x%p\n",
-                    s_nonWinModifierHeld ? 1 : 0,
-                    s_modifierKeyVK,
-                    (GetAsyncKeyState(toGenericVK(s_modifierKeyVK)) & 0x8000) ? 1 : 0,
-                    GetForegroundWindow());
-                OutputDebugStringW(dbg);
-            }
-#endif
-            bool modifierHeld = isConfiguredModifierHeld();
-
-            if (modifierHeld)
-            {
-                int16_t delta = static_cast<int16_t>(HIWORD(info->mouseData));
-
-                // Negate: WM_MOUSEHWHEEL uses opposite sign convention from
-                // WM_MOUSEWHEEL (positive = right, not up). Restores vertical
-                // scroll semantics so scroll-up = zoom-in (AC-2.1.01).
-                delta = -delta;
-
-                // Record LL hook scroll timestamp for Raw Input dedup
-                s_state->lastLLHookScrollTime.store(
-                    static_cast<int64_t>(GetTickCount64()), std::memory_order_relaxed);
-
-                s_state->scrollAccumulator.fetch_add(delta, std::memory_order_release);
-
-                // Consume — prevent horizontal scroll reaching applications
-                return 1;
-            }
-        }
-        break;
-    }
-
-    default:
-        break;
     }
 
     // Pass through to next hook
@@ -545,5 +544,30 @@ void InputInterceptor::setMessageWindow(void* hWnd)
 {
     s_msgWindow = static_cast<HWND>(hWnd);
 }
+
+#ifdef SMOOTHZOOM_DEV_TOOLS
+void InputInterceptor::setWheelTap(WheelTapFn fn)
+{
+    s_wheelTap = fn;
+}
+
+bool InputInterceptor::devInjectWheel(WheelKind kind, int16_t rawDelta, bool modifierHeld)
+{
+    if (s_state == nullptr)
+        return false;
+    // Same decision and side effects as mouseHookProc; only the modifier verdict
+    // comes from the trace instead of live key tracking.
+    const bool candidate = wheelIsZoomCandidate(kind, s_modifierKeyVK);
+    const WheelDecision d = decideWheel(kind, rawDelta, s_modifierKeyVK, candidate && modifierHeld);
+    if (d.consume)
+        applyWheelDecision(d);
+    return d.consume;
+}
+
+int InputInterceptor::configuredModifierVK()
+{
+    return s_modifierKeyVK;
+}
+#endif
 
 } // namespace SmoothZoom

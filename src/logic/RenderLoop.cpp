@@ -16,6 +16,9 @@
 #include "smoothzoom/logic/ViewportTracker.h"
 #include "smoothzoom/output/MagBridge.h"
 #include "smoothzoom/support/Logger.h"
+#ifdef SMOOTHZOOM_DEV_TOOLS
+#include "smoothzoom/common/DevTelemetry.h"
+#endif
 
 #ifndef UNICODE
 #define UNICODE
@@ -104,6 +107,35 @@ static int64_t s_perfTotalTicks = 0;
 static int64_t s_perfMinTicks = INT64_MAX;
 static int64_t s_perfMaxTicks = 0;
 static constexpr int64_t kPerfReportInterval = 600;
+#endif
+
+#ifdef SMOOTHZOOM_DEV_TOOLS
+// --bench telemetry sink (DevTools.cpp owns the pre-allocated buffer). Set once
+// before start(); read only on the render thread. Null = no telemetry.
+static TransformTelemetry* s_devTelemetry = nullptr;
+
+// Append one sample (render thread only). Copies into the pre-allocated buffer
+// and stamps DWM timing: no allocation, no lock, no I/O. DwmGetCompositionTiming-
+// Info reads DWM's shared timing data and only runs while telemetry is enabled.
+static void devTelemetryPush(TransformSample& t)
+{
+    uint32_t n = s_devTelemetry->count.load(std::memory_order_relaxed);
+    if (n >= s_devTelemetry->capacity)
+    {
+        s_devTelemetry->dropped.fetch_add(1, std::memory_order_relaxed);
+        return;
+    }
+    DWM_TIMING_INFO ti = {};
+    ti.cbSize = sizeof(ti);
+    if (SUCCEEDED(DwmGetCompositionTimingInfo(nullptr, &ti)))
+    {
+        t.qpcVBlank = static_cast<int64_t>(ti.qpcVBlank);
+        t.cRefresh = ti.cRefresh;
+        t.qpcRefreshPeriod = static_cast<int64_t>(ti.qpcRefreshPeriod);
+    }
+    s_devTelemetry->samples[n] = t;
+    s_devTelemetry->count.store(n + 1, std::memory_order_release);
+}
 #endif
 
 // Source transition smoothing (200ms ease-out between sources)
@@ -233,6 +265,13 @@ void RenderLoop::threadMain()
 
     running_.store(false, std::memory_order_release);
 }
+
+#ifdef SMOOTHZOOM_DEV_TOOLS
+void RenderLoop::setDevTelemetry(TransformTelemetry* telemetry)
+{
+    s_devTelemetry = telemetry;
+}
+#endif
 
 void RenderLoop::finalizeShutdown()
 {
@@ -386,6 +425,18 @@ void RenderLoop::frameTick()
         && s_lastZoom == 1.0f && s_lastOffX == 0.0f && s_lastOffY == 0.0f
         && !s_sourceTransitionActive)
     {
+#ifdef SMOOTHZOOM_DEV_TOOLS
+        // Idle 1.0x frames are logged too so --bench sees the full tick cadence
+        // (a stalled frame is otherwise indistinguishable from idle).
+        if (s_devTelemetry && s_devTelemetry->enabled.load(std::memory_order_relaxed))
+        {
+            TransformSample t;
+            t.qpcTick = now.QuadPart;
+            t.scrollDelta = scrollDelta;
+            t.mode = static_cast<uint8_t>(s_zoomController.mode());
+            devTelemetryPush(t);
+        }
+#endif
         return;
     }
 
@@ -590,9 +641,20 @@ void RenderLoop::frameTick()
     // 6. Apply to MagBridge — only if values changed since last frame.
     bool changed = (zoom != s_lastZoom || offset.x != s_lastOffX || offset.y != s_lastOffY);
 
+#ifdef SMOOTHZOOM_DEV_TOOLS
+    LARGE_INTEGER devSetBegin = {}, devSetEnd = {};
+    bool devOk = true;
+#endif
     if (changed)
     {
+#ifdef SMOOTHZOOM_DEV_TOOLS
+        QueryPerformanceCounter(&devSetBegin);
+#endif
         bool ok = s_magBridge.setTransform(zoom, offset.x, offset.y);
+#ifdef SMOOTHZOOM_DEV_TOOLS
+        QueryPerformanceCounter(&devSetEnd);
+        devOk = ok;
+#endif
 
         // Log on transition: first failure and recovery (not every frame)
         if (!ok && s_magBridgeLastOk)
@@ -622,6 +684,35 @@ void RenderLoop::frameTick()
             s_state->currentZoomLevel.store(zoom, std::memory_order_relaxed);
         }
     }
+
+#ifdef SMOOTHZOOM_DEV_TOOLS
+    // --bench telemetry: one POD per frame into a pre-allocated buffer.
+    if (s_devTelemetry && s_devTelemetry->enabled.load(std::memory_order_relaxed))
+    {
+        TransformSample t;
+        t.qpcTick = now.QuadPart;
+        t.qpcSetBegin = changed ? devSetBegin.QuadPart : 0;
+        t.qpcSetEnd = changed ? devSetEnd.QuadPart : 0;
+        t.targetZoom = s_zoomController.targetZoom();
+        t.zoom = zoom;
+        ViewportTracker::Offset ideal = ViewportTracker::computePointerOffset(
+            rawPtrX, rawPtrY, zoom, s_screenW, s_screenH, s_screenOriginX, s_screenOriginY);
+        t.idealOffX = ideal.x;
+        t.idealOffY = ideal.y;
+        t.offX = offset.x;
+        t.offY = offset.y;
+        t.appliedX = static_cast<int32_t>(offset.x);  // MagBridge::setTransform truncation
+        t.appliedY = static_cast<int32_t>(offset.y);
+        t.cursorX = rawPtrX;
+        t.cursorY = rawPtrY;
+        t.scrollDelta = scrollDelta;
+        t.source = static_cast<uint8_t>(s_activeSource);
+        t.mode = static_cast<uint8_t>(s_zoomController.mode());
+        t.updated = changed ? 1 : 0;
+        t.ok = devOk ? 1 : 0;
+        devTelemetryPush(t);
+    }
+#endif
 
 #ifdef SMOOTHZOOM_PERF_AUDIT
     LARGE_INTEGER perfEnd;

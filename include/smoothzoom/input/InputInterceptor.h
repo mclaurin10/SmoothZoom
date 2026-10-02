@@ -7,6 +7,11 @@
 
 #include <cstdint>
 
+#ifdef SMOOTHZOOM_DEV_TOOLS
+#include "smoothzoom/common/DevTelemetry.h"
+#include "smoothzoom/input/WheelDecision.h"
+#endif
+
 namespace SmoothZoom
 {
 
@@ -45,6 +50,21 @@ public:
     // Phase 5B: Store message window handle for Win+Ctrl+M posting (AC-2.8.11).
     // Uses void* to avoid pulling in windows.h in the header.
     static void setMessageWindow(void* hWnd);
+
+#ifdef SMOOTHZOOM_DEV_TOOLS
+    // --record: observe every wheel message the mouse hook sees. The tap runs
+    // inside the hook callback (main thread), so it must only copy the record
+    // into a pre-allocated buffer. nullptr disables it.
+    static void setWheelTap(WheelTapFn fn);
+
+    // --bench: feed one wheel event through the hook's own decision
+    // (decideWheel) and side effects, from the main thread, with the modifier
+    // verdict supplied by the trace. Returns true if it would have been consumed.
+    static bool devInjectWheel(WheelKind kind, int16_t rawDelta, bool modifierHeld);
+
+    // Currently configured scroll-gesture modifier (main thread).
+    static int configuredModifierVK();
+#endif
 };
 
 } // namespace SmoothZoom

@@ -37,6 +37,9 @@
 #include "smoothzoom/support/Logger.h"
 #include "smoothzoom/input/ModifierUtils.h"
 #include "smoothzoom/input/ScrollNormalizer.h"
+#ifdef SMOOTHZOOM_DEV_TOOLS
+#include "DevTools.h"
+#endif
 
 #include <filesystem>
 #include <fstream>
@@ -428,6 +431,21 @@ static void armShutdownWatchdog()
             GetLastError());
 }
 
+// ── Dev tools (SMOOTHZOOM_DEV_TOOLS only) ───────────────────────────────────
+// --bench runs unattended: modal dialogs would stall it, so they become log
+// lines plus a distinct exit code. Release builds compile none of this.
+#ifdef SMOOTHZOOM_DEV_TOOLS
+static bool devUnattended() { return SmoothZoom::DevTools::unattended(); }
+static int devEmergencyReset() { return emergencyResetMagnification(); }
+
+// Drain this thread's queue (hooks, timers, tray, settings dialog) without
+// blocking. Returns false once WM_QUIT is seen. Used by the bench replay loop
+// in place of the GetMessage pump.
+static bool devPumpMessages();
+#else
+static bool devUnattended() { return false; }
+#endif
+
 // ── PTP HID Device Initialization ────────────────────────────────────────────
 // Called once per device when the first HID report arrives. Parses the device's
 // HID report descriptor to discover contact slot link collections.
@@ -781,6 +799,9 @@ static void handlePtpHidReport(const BYTE* reportData, DWORD reportSize)
         SZ_LOG_DEBUG("Main", L"PTP scroll: avgDY=%d wheelEquiv=%d",
                      avgDeltaY, static_cast<int>(delta));
         g_sharedState.scrollAccumulator.fetch_add(delta, std::memory_order_release);
+#ifdef SMOOTHZOOM_DEV_TOOLS
+        SmoothZoom::DevTools::tapAccumulator(SmoothZoom::WheelSource::Ptp, delta);
+#endif
     }
 }
 
@@ -1106,6 +1127,9 @@ static LRESULT CALLBACK msgWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lP
             // main thread, and the logger flushes synchronously per line (R-05).
             SZ_LOG_DEBUG("Main", L"Raw Input scroll fallback: delta=%d", delta);
             g_sharedState.scrollAccumulator.fetch_add(delta, std::memory_order_release);
+#ifdef SMOOTHZOOM_DEV_TOOLS
+            SmoothZoom::DevTools::tapAccumulator(SmoothZoom::WheelSource::RawInput, delta);
+#endif
         }
 
         return DefWindowProcW(hWnd, msg, wParam, lParam);
@@ -1172,6 +1196,24 @@ int WINAPI wWinMain(
     // ── 0. Install crash handler (R-14) ──────────────────────────────────────
     SetUnhandledExceptionFilter(crashHandler);
 
+#ifdef SMOOTHZOOM_DEV_TOOLS
+    // Dev tools: parse arguments first. --reset/--probe run standalone and exit
+    // before the single-instance guard (they must work while a hung instance
+    // still holds it).
+    {
+        std::wstring argErr;
+        if (!SmoothZoom::DevTools::parseCommandLine(argErr))
+        {
+            SZ_LOG_ERROR("Main", L"Bad dev-tools arguments: %s", argErr.c_str());
+            return SmoothZoom::DevTools::kExitBadArgs;
+        }
+        if (SmoothZoom::DevTools::mode() == SmoothZoom::DevTools::Mode::Reset)
+            return SmoothZoom::DevTools::runResetMode();
+        if (SmoothZoom::DevTools::mode() == SmoothZoom::DevTools::Mode::Probe)
+            return SmoothZoom::DevTools::runProbeMode();
+    }
+#endif
+
     // Log level resolution — two sources, in precedence order:
     //   1. config.json "logLevel" — the RELIABLE path for the shipped UIAccess
     //      launch. The brokered launch does not inherit the caller's environment
@@ -1210,6 +1252,13 @@ int WINAPI wWinMain(
         CreateMutexW(nullptr, FALSE, L"Local\\SmoothZoom.SingleInstance");
     if (hSingleInstance != nullptr && GetLastError() == ERROR_ALREADY_EXISTS)
     {
+#ifdef SMOOTHZOOM_DEV_TOOLS
+        if (devUnattended())
+        {
+            CloseHandle(hSingleInstance);
+            return SmoothZoom::DevTools::kExitAlreadyRunning;
+        }
+#endif
         MessageBoxW(nullptr,
                     L"SmoothZoom is already running.\n\n"
                     L"Look for its icon in the system tray.",
@@ -1218,6 +1267,11 @@ int WINAPI wWinMain(
         CloseHandle(hSingleInstance);
         return 0;
     }
+
+#ifdef SMOOTHZOOM_DEV_TOOLS
+    // Quit event (tools/deploy.ps1 stop) + --timeout / --selfkill-ms watchdog.
+    SmoothZoom::DevTools::startWatchdog(GetCurrentThreadId(), devEmergencyReset);
+#endif
 
     // ── 0a. Dirty-shutdown sentinel check (R-14, E6.11) ─────────────────────
     s_sentinelPath = getSentinelPath();
@@ -1264,7 +1318,9 @@ int WINAPI wWinMain(
         SmoothZoom::initLogFile(logPath.c_str());
     }
 
-    if (!g_configPath.empty())
+    // --bench runs on built-in defaults so baselines don't drift with the
+    // user's config.json (and never writes it back).
+    if (!g_configPath.empty() && !devUnattended())
         g_settingsManager.loadFromFile(g_configPath.c_str());
     // Ensure SharedState has settings even if load failed (defaults apply):
     {
@@ -1290,6 +1346,27 @@ int WINAPI wWinMain(
                 static_cast<int>(SmoothZoom::logLevelFilter()),
                 envLogLevelSet ? L"env" : L"config");
 
+#ifdef SMOOTHZOOM_DEV_TOOLS
+    // --bench: load the trace and allocate render-thread telemetry before the
+    // render loop starts; replay with the modifier the trace was recorded with.
+    if (SmoothZoom::DevTools::mode() == SmoothZoom::DevTools::Mode::Bench)
+    {
+        int traceModifierVK = 0;
+        if (!SmoothZoom::DevTools::prepareBench(traceModifierVK))
+        {
+            removeSentinel(s_sentinelPath);
+            return SmoothZoom::DevTools::kExitBadArgs;
+        }
+        if (traceModifierVK != 0)
+        {
+            SmoothZoom::SettingsSnapshot snap = *g_settingsManager.snapshot();
+            snap.modifierKeyVK = traceModifierVK;
+            g_settingsManager.applySnapshot(snap);
+        }
+        SmoothZoom::RenderLoop::setDevTelemetry(SmoothZoom::DevTools::benchTelemetry());
+    }
+#endif
+
     // Initialize virtual screen dimensions in shared state (read by render thread)
     g_sharedState.screenWidth.store(GetSystemMetrics(SM_CXVIRTUALSCREEN), std::memory_order_relaxed);
     g_sharedState.screenHeight.store(GetSystemMetrics(SM_CYVIRTUALSCREEN), std::memory_order_relaxed);
@@ -1299,6 +1376,14 @@ int WINAPI wWinMain(
     // ── 0e. Conflict detection (AC-ERR.01, E6.8) ─────────────────────────────
     {
         DWORD magPid = findMagnifyExe();
+#ifdef SMOOTHZOOM_DEV_TOOLS
+        if (magPid != 0 && devUnattended())
+        {
+            SZ_LOG_ERROR("Main", L"Magnify.exe is running — bench cannot proceed");
+            removeSentinel(s_sentinelPath);
+            return SmoothZoom::DevTools::kExitConflict;
+        }
+#endif
         if (magPid != 0)
         {
             int choice = MessageBoxW(nullptr,
@@ -1333,6 +1418,14 @@ int WINAPI wWinMain(
     // ── 1. Install input hooks (must be on a thread with a message pump) ────
     if (!g_inputInterceptor.install(g_sharedState))
     {
+#ifdef SMOOTHZOOM_DEV_TOOLS
+        if (devUnattended())
+        {
+            SZ_LOG_ERROR("Main", L"Failed to install input hooks");
+            removeSentinel(s_sentinelPath);
+            return SmoothZoom::DevTools::kExitHookFailed;
+        }
+#endif
         MessageBoxW(nullptr,
                     L"Failed to install input hooks.\n\n"
                     L"This may be caused by:\n"
@@ -1351,6 +1444,14 @@ int WINAPI wWinMain(
     if (!g_renderLoop.isRunning())
     {
         g_inputInterceptor.uninstall();
+#ifdef SMOOTHZOOM_DEV_TOOLS
+        if (devUnattended())
+        {
+            SZ_LOG_ERROR("Main", L"Magnification API initialization failed (R-12?)");
+            removeSentinel(s_sentinelPath);
+            return SmoothZoom::DevTools::kExitMagInitFailed;
+        }
+#endif
         MessageBoxW(nullptr,
                     L"Failed to initialize the Magnification API.\n\n"
                     L"This may be caused by:\n"
@@ -1372,7 +1473,11 @@ int WINAPI wWinMain(
     // transform from a crashed instance) was active. Warn and continue — unlike
     // Magnify.exe we cannot identify or close an unknown magnifier, and
     // SmoothZoom overrides the transform on its first zoom anyway.
-    if (g_renderLoop.magnifierConflictActive())
+    if (g_renderLoop.magnifierConflictActive() && devUnattended())
+    {
+        SZ_LOG_WARN("Main", L"Another magnifier appears active at startup (bench continues)");
+    }
+    else if (g_renderLoop.magnifierConflictActive())
     {
         MessageBoxW(nullptr,
                     L"Another full-screen magnifier appears to be active.\n\n"
@@ -1448,6 +1553,7 @@ int WINAPI wWinMain(
         SetTimer(g_msgWindow, kTrayIconTimerId, kTrayIconIntervalMs, nullptr);
 
     // ── 2e. Start-zoomed (Phase 5C: AC-2.9.18–19) ──────────────────────────
+    if (!devUnattended())
     {
         auto snap = g_settingsManager.snapshot();
         if (snap && snap->startZoomed && snap->defaultZoomLevel > 1.0f)
@@ -1457,16 +1563,28 @@ int WINAPI wWinMain(
     // ── 3. Run Win32 message pump ───────────────────────────────────────────
     // Low-level hooks require a message pump on the installing thread.
     // The pump runs until WM_QUIT is posted (by Ctrl+Q via InputInterceptor).
-    MSG msg;
-    while (GetMessageW(&msg, nullptr, 0, 0) > 0)
+#ifdef SMOOTHZOOM_DEV_TOOLS
+    if (SmoothZoom::DevTools::mode() == SmoothZoom::DevTools::Mode::Record)
+        SmoothZoom::DevTools::startRecord(g_sharedState);
+    if (SmoothZoom::DevTools::mode() == SmoothZoom::DevTools::Mode::Bench)
     {
-        // Phase 5C: Tab navigation in settings window
-        HWND hSettings = g_trayUI.settingsHwnd();
-        if (hSettings && IsDialogMessage(hSettings, &msg))
-            continue;
+        // Replay replaces the GetMessage pump; it pumps the queue itself.
+        SmoothZoom::DevTools::runBench(g_sharedState, devPumpMessages);
+    }
+    else
+#endif
+    {
+        MSG msg;
+        while (GetMessageW(&msg, nullptr, 0, 0) > 0)
+        {
+            // Phase 5C: Tab navigation in settings window
+            HWND hSettings = g_trayUI.settingsHwnd();
+            if (hSettings && IsDialogMessage(hSettings, &msg))
+                continue;
 
-        TranslateMessage(&msg);
-        DispatchMessageW(&msg);
+            TranslateMessage(&msg);
+            DispatchMessageW(&msg);
+        }
     }
 
     // ── 4. Shutdown sequence ────────────────────────────────────────────────
@@ -1482,7 +1600,7 @@ int WINAPI wWinMain(
     g_trayUI.destroy();
 
     // Phase 5B: Save settings on clean exit (AC-2.9.02)
-    if (!g_configPath.empty())
+    if (!g_configPath.empty() && !devUnattended())
         g_settingsManager.saveToFile(g_configPath.c_str());
 
     if (g_msgWindow)
@@ -1543,7 +1661,11 @@ int WINAPI wWinMain(
         // running_. The detached thread is fully done, so CRT ExitProcess on
         // return cannot deadlock on it — a normal return is safe here.
         removeSentinel(s_sentinelPath);
+#ifdef SMOOTHZOOM_DEV_TOOLS
+        return SmoothZoom::DevTools::finish(true);
+#else
         return 0;
+#endif
     }
 
     // Render thread did NOT stop within the timeout — it is almost certainly
@@ -1566,6 +1688,27 @@ int WINAPI wWinMain(
     // block on the wedged Mag subsystem. (AC-2.9.16, VER-4)
     SZ_LOG_WARN("Main",
         L"Render thread did not stop cleanly — force-terminating process (AC-2.9.16)");
+#ifdef SMOOTHZOOM_DEV_TOOLS
+    TerminateProcess(GetCurrentProcess(), static_cast<UINT>(SmoothZoom::DevTools::finish(false)));
+#endif
     TerminateProcess(GetCurrentProcess(), 0);
     return 0;  // Not reached; present so the compiler sees a return.
 }
+
+#ifdef SMOOTHZOOM_DEV_TOOLS
+static bool devPumpMessages()
+{
+    MSG msg;
+    while (PeekMessageW(&msg, nullptr, 0, 0, PM_REMOVE))
+    {
+        if (msg.message == WM_QUIT)
+            return false;
+        HWND hSettings = g_trayUI.settingsHwnd();
+        if (hSettings && IsDialogMessage(hSettings, &msg))
+            continue;
+        TranslateMessage(&msg);
+        DispatchMessageW(&msg);
+    }
+    return true;
+}
+#endif
