@@ -394,12 +394,23 @@ void RenderLoop::frameTick()
         }
     }
 
-    // 3. Apply scroll delta to zoom (if any)
+    // 3. Apply scroll delta to zoom (if any). The input's age lets notch
+    //    smoothing come to rest a fixed time after the input itself (AC-2.2.03).
     if (scrollDelta != 0)
     {
         if (s_reverseScrollDirection)
             scrollDelta = -scrollDelta;
-        s_zoomController.applyScrollDelta(scrollDelta);
+        double inputAgeSeconds = 0.0;
+        int64_t inputQpc = s_state->lastScrollInputQpc.load(std::memory_order_relaxed);
+        LARGE_INTEGER qpcNow;
+        QueryPerformanceCounter(&qpcNow);
+        if (inputQpc > 0 && inputQpc <= qpcNow.QuadPart && s_qpcFrequency > 0)
+        {
+            inputAgeSeconds = static_cast<double>(qpcNow.QuadPart - inputQpc) / static_cast<double>(s_qpcFrequency);
+            if (inputAgeSeconds > 0.1)
+                inputAgeSeconds = 0.0;   // stale stamp (e.g. touchpad path): treat as fresh
+        }
+        s_zoomController.applyScrollDelta(scrollDelta, inputAgeSeconds);
     }
 
     // 4. Compute dt and advance animation (Phase 2: ease-out interpolation)

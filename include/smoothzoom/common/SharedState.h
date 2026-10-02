@@ -23,6 +23,12 @@ struct SharedState
     std::atomic<bool>    toggleState{false};
     std::atomic<int64_t> lastKeyboardInputTime{0};
     std::atomic<int64_t> lastLLHookScrollTime{0};  // Dedup: LL hook scroll timestamp (GetTickCount64)
+    // QPC of the latest wheel event added to scrollAccumulator (hook / Raw
+    // Input fallback). RenderLoop compares it only with its own QPC reads, to
+    // time notch smoothing from the input itself (AC-2.2.03). Stored before
+    // the accumulator's release fetch_add, so the frame that sees the delta
+    // sees the stamp.
+    std::atomic<int64_t> lastScrollInputQpc{0};
 
     // -- Written by UIA thread (focus) / caret thread (caret) --
     SeqLock<ScreenRect>  focusRect;

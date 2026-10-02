@@ -19,14 +19,24 @@ public:
         Animating,  // Ease-out in progress (keyboard step, toggle, or animateToZoom)
     };
 
-    // Scroll-gesture zoom: consume accumulated delta, compute new level
-    void applyScrollDelta(int32_t accumulatedDelta);
+    // Scroll-gesture zoom: consume accumulated delta, compute new level.
+    // targetZoom() is always the accumulated result (AC-2.1.06). Continuous
+    // input (sub-notch deltas: precision touchpad) moves currentZoom() with
+    // it directly; whole-notch input (detented/free-spin wheels, multiples of
+    // 120) is smoothed toward the target by tick() (AC-2.2.03).
+    // inputAgeSeconds: how long ago the newest of these inputs arrived (the
+    // smoothing comes to rest a fixed time after the input, not the frame).
+    void applyScrollDelta(int32_t accumulatedDelta, double inputAgeSeconds = 0.0);
 
-    // End an active scroll gesture: Scrolling → Idle (no-op in Idle/Animating).
+    // End an active scroll gesture: Scrolling → Idle (no-op in Idle/Animating,
+    // and deferred while notch smoothing is still in flight).
     // Called by RenderLoop on a frame with no scroll input so the controller
     // settles into Idle, enabling the 1.0× idle short-circuit (AC-2.3.13, R-18).
     // A subsequent scroll re-enters Scrolling via applyScrollDelta().
     void endScroll();
+
+    // True while whole-notch smoothing is moving currentZoom() toward targetZoom().
+    bool scrollSmoothing() const { return smoothing_; }
 
     // Keyboard step: set animation target (+1 = zoom in, -1 = zoom out)
     void applyKeyboardStep(int direction);
@@ -79,6 +89,20 @@ private:
     // users can compensate for device differences (free-spin vs fine wheels,
     // touchpad feel). 1.0 = default.
     float scrollSensitivity_ = 1.0f;
+
+    // Whole-notch scroll smoothing (AC-2.2.03): displayed log-zoom and its
+    // velocity (log units/s), critically damped toward log(targetZoom_).
+    bool smoothing_ = false;
+    double smoothLog_ = 0.0;
+    double smoothVel_ = 0.0;
+    double notchAge_ = 0.0;       // seconds since the last whole-notch input that moved the target
+    bool notchFresh_ = false;     // notchAge_ was set this frame (already current: don't add dt)
+    double fineHold_ = 0.0;       // > 0: a sub-notch delta was seen recently (continuous device)
+
+    // The level the user is heading to: the scroll target while notch
+    // smoothing is in flight, else the displayed zoom.
+    float restingZoom() const { return smoothing_ ? targetZoom_ : currentZoom_; }
+    void stopSmoothing() { smoothing_ = false; smoothVel_ = 0.0; notchFresh_ = false; }
 
     // Phase 4: Toggle state
     bool isToggled_ = false;

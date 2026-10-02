@@ -11,6 +11,17 @@
 using namespace SmoothZoom;
 using Catch::Approx;
 
+// Run frames as RenderLoop does with no further input (tick, then endScroll)
+// until the controller is Idle: notch smoothing comes to rest first.
+static void settle(ZoomController& zc, float dt = 1.0f / 60.0f, int maxFrames = 600)
+{
+    for (int i = 0; i < maxFrames && zc.mode() != ZoomController::Mode::Idle; ++i)
+    {
+        zc.tick(dt);
+        zc.endScroll();
+    }
+}
+
 TEST_CASE("ZoomController starts at 1.0x idle", "[ZoomController]")
 {
     ZoomController zc;
@@ -23,11 +34,14 @@ TEST_CASE("Scroll delta zooms in", "[ZoomController]")
 {
     ZoomController zc;
 
-    // One notch up (120 units): logarithmic model → zoom *= 1.1
+    // One notch up (120 units): logarithmic model → target *= 1.1. A whole
+    // notch is smoothed (AC-2.2.03), so the display gets there over a few frames.
     zc.applyScrollDelta(120);
-    REQUIRE(zc.currentZoom() > 1.0f);
-    REQUIRE(zc.currentZoom() == Approx(1.1f));
+    REQUIRE(zc.targetZoom() == Approx(1.1f));
     REQUIRE(zc.mode() == ZoomController::Mode::Scrolling);
+    settle(zc);
+    REQUIRE(zc.currentZoom() == zc.targetZoom());
+    REQUIRE(zc.currentZoom() == Approx(1.1f));
 }
 
 TEST_CASE("Scroll delta zooms out", "[ZoomController]")
@@ -36,11 +50,11 @@ TEST_CASE("Scroll delta zooms out", "[ZoomController]")
 
     // First zoom in
     zc.applyScrollDelta(120);
-    float zoomed = zc.currentZoom();
+    float zoomed = zc.targetZoom();
 
     // Then zoom out
     zc.applyScrollDelta(-120);
-    REQUIRE(zc.currentZoom() < zoomed);
+    REQUIRE(zc.targetZoom() < zoomed);
 }
 
 TEST_CASE("Zoom clamps to minimum 1.0x", "[ZoomController]")
@@ -60,6 +74,8 @@ TEST_CASE("Zoom clamps to maximum 10.0x", "[ZoomController]")
     for (int i = 0; i < 200; ++i)
         zc.applyScrollDelta(120);
 
+    REQUIRE(zc.targetZoom() <= 10.0f);
+    settle(zc);
     REQUIRE(zc.currentZoom() <= 10.0f);
 }
 
@@ -77,8 +93,8 @@ TEST_CASE("Zoom snaps to exactly 1.0x within epsilon (R-17)", "[ZoomController]"
     // A value clearly outside the epsilon band must NOT snap to 1.0.
     ZoomController zc2;
     zc2.applyScrollDelta(120);           // one full notch → 1.1×
-    REQUIRE(zc2.currentZoom() == Approx(1.1f));
-    REQUIRE(zc2.currentZoom() != Approx(1.0f));
+    REQUIRE(zc2.targetZoom() == Approx(1.1f));
+    REQUIRE(zc2.targetZoom() != Approx(1.0f));
 }
 
 TEST_CASE("Zero scroll delta is a no-op", "[ZoomController]")
@@ -94,19 +110,22 @@ TEST_CASE("Reset returns to 1.0x idle", "[ZoomController]")
     ZoomController zc;
 
     zc.applyScrollDelta(120);
+    zc.tick(1.0f / 60.0f);
     REQUIRE(zc.currentZoom() > 1.0f);
+    REQUIRE(zc.scrollSmoothing());
 
     zc.reset();
     REQUIRE(zc.currentZoom() == Approx(1.0f));
     REQUIRE(zc.targetZoom() == Approx(1.0f));
     REQUIRE(zc.mode() == ZoomController::Mode::Idle);
+    REQUIRE_FALSE(zc.scrollSmoothing());
 }
 
 TEST_CASE("endScroll: Scrolling returns to Idle without changing zoom (AC-2.3.13, R-18)", "[ZoomController]")
 {
     ZoomController zc;
 
-    zc.applyScrollDelta(120);
+    zc.applyScrollDelta(30);   // continuous (touchpad) input: applied directly
     REQUIRE(zc.mode() == ZoomController::Mode::Scrolling);
     float zoomed = zc.currentZoom();
     float target = zc.targetZoom();
@@ -157,7 +176,7 @@ TEST_CASE("Logarithmic model: equal effort for equal ratios (AC-2.1.06)", "[Zoom
     ZoomController zc1;
     // Count notches from 1.0 to 2.0
     int notches_1_to_2 = 0;
-    while (zc1.currentZoom() < 2.0f && notches_1_to_2 < 200)
+    while (zc1.targetZoom() < 2.0f && notches_1_to_2 < 200)
     {
         zc1.applyScrollDelta(120);
         ++notches_1_to_2;
@@ -165,14 +184,14 @@ TEST_CASE("Logarithmic model: equal effort for equal ratios (AC-2.1.06)", "[Zoom
 
     ZoomController zc2;
     // Get to 2.0× first
-    while (zc2.currentZoom() < 2.0f)
+    while (zc2.targetZoom() < 2.0f)
         zc2.applyScrollDelta(120);
 
     // Count notches from ~2.0 to ~4.0 (same 2:1 ratio, away from soft bounds)
     int notches_2_to_4 = 0;
-    float start = zc2.currentZoom();
+    float start = zc2.targetZoom();
     float target = start * 2.0f;
-    while (zc2.currentZoom() < target && notches_2_to_4 < 200)
+    while (zc2.targetZoom() < target && notches_2_to_4 < 200)
     {
         zc2.applyScrollDelta(120);
         ++notches_2_to_4;
@@ -188,7 +207,7 @@ TEST_CASE("Multiple scroll deltas accumulate correctly", "[ZoomController]")
 
     // Apply 3 notches in a single call
     zc.applyScrollDelta(360); // 3 * 120
-    float threeNotchSingle = zc.currentZoom();
+    float threeNotchSingle = zc.targetZoom();
 
     // Both should be >1.0 and reasonable
     REQUIRE(threeNotchSingle > 1.0f);
@@ -213,22 +232,22 @@ TEST_CASE("Soft bounds decelerate near maximum (AC-2.1.15)", "[ZoomController]")
     ZoomController zc;
 
     // Zoom to near max
-    while (zc.currentZoom() < 9.0f)
+    while (zc.targetZoom() < 9.0f)
         zc.applyScrollDelta(120);
 
     // Record zoom increments near the boundary
-    float prev = zc.currentZoom();
+    float prev = zc.targetZoom();
     zc.applyScrollDelta(120);
-    float delta1 = zc.currentZoom() - prev;
+    float delta1 = zc.targetZoom() - prev;
 
     // Keep going — deltas should get smaller (deceleration)
-    prev = zc.currentZoom();
+    prev = zc.targetZoom();
     zc.applyScrollDelta(120);
-    float delta2 = zc.currentZoom() - prev;
+    float delta2 = zc.targetZoom() - prev;
 
     // Near the max, each notch should produce diminishing zoom change
     // (soft approach attenuates the scroll delta)
-    if (zc.currentZoom() < 10.0f)
+    if (zc.targetZoom() < 10.0f)
     {
         REQUIRE(delta2 <= delta1 + 0.001f); // Allow tiny float imprecision
     }
@@ -261,7 +280,7 @@ TEST_CASE("Zoom in then zoom out returns to same level", "[ZoomController]")
     // to ~3× where neither bound's attenuation affects the result.
     for (int i = 0; i < 12; ++i)
         zc.applyScrollDelta(120);
-    float baseZoom = zc.currentZoom();
+    float baseZoom = zc.targetZoom();
     REQUIRE(baseZoom > 2.5f);
 
     // 3 notches up, then 3 notches down — should return to baseZoom
@@ -272,6 +291,8 @@ TEST_CASE("Zoom in then zoom out returns to same level", "[ZoomController]")
     zc.applyScrollDelta(-120);
     zc.applyScrollDelta(-120);
 
+    REQUIRE(zc.targetZoom() == Approx(baseZoom).margin(0.001f));
+    settle(zc);
     REQUIRE(zc.currentZoom() == Approx(baseZoom).margin(0.001f));
 }
 
@@ -389,13 +410,18 @@ TEST_CASE("Scroll interrupts keyboard animation (E2.5)", "[ZoomController][Phase
 
     // Advance a frame
     zc.tick(1.0f / 60.0f);
+    float mid = zc.currentZoom();
+    REQUIRE(mid > 1.0f);
+    REQUIRE(mid < 1.25f);
 
-    // Scroll arrives — takes over
+    // Scroll arrives — takes over from the level on screen (AC-2.2.08)
     zc.applyScrollDelta(120);
     REQUIRE(zc.mode() == ZoomController::Mode::Scrolling);
 
-    // Zoom reflects the scroll, not the animation target
-    REQUIRE(zc.currentZoom() == zc.targetZoom()); // Scroll sets both equal
+    // The target is built on the displayed level, not the keyboard target
+    REQUIRE(zc.targetZoom() == Approx(mid * 1.1f));
+    settle(zc);
+    REQUIRE(zc.currentZoom() == zc.targetZoom());
 }
 
 TEST_CASE("Keyboard step clamps to max at 9.9x (E2.6)", "[ZoomController][Phase2]")
@@ -448,6 +474,7 @@ TEST_CASE("animateToZoom(1.0) animates from zoomed state (E2.7)", "[ZoomControll
     // Get to ~2.0x via scroll
     for (int i = 0; i < 8; ++i)
         zc.applyScrollDelta(120);
+    settle(zc);
     REQUIRE(zc.currentZoom() > 1.5f);
 
     // Animate to 1.0
@@ -519,6 +546,7 @@ TEST_CASE("Toggle from zoomed → animates to 1.0x (AC-2.7.01)", "[ZoomControlle
     // Zoom to ~4.0x
     for (int i = 0; i < 15; ++i)
         zc.applyScrollDelta(120);
+    settle(zc);
     float zoomedLevel = zc.currentZoom();
     REQUIRE(zoomedLevel > 3.0f);
 
@@ -538,6 +566,7 @@ TEST_CASE("Toggle release → animates back to saved level (AC-2.7.03)", "[ZoomC
     // Zoom to ~4.0x
     for (int i = 0; i < 15; ++i)
         zc.applyScrollDelta(120);
+    settle(zc);
     float zoomedLevel = zc.currentZoom();
 
     zc.engageToggle();
@@ -560,6 +589,7 @@ TEST_CASE("Toggle at 1.0x with prior zoom → animates to lastUsedZoom (AC-2.7.0
     // Zoom to ~3.0x, then back to 1.0x to set lastUsedZoom
     for (int i = 0; i < 12; ++i)
         zc.applyScrollDelta(120);
+    settle(zc);
     float usedLevel = zc.currentZoom();
     REQUIRE(usedLevel > 2.0f);
 
@@ -611,6 +641,7 @@ TEST_CASE("Brief tap: engage then immediate release → both animations play (AC
     // Zoom to 4.0x
     for (int i = 0; i < 15; ++i)
         zc.applyScrollDelta(120);
+    settle(zc);
     float zoomedLevel = zc.currentZoom();
 
     // Engage (targets 1.0x)
@@ -638,6 +669,7 @@ TEST_CASE("Scroll during toggle updates restore target (AC-2.7.09 / E4.5)", "[Zo
     // Scroll during toggle to ~3.0x
     for (int i = 0; i < 5; ++i)
         zc.applyScrollDelta(120);
+    settle(zc);
     float scrolledLevel = zc.currentZoom();
     REQUIRE(scrolledLevel > 2.0f);
 
@@ -682,6 +714,7 @@ TEST_CASE("Double engage is idempotent", "[ZoomController][Phase4]")
 
     for (int i = 0; i < 15; ++i)
         zc.applyScrollDelta(120);
+    settle(zc);
     REQUIRE(zc.currentZoom() > 3.0f);
 
     zc.engageToggle();
@@ -716,6 +749,7 @@ TEST_CASE("applySettings: reduce max while above it → animate down (AC-2.9.05,
     // Zoom to ~8.0x
     for (int i = 0; i < 22; ++i)
         zc.applyScrollDelta(120);
+    settle(zc);
     REQUIRE(zc.currentZoom() > 7.0f);
 
     zc.applySettings(1.0f, 5.0f, 0.25f, 2.0f, 1);
@@ -746,6 +780,7 @@ TEST_CASE("applySettings: idle within bounds → no spurious animation", "[ZoomC
     // Zoom to ~3.0x
     for (int i = 0; i < 12; ++i)
         zc.applyScrollDelta(120);
+    settle(zc);
     float level = zc.currentZoom();
     REQUIRE(level > 2.0f);
 
@@ -754,7 +789,7 @@ TEST_CASE("applySettings: idle within bounds → no spurious animation", "[ZoomC
 
     // No animation triggered — zoom is within new bounds
     REQUIRE(zc.currentZoom() == Approx(level));
-    REQUIRE(zc.mode() == ZoomController::Mode::Scrolling); // Still in scroll mode from delta
+    REQUIRE(zc.mode() == ZoomController::Mode::Idle); // settled scroll, no animation started
 }
 
 TEST_CASE("applySettings: new keyboard step takes effect (AC-2.9.04)", "[ZoomController][Phase5]")
@@ -780,7 +815,7 @@ TEST_CASE("Scroll sensitivity scales zoom rate (A3)", "[ZoomController][Interop]
 
     // One notch (120) at 2x sensitivity → effective 2 notches → 1.1^2
     zc.applyScrollDelta(120);
-    REQUIRE(zc.currentZoom() == Approx(std::pow(1.1f, 2.0f)).margin(0.01f));
+    REQUIRE(zc.targetZoom() == Approx(std::pow(1.1f, 2.0f)).margin(0.01f));
 }
 
 TEST_CASE("Default scroll sensitivity leaves rate unchanged (A3)", "[ZoomController][Interop]")
@@ -789,7 +824,7 @@ TEST_CASE("Default scroll sensitivity leaves rate unchanged (A3)", "[ZoomControl
     zc.applySettings(1.0f, 10.0f, 0.25f, 2.0f, 1); // sensitivity defaults to 1.0
 
     zc.applyScrollDelta(120);
-    REQUIRE(zc.currentZoom() == Approx(1.1f).margin(0.001f));
+    REQUIRE(zc.targetZoom() == Approx(1.1f).margin(0.001f));
 }
 
 TEST_CASE("Non-positive scroll sensitivity is rejected (A3 defense-in-depth)", "[ZoomController][Interop]")
@@ -798,7 +833,7 @@ TEST_CASE("Non-positive scroll sensitivity is rejected (A3 defense-in-depth)", "
     zc.applySettings(1.0f, 10.0f, 0.25f, 2.0f, 1, 0.0f); // invalid → falls back to 1.0
 
     zc.applyScrollDelta(120);
-    REQUIRE(zc.currentZoom() == Approx(1.1f).margin(0.001f));
+    REQUIRE(zc.targetZoom() == Approx(1.1f).margin(0.001f));
 }
 
 // =============================================================================
@@ -826,6 +861,7 @@ TEST_CASE("trayToggle from zoomed state animates to 1.0x (AC-2.9.15)", "[ZoomCon
     // Zoom to ~4.0x
     for (int i = 0; i < 15; ++i)
         zc.applyScrollDelta(120);
+    settle(zc);
     REQUIRE(zc.currentZoom() > 3.0f);
 
     zc.trayToggle();
@@ -843,6 +879,7 @@ TEST_CASE("trayToggle round-trip preserves zoom level (AC-2.9.15)", "[ZoomContro
     // Zoom to ~3.0x
     for (int i = 0; i < 12; ++i)
         zc.applyScrollDelta(120);
+    settle(zc);
     float zoomedLevel = zc.currentZoom();
     REQUIRE(zoomedLevel > 2.0f);
 
@@ -866,6 +903,7 @@ TEST_CASE("trayToggle does not interfere with hold-to-peek toggle state", "[Zoom
     // Zoom to ~3.0x
     for (int i = 0; i < 12; ++i)
         zc.applyScrollDelta(120);
+    settle(zc);
     float zoomedLevel = zc.currentZoom();
 
     // trayToggle to 1.0x
@@ -884,4 +922,152 @@ TEST_CASE("trayToggle does not interfere with hold-to-peek toggle state", "[Zoom
     zc.engageToggle();
     REQUIRE(zc.isToggled());
     REQUIRE(zc.targetZoom() == Approx(1.0f));
+}
+
+// =============================================================================
+// Whole-notch scroll smoothing (AC-2.2.03, rewritten 2026-10-01)
+// =============================================================================
+
+TEST_CASE("Notch smoothing: partial first frame, monotone, no overshoot, rests within 100 ms", "[ZoomController][Smoothing]")
+{
+    for (float hz : {60.0f, 144.0f})
+    {
+        ZoomController zc;
+        const float dt = 1.0f / hz;
+        zc.applyScrollDelta(120);
+        zc.tick(dt);
+        const double step = std::log(1.1);
+        double first = std::log(static_cast<double>(zc.currentZoom()));
+        REQUIRE(first > 0.0);
+        REQUIRE(first < step);                       // spread over several frames
+        if (hz == 60.0f)
+            REQUIRE(first > 0.4 * step);             // onset still feels immediate
+
+        float prev = zc.currentZoom();
+        int frames = 1;
+        while (zc.scrollSmoothing() && frames < 1000)
+        {
+            zc.tick(dt);
+            zc.endScroll();
+            REQUIRE(zc.currentZoom() >= prev);       // monotone
+            REQUIRE(zc.currentZoom() <= zc.targetZoom()); // never past the target
+            prev = zc.currentZoom();
+            ++frames;
+        }
+        REQUIRE((frames - 1) * dt <= 0.097f + 1e-5f); // rests within 97 ms of the input (C-14)
+        REQUIRE(zc.currentZoom() == zc.targetZoom());
+        zc.endScroll();
+        REQUIRE(zc.mode() == ZoomController::Mode::Idle);
+    }
+}
+
+TEST_CASE("Notch smoothing: endScroll waits until the zoom is at rest", "[ZoomController][Smoothing]")
+{
+    ZoomController zc;
+    zc.applyScrollDelta(120);
+    zc.tick(1.0f / 60.0f);
+    zc.endScroll();
+    REQUIRE(zc.mode() == ZoomController::Mode::Scrolling);
+    settle(zc);
+    REQUIRE(zc.mode() == ZoomController::Mode::Idle);
+    REQUIRE(zc.currentZoom() == Approx(1.1f));
+}
+
+TEST_CASE("Notch smoothing: new notches retarget without pausing", "[ZoomController][Smoothing]")
+{
+    ZoomController zc;
+    float prev = zc.currentZoom();
+    for (int notch = 0; notch < 4; ++notch)
+    {
+        zc.applyScrollDelta(120);
+        for (int f = 0; f < 2; ++f)                  // a notch every ~33 ms
+        {
+            zc.tick(1.0f / 60.0f);
+            REQUIRE(zc.currentZoom() > prev);        // keeps moving every frame
+            prev = zc.currentZoom();
+        }
+    }
+    REQUIRE(zc.targetZoom() == Approx(std::pow(1.1f, 4.0f)));
+    settle(zc);
+    REQUIRE(zc.currentZoom() == Approx(std::pow(1.1f, 4.0f)));
+}
+
+TEST_CASE("Notch smoothing: reversing direction ends at the new target", "[ZoomController][Smoothing]")
+{
+    ZoomController zc;
+    for (int i = 0; i < 10; ++i)
+        zc.applyScrollDelta(120);
+    settle(zc);
+    const float base = zc.currentZoom();
+    zc.applyScrollDelta(120);
+    zc.tick(1.0f / 60.0f);
+    zc.applyScrollDelta(-120);                       // user reverses
+    settle(zc);
+    REQUIRE(zc.currentZoom() == Approx(base).margin(0.0005f));
+}
+
+TEST_CASE("Touchpad input stays direct, even a frame that sums to 120", "[ZoomController][Smoothing]")
+{
+    ZoomController zc;
+    zc.applyScrollDelta(30);                         // sub-notch: continuous device
+    REQUIRE(zc.currentZoom() == zc.targetZoom());
+    zc.tick(1.0f / 60.0f);
+    zc.applyScrollDelta(120);                        // within the continuous-input hold
+    REQUIRE_FALSE(zc.scrollSmoothing());
+    REQUIRE(zc.currentZoom() == zc.targetZoom());
+
+    // Long after the touchpad stopped, whole notches are smoothed again.
+    settle(zc);
+    for (int i = 0; i < 30; ++i)
+        zc.tick(1.0f / 60.0f);
+    zc.applyScrollDelta(120);
+    REQUIRE(zc.scrollSmoothing());
+}
+
+TEST_CASE("Toggle during notch smoothing saves the scroll target (AC-2.7.09)", "[ZoomController][Smoothing]")
+{
+    ZoomController zc;
+    for (int i = 0; i < 12; ++i)
+        zc.applyScrollDelta(120);
+    zc.tick(1.0f / 60.0f);                           // display still behind the target
+    const float target = zc.targetZoom();
+    REQUIRE(zc.currentZoom() < target);
+
+    zc.engageToggle();
+    REQUIRE_FALSE(zc.scrollSmoothing());
+    REQUIRE(zc.targetZoom() == Approx(1.0f));
+    zc.releaseToggle();
+    REQUIRE(zc.targetZoom() == Approx(target));
+}
+
+TEST_CASE("Notch smoothing: notches into a bound do not keep the motion alive", "[ZoomController][Smoothing]")
+{
+    ZoomController zc;
+    for (int i = 0; i < 60; ++i)
+        zc.applyScrollDelta(120);                    // target pinned at max
+    REQUIRE(zc.targetZoom() == Approx(10.0f));
+
+    // Keep pushing one notch per frame: the target cannot move, so the
+    // smoothing must still come to rest ~97 ms after the last notch that moved it.
+    int frames = 0;
+    while (zc.scrollSmoothing() && frames < 60)
+    {
+        zc.tick(1.0f / 60.0f);
+        zc.applyScrollDelta(120);
+        ++frames;
+    }
+    REQUIRE(frames <= 7);
+    REQUIRE(zc.currentZoom() == zc.targetZoom());
+}
+
+TEST_CASE("Notch smoothing: rest time counts from the input, not the frame", "[ZoomController][Smoothing]")
+{
+    // An input that arrived 15 ms before the frame consumed it rests one frame sooner.
+    ZoomController fresh, aged;
+    fresh.applyScrollDelta(120, 0.0);
+    aged.applyScrollDelta(120, 0.015);
+    int fFrames = 0, aFrames = 0;
+    while (fresh.scrollSmoothing() && fFrames < 60) { fresh.tick(1.0f / 60.0f); ++fFrames; }
+    while (aged.scrollSmoothing() && aFrames < 60) { aged.tick(1.0f / 60.0f); ++aFrames; }
+    REQUIRE(aFrames == fFrames - 1);
 }

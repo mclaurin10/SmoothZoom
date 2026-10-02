@@ -34,12 +34,39 @@ static constexpr double kReferenceHz = 60.0;
 // Soft-approach margin as fraction of log-range near bounds (AC-2.1.15)
 static constexpr float kSoftMarginFraction = 0.15f;
 
-void ZoomController::applyScrollDelta(int32_t accumulatedDelta)
+// Whole-notch scroll smoothing (AC-2.2.03, Doc 3 §3.5). The displayed log-zoom
+// follows log(target) as a critically damped system: smooth onset, no
+// overshoot, retargets on every notch. kSmoothOmega sets the response (an
+// isolated notch is ~55% applied on its first frame at 60 Hz). The tail ends
+// on the last frame that is still within kSmoothRestBy of the newest
+// target-moving notch (timed from the input, not the frame), so the zoom
+// rests within the bench's 100 ms settle bound (C-14) yet keeps moving
+// across notch gaps up to that long (no 2-refresh hole, C-08). It also ends
+// once within kSmoothSnapLog (0.001%, invisible).
+static constexpr double kSmoothOmega = 100.0;       // 1/s
+static constexpr double kSmoothRestBy = 0.097;      // s after the newest notch input
+static constexpr double kSmoothSnapLog = 1e-5;
+// After any sub-notch delta, the input is treated as continuous (touchpad)
+// for this long: a touchpad frame that happens to sum to 120 stays direct.
+static constexpr double kFineHoldSeconds = 0.25;
+
+void ZoomController::applyScrollDelta(int32_t accumulatedDelta, double inputAgeSeconds)
 {
     if (accumulatedDelta == 0)
         return;
 
+    // Scroll takes over from whatever is on screen (AC-2.2.08): a keyboard
+    // animation or toggle stops, and the new target builds on the displayed level.
+    if (mode_ != Mode::Scrolling)
+    {
+        targetZoom_ = currentZoom_;
+        stopSmoothing();
+    }
     mode_ = Mode::Scrolling;
+
+    const bool notched = (accumulatedDelta % static_cast<int32_t>(kWheelDelta) == 0) && fineHold_ <= 0.0;
+    if (!notched)
+        fineHold_ = kFineHoldSeconds;
 
     // Logarithmic zoom model (AC-2.1.06):
     // Each 120-unit notch multiplies zoom by kScrollZoomBase.
@@ -55,7 +82,7 @@ void ZoomController::applyScrollDelta(int32_t accumulatedDelta)
     float logMax = std::log(maxZoom_);
     float logRange = logMax - logMin;
     float margin = logRange * kSoftMarginFraction;
-    float logCurrent = std::log(currentZoom_);
+    float logCurrent = std::log(targetZoom_);   // the accumulated level, not the smoothed display
 
     if (normalizedDelta > 0.0f && logCurrent > logMax - margin)
     {
@@ -74,7 +101,7 @@ void ZoomController::applyScrollDelta(int32_t accumulatedDelta)
         normalizedDelta *= attenuation;
     }
 
-    float newZoom = currentZoom_ * std::pow(kScrollZoomBase, normalizedDelta);
+    float newZoom = targetZoom_ * std::pow(kScrollZoomBase, normalizedDelta);
 
     // Hard clamp to bounds (safety net after soft approach)
     newZoom = std::clamp(newZoom, minZoom_, maxZoom_);
@@ -87,16 +114,38 @@ void ZoomController::applyScrollDelta(int32_t accumulatedDelta)
     if (std::abs(newZoom - maxZoom_) < kSnapEpsilon)
         newZoom = maxZoom_;
 
-    currentZoom_ = newZoom;
+    const bool moved = (newZoom != targetZoom_);
     targetZoom_ = newZoom;
+    if (notched)
+    {
+        // A notch pushing into a bound leaves the target where it is; it must
+        // not keep a finished motion alive (the rest time is from the last
+        // notch that moved the target).
+        if (moved)
+        {
+            if (!smoothing_)
+            {
+                smoothLog_ = std::log(static_cast<double>(currentZoom_));
+                smoothVel_ = 0.0;
+                smoothing_ = true;
+            }
+            notchAge_ = (inputAgeSeconds > 0.0) ? inputAgeSeconds : 0.0;
+            notchFresh_ = true;
+        }
+    }
+    else
+    {
+        currentZoom_ = newZoom;   // continuous input stays direct
+        stopSmoothing();
+    }
 
     // Phase 4: Update toggle restore target if scrolling during toggle (AC-2.7.09 / E4.5)
     if (isToggled_)
-        savedZoomForToggle_ = currentZoom_;
+        savedZoomForToggle_ = targetZoom_;
 
     // Track last-used zoom for "toggle from 1.0×" (AC-2.7.04)
-    if (currentZoom_ > 1.0f + kSnapEpsilon)
-        lastUsedZoom_ = currentZoom_;
+    if (targetZoom_ > 1.0f + kSnapEpsilon)
+        lastUsedZoom_ = targetZoom_;
 }
 
 void ZoomController::applyKeyboardStep(int direction)
@@ -118,6 +167,7 @@ void ZoomController::applyKeyboardStep(int direction)
 
     targetZoom_ = newTarget;
     mode_ = Mode::Animating;
+    stopSmoothing();
 
     // Phase 4: Update toggle restore target if keyboard step during toggle (AC-2.7.09)
     if (isToggled_)
@@ -147,11 +197,13 @@ void ZoomController::animateToZoom(float target)
 
     targetZoom_ = target;
     mode_ = Mode::Animating;
+    stopSmoothing();
 }
 
 void ZoomController::trayToggle()
 {
-    if (std::abs(currentZoom_ - 1.0f) < kSnapEpsilon)
+    const float level = restingZoom();
+    if (std::abs(level - 1.0f) < kSnapEpsilon)
     {
         // At 1.0×: animate to last-used/default zoom
         animateToZoom(lastUsedZoom_);
@@ -159,7 +211,7 @@ void ZoomController::trayToggle()
     else
     {
         // Zoomed: save as last-used, animate to 1.0×
-        lastUsedZoom_ = currentZoom_;
+        lastUsedZoom_ = level;
         animateToZoom(1.0f);
     }
     // Does NOT set isToggled_ — permanent switch, not hold-to-peek
@@ -170,10 +222,12 @@ void ZoomController::engageToggle()
     if (isToggled_)
         return; // Idempotent (AC-2.7.07 edge case)
 
-    savedZoomForToggle_ = currentZoom_;
+    // Mid-way through notch smoothing the user's level is the scroll target.
+    const float level = restingZoom();
+    savedZoomForToggle_ = level;
     isToggled_ = true;
 
-    if (std::abs(currentZoom_ - 1.0f) < kSnapEpsilon)
+    if (std::abs(level - 1.0f) < kSnapEpsilon)
     {
         // At 1.0×: toggle to last-used zoom (AC-2.7.04), default 2.0× (AC-2.7.05)
         animateToZoom(lastUsedZoom_);
@@ -181,7 +235,7 @@ void ZoomController::engageToggle()
     else
     {
         // Zoomed in: save as last-used, toggle to 1.0× (AC-2.7.01)
-        lastUsedZoom_ = currentZoom_;
+        lastUsedZoom_ = level;
         animateToZoom(1.0f);
     }
 }
@@ -197,17 +251,55 @@ void ZoomController::releaseToggle()
 
 bool ZoomController::tick(float dtSeconds)
 {
+    if (fineHold_ > 0.0)
+        fineHold_ -= (dtSeconds > 0.0f) ? static_cast<double>(dtSeconds) : 1.0 / kReferenceHz;
+
     if (mode_ == Mode::Idle)
         return false;
 
     if (mode_ == Mode::Scrolling)
     {
-        // Scroll-direct: no interpolation needed. The value was set directly in
-        // applyScrollDelta(). RenderLoop calls endScroll() on a frame with no
-        // scroll input to return us to Idle (which arms the 1.0× idle
-        // short-circuit). Until then we report "changed" so a caller that gates on
-        // tick()'s return value still refreshes; RenderLoop instead gates its
-        // MagBridge call on its own changed-since-last-frame check.
+        // Continuous input was applied directly in applyScrollDelta(). RenderLoop
+        // calls endScroll() on a frame with no scroll input to return us to Idle
+        // (which arms the 1.0× idle short-circuit). Until then we report
+        // "changed"; RenderLoop gates its MagBridge call on its own
+        // changed-since-last-frame check.
+        if (!smoothing_)
+            return true;
+
+        // Whole-notch smoothing: exact critically damped step in log space,
+        // y = displayed - goal, so a variable frame time stays stable.
+        double dt = static_cast<double>(dtSeconds);
+        if (dt <= 0.0)
+            dt = 1.0 / kReferenceHz;
+        if (dt > 0.1)
+            dt = 0.1;
+        if (notchFresh_)
+            notchFresh_ = false;   // age was measured at this frame
+        else
+            notchAge_ += dt;
+
+        const double goal = std::log(static_cast<double>(targetZoom_));
+        const double y0 = smoothLog_ - goal;
+        const double v0 = smoothVel_;
+        const double decay = std::exp(-kSmoothOmega * dt);
+        const double c = v0 + kSmoothOmega * y0;
+        const double y = (y0 + c * dt) * decay;
+        const double v = (v0 - kSmoothOmega * c * dt) * decay;
+
+        // Rest now if the next frame (about dt away) would land past kSmoothRestBy.
+        if (notchAge_ + dt > kSmoothRestBy
+            || (std::abs(y) < kSmoothSnapLog && std::abs(v) / kReferenceHz < kSmoothSnapLog))
+        {
+            currentZoom_ = targetZoom_;   // at rest (exact, so 1.0x snaps to 1.0f)
+            stopSmoothing();
+        }
+        else
+        {
+            smoothLog_ = goal + y;
+            smoothVel_ = v;
+            currentZoom_ = static_cast<float>(std::exp(smoothLog_));
+        }
         return true;
     }
 
@@ -264,11 +356,11 @@ void ZoomController::applySettings(float minZoom, float maxZoom,
     }
 
     // AC-2.9.05: zoomed above new max → animate down
-    if (currentZoom_ > maxZoom_)
+    if (restingZoom() > maxZoom_)
         animateToZoom(maxZoom_);
 
     // AC-2.9.06: zoomed below new min → animate up
-    if (currentZoom_ < minZoom_)
+    if (restingZoom() < minZoom_)
         animateToZoom(minZoom_);
 
     // Clamp pending target to new bounds
@@ -278,8 +370,9 @@ void ZoomController::applySettings(float minZoom, float maxZoom,
 void ZoomController::endScroll()
 {
     // Only ends a scroll gesture. Never interrupts an in-progress animation
-    // (Animating) or disturbs an already-Idle controller.
-    if (mode_ == Mode::Scrolling)
+    // (Animating) or disturbs an already-Idle controller, and waits for notch
+    // smoothing to come to rest (tick() keeps advancing it meanwhile).
+    if (mode_ == Mode::Scrolling && !smoothing_)
         mode_ = Mode::Idle;
 }
 
@@ -288,6 +381,7 @@ void ZoomController::reset()
     currentZoom_ = 1.0f;
     targetZoom_ = 1.0f;
     mode_ = Mode::Idle;
+    stopSmoothing();
 }
 
 } // namespace SmoothZoom

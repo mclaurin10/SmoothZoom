@@ -1168,6 +1168,9 @@ static LRESULT CALLBACK msgWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lP
             // Debug, not Info: this fires per qualifying scroll event on the
             // main thread, and the logger flushes synchronously per line (R-05).
             SZ_LOG_DEBUG("Main", L"Raw Input scroll fallback: delta=%d", delta);
+            LARGE_INTEGER qpc;
+            QueryPerformanceCounter(&qpc);
+            g_sharedState.lastScrollInputQpc.store(qpc.QuadPart, std::memory_order_relaxed);
             g_sharedState.scrollAccumulator.fetch_add(delta, std::memory_order_release);
 #ifdef SMOOTHZOOM_DEV_TOOLS
             SmoothZoom::DevTools::tapAccumulator(SmoothZoom::WheelSource::RawInput, delta);

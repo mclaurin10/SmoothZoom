@@ -211,12 +211,18 @@ static bool isWinModifier()
 }
 
 // Side effects of a consumed wheel event (shared by the hook and --bench replay).
-// Hook-safe: two atomic writes and a WinKeyManager flag (no-op unless Win is held).
+// Hook-safe: three atomic writes, one QPC read and a WinKeyManager flag (no-op
+// unless Win is held).
 static void applyWheelDecision(const WheelDecision& d)
 {
     // Record LL hook scroll timestamp for Raw Input dedup
     s_state->lastLLHookScrollTime.store(
         static_cast<int64_t>(GetTickCount64()), std::memory_order_relaxed);
+
+    // Input time for notch smoothing (RenderLoop); QPC is a ~20 ns read.
+    LARGE_INTEGER qpc;
+    QueryPerformanceCounter(&qpc);
+    s_state->lastScrollInputQpc.store(qpc.QuadPart, std::memory_order_relaxed);
 
     // Atomically accumulate delta (render thread will exchange-with-0)
     s_state->scrollAccumulator.fetch_add(d.accumulatorDelta, std::memory_order_release);
