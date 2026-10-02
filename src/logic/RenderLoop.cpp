@@ -542,6 +542,13 @@ void RenderLoop::frameTick()
         s_lastRawPtrX = rawPtrX;
         s_lastRawPtrY = rawPtrY;
     }
+    // A scroll-gesture zoom is pointer input too: the pointer is its focal
+    // point (AC-2.1.09) and the most recent input source wins (AC-2.5.10). So a
+    // focus change since the pointer last moved (e.g. clicking into a text
+    // field, then Shift+scrolling without moving the mouse) must not pull the
+    // zoom away from the pointer. Focus changes after the scroll still win.
+    if (scrollDelta != 0)
+        s_lastPointerMoveTimeMs = currentTimeMs();
 
     // Deadzone gates the committed position used for viewport offset calculation.
     int32_t dx = rawPtrX - s_committedPtrX;

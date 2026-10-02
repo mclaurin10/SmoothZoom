@@ -15,6 +15,8 @@
 
 > **Change (2026-10-01, smoothness tuning, approved before the loop started):** **AC-2.2.03** reworded. Scroll zoom was "direct, not an animated transition"; it is now "tightly coupled to input": touchpad input stays effectively direct, while whole-notch wheel input is smoothed in log-zoom space toward the accumulated target, within the bench bounds C-14, C-19, C-20 and C-21–C-23 (Doc 3 §7.4). The AC count is unchanged (145).
 
+> **Change (2026-10-02, approved during the tuning loop):** **AC-2.1.09** clarified. A scroll-gesture zoom counts as pointer input in source arbitration, so it zooms at the pointer even when keyboard focus changed after the mouse last moved. Before, clicking into a text field and then Shift+scrolling without moving the mouse zoomed onto the field instead (found by the bench, where the prompt field of the foreground app held focus). AC count unchanged.
+
 ---
 
 ## 1. Purpose of This Document
@@ -51,7 +53,7 @@ Where a criterion involves timing, distances, or thresholds, the stated value is
 
 ### 2C. Zoom Center Point
 
-**AC-2.1.09** — When the user scrolls to zoom in, the point on the desktop underneath the pointer moves toward the center of the screen. When the user scrolls to zoom out, it moves away from center. The pointer position is the zoom's focal point.
+**AC-2.1.09** — When the user scrolls to zoom in, the point on the desktop underneath the pointer moves toward the center of the screen. When the user scrolls to zoom out, it moves away from center. The pointer position is the zoom's focal point. A scroll gesture counts as pointer input for source arbitration (AC-2.5.10): it re-anchors the view on the pointer even if keyboard focus changed since the mouse last moved (e.g. after clicking into a text field). A focus change *after* the scroll still pans to the focused element (AC-2.5.12).
 
 **AC-2.1.10** — If the user moves the pointer while scrolling, each successive scroll event uses the pointer's current position as its zoom center. The zoom center tracks the pointer in real time.
 

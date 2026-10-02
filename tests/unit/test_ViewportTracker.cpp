@@ -8,6 +8,7 @@
 #include <catch2/catch_message.hpp>
 #include "smoothzoom/logic/ViewportTracker.h"
 #include <cmath>
+#include <algorithm>
 
 using namespace SmoothZoom;
 using Catch::Approx;
@@ -716,4 +717,29 @@ TEST_CASE("alignZoomForAnchor cuts anchor snap-backs during a smooth zoom", "[Vi
     const int exact = reversals(false), aligned = reversals(true);
     REQUIRE(exact > 10);
     REQUIRE(aligned * 2 <= exact);
+}
+
+// RenderLoop records a zoom-scroll frame as pointer activity (AC-2.1.09: the
+// pointer is the scroll zoom's focal point; AC-2.5.10: most recent input wins).
+TEST_CASE("Scroll gesture after a focus change re-anchors on the pointer (AC-2.1.09, AC-2.5.10)",
+          "[ViewportTracker][Phase3]")
+{
+    ViewportTracker vt;
+    int64_t now = 10000;
+    int64_t pointerMoved = 4000;   // mouse last moved long ago
+    int64_t focusChanged = 6000;   // then the user clicked/tabbed into a field
+    int64_t scrolled = 9900;       // then Shift+scrolled without moving the mouse
+    int64_t lastPointerActivity = std::max(pointerMoved, scrolled);
+
+    REQUIRE(vt.determineActiveSource(now, pointerMoved, focusChanged, 0, true, false) == TrackingSource::Focus);
+    REQUIRE(vt.determineActiveSource(now, lastPointerActivity, focusChanged, 0, true, false) == TrackingSource::Pointer);
+}
+
+TEST_CASE("Focus change after a scroll gesture still wins (AC-2.5.12)", "[ViewportTracker][Phase3]")
+{
+    ViewportTracker vt;
+    int64_t now = 10000;
+    int64_t scrolled = 8000;
+    int64_t focusChanged = 9000;   // Tab after zooming
+    REQUIRE(vt.determineActiveSource(now, scrolled, focusChanged, 0, true, false) == TrackingSource::Focus);
 }
