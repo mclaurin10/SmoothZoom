@@ -39,7 +39,7 @@ driver or power source changes, because every bench number below depends on them
 | Touchpad | **ELAN0124**, I2C HID, exposes a `HID-compliant touch pad` collection (`HID\ELAN0124&COL03`). It is a **Windows Precision Touchpad** (PTP settings present under `HKCU\…\PrecisionTouchPad`). |
 | PTP settings | **ScrollDirection = 0 → natural (reverse) scrolling ON**, PanEnabled = 1, ZoomEnabled = 1 (pinch), CursorSpeed = 10 |
 | Touchscreen | ELAN2513 I2C (`HID-compliant touch screen`). Not used by SmoothZoom (Doc 1 §3.7 out of scope). |
-| Mouse | **No external mouse attached.** The only HID mouse collection is the touchpad's (`ELAN0124&COL01`). A *detented* wheel can therefore only be exercised with synthetic traces on this machine until a mouse is plugged in. |
+| Mouse | **Logitech, via a Logi Bolt receiver** (`HID\VID_046D&PID_C548`), attached after the first capture. Its wheel arrives as **detented ±120** steps; the model is not identifiable from PnP. |
 
 ## Power
 
@@ -49,16 +49,21 @@ driver or power source changes, because every bench number below depends on them
 | Power-mode overlay | Balanced (effective overlay GUID `00000000-…`, the default/"Balanced" slider) |
 | Source at capture | **Battery** (BatteryStatus = 1, discharging, 90 %). Power source changes CPU/GPU clocks and possibly DWM scheduling, so the bench records it in every run. **Baselines on battery and on AC are not comparable.** |
 
-## Wheel/touchpad arrival at the LL hook — **PENDING user gestures**
+## Wheel/touchpad arrival at the LL hook (observed 2026-10-01)
 
-Question: does Shift + wheel or two-finger scroll arrive as `WM_MOUSEWHEEL`, or is it converted to
-`WM_MOUSEHWHEEL` before the hook sees it? This needs physical gestures. Run
-`tools/observe-wheel.ps1` (observe-only, no elevation) and perform the listed gestures. The
-results go here.
+Captured with `tools/observe-wheel.ps1` (observe-only `WH_MOUSE_LL`). Raw data: `wheel-observe.csv`, 834 events.
 
-| Gesture | Foreground | Arrives as | Δ per event | Notes |
-|---|---|---|---|---|
-| two-finger scroll | Notepad | _pending_ | | |
-| Shift + two-finger | Notepad | _pending_ | | |
-| two-finger scroll | Edge (DManip) | _pending_ | | expect nothing at the hook (PTP HID path only) |
-| Shift + two-finger | Edge (DManip) | _pending_ | | |
+**Answer: everything arrives as `WM_MOUSEWHEEL`. Nothing was converted to `WM_MOUSEHWHEEL`, with or without Shift, from the touchpad or the mouse.** Shift is visible to the hook (`GetAsyncKeyState`) on every event of a Shift gesture. So with Shift as the modifier, today's code takes the `WM_MOUSEWHEEL` branch (`InputInterceptor.cpp:125`), and the `WM_MOUSEHWHEEL` negation path (`:163-208`) is never exercised on this machine.
+
+| Gesture | Foreground | Arrives as | Δ per event | Event spacing | Notes |
+|---|---|---|---|---|---|
+| two-finger scroll | Windows Terminal | WHEEL | 2–323 (median 33); only 28/165 are multiples of 120 | median **7.1 ms** (~140 Hz) | Each burst ends in an OS-generated **inertia tail** that decays to single digits (e.g. `-67 -62 -50 … -12 -8`) over ~100–300 ms |
+| Shift + two-finger | Windows Terminal | **WHEEL** (shift=1) | 2–311 (median 20) | median 6.9 ms | Same continuous/inertia shape |
+| Win + two-finger | Windows Terminal | WHEEL (win=1) | 2–**1014** (median 35) | median 6.7 ms | Fast flicks produce a single very large first event (−1014, 555), then a long inertia tail |
+| mouse wheel (Logitech) | Windows Terminal | WHEEL | exactly ±120 | 15–40 ms within a spin | Detented |
+| Shift + mouse wheel | Windows Terminal | **WHEEL** (shift=1) | exactly ±120 | 7–30 ms | Not converted by the driver/OS |
+| any gesture | Notepad / Edge | — | — | — | **No events were recorded with Notepad or Edge in front.** Either the Edge/Notepad passes weren't done, or Edge's Direct Manipulation swallowed the touchpad gesture before the hook. That is the expected DManip behaviour (`hardware-accommodation-handoff.md` §3). Confirm with `--record` in session 2, which also logs the PTP HID path. |
+
+Implications for the bench:
+- The touchpad cadence (~140 Hz) is **2.3 events per 59.89 Hz frame**, uneven (2 or 3), so the per-frame accumulated delta alternates. The synthetic touchpad trace reproduces this.
+- The single huge first event (up to ~8.5 notches) at flick start is a real input shape. The free-spin and touchpad traces include large first events.
