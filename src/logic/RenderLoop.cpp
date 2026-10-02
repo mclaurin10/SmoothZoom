@@ -70,6 +70,14 @@ static int32_t s_committedPtrX = 0;
 static int32_t s_committedPtrY = 0;
 static bool s_deadzoneInitialized = false;
 
+// Anchor alignment (R-23): the on-screen anchor error of the last displayed
+// frame, for the pointer it was computed at, and the unadjusted zoom of the
+// last frame (alignment only runs while that is changing).
+static float   s_anchorErrX = 0.0f, s_anchorErrY = 0.0f;
+static int32_t s_anchorPtrX = 0, s_anchorPtrY = 0;
+static bool    s_anchorValid = false;
+static float   s_prevTrueZoom = 1.0f;
+
 // Phase 3: Source tracking state — all pre-allocated, no heap on hot path.
 static int64_t s_lastPointerMoveTimeMs = 0;  // Updated on ANY pointer movement (WS2A fix)
 static TrackingSource s_activeSource = TrackingSource::Pointer;
@@ -580,6 +588,40 @@ void RenderLoop::frameTick()
     TrackingSource newSource = s_viewportTracker.determineActiveSource(
         nowMs, s_lastPointerMoveTimeMs, lastFocusChange, lastKeyboardInput,
         focusValid, caretValid);
+
+    // 5c'. Anchor alignment (R-23, AC-2.1.09–11). While the zoom moves under a
+    //      settled pointer, display a zoom up to 0.5% behind the true one that
+    //      keeps the point under the pointer from jumping back and forth on the
+    //      pixel grid. Monotone and never ahead (ViewportTracker); at rest the
+    //      exact zoom is shown, so resting levels and round trips are unchanged.
+    const float trueZoom = zoom;
+    if (newSource == TrackingSource::Pointer && s_activeSource == TrackingSource::Pointer
+        && !s_sourceTransitionActive && zoom > 1.0f)
+    {
+        const bool samePtr = s_anchorValid
+            && s_anchorPtrX == s_committedPtrX && s_anchorPtrY == s_committedPtrY;
+        ViewportTracker::AnchorAlign a;
+        // Not on the frame where the controller comes to rest (Idle): that
+        // frame must show the exact zoom, or landing on it costs one more frame.
+        if (zoom != s_prevTrueZoom && s_lastZoom > 1.0f
+            && s_zoomController.mode() != ZoomController::Mode::Idle)
+            a = ViewportTracker::alignZoomForAnchor(zoom, s_lastZoom, samePtr, s_anchorErrX, s_anchorErrY,
+                    s_committedPtrX, s_committedPtrY, s_screenW, s_screenH, s_screenOriginX, s_screenOriginY);
+        else
+            a = ViewportTracker::anchorError(zoom, s_committedPtrX, s_committedPtrY,
+                    s_screenW, s_screenH, s_screenOriginX, s_screenOriginY);
+        zoom = a.zoom;
+        s_anchorErrX = a.errX;
+        s_anchorErrY = a.errY;
+        s_anchorPtrX = s_committedPtrX;
+        s_anchorPtrY = s_committedPtrY;
+        s_anchorValid = true;
+    }
+    else
+    {
+        s_anchorValid = false;
+    }
+    s_prevTrueZoom = trueZoom;
 
     // 5d. Compute target offset based on active source
     ViewportTracker::Offset targetOffset;

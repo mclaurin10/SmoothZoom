@@ -9,6 +9,7 @@
 
 #include "smoothzoom/logic/ViewportTracker.h"
 #include <algorithm>
+#include <cmath>
 
 namespace SmoothZoom
 {
@@ -52,6 +53,79 @@ ViewportTracker::Offset ViewportTracker::computePointerOffset(
     yOff = std::clamp(yOff, minOffY, maxOffY);
 
     return {xOff, yOff};
+}
+
+ViewportTracker::AnchorAlign ViewportTracker::anchorError(float zoom, int32_t pointerX, int32_t pointerY,
+                                                         int32_t screenW, int32_t screenH,
+                                                         int32_t originX, int32_t originY)
+{
+    Offset ideal = computePointerOffset(pointerX, pointerY, zoom, screenW, screenH, originX, originY);
+    AnchorAlign a;
+    a.zoom = zoom;
+    a.errX = zoom * (ideal.x - static_cast<float>(std::lround(ideal.x)));
+    a.errY = zoom * (ideal.y - static_cast<float>(std::lround(ideal.y)));
+    return a;
+}
+
+ViewportTracker::AnchorAlign ViewportTracker::alignZoomForAnchor(float zoom, float prevZoom,
+                                                                bool havePrevErr, float prevErrX, float prevErrY,
+                                                                int32_t pointerX, int32_t pointerY,
+                                                                int32_t screenW, int32_t screenH,
+                                                                int32_t originX, int32_t originY)
+{
+    if (zoom <= 1.0f || prevZoom <= 0.0f || zoom == prevZoom)
+        return anchorError(zoom, pointerX, pointerY, screenW, screenH, originX, originY);
+
+    // Allowed window: behind `zoom` (never ahead), within the nudge limit, and
+    // at least kAnchorMinStepFraction of the step from prevZoom.
+    const double z = zoom, p = prevZoom;
+    const double minStep = p + (z - p) * kAnchorMinStepFraction;
+    double lo, hi;
+    if (z > p) { lo = std::max(z * (1.0 - kAnchorNudgeMax), minStep); hi = z; }
+    else       { lo = z; hi = std::min(z * (1.0 + kAnchorNudgeMax), minStep); }
+    if (lo < 1.0) lo = 1.0;
+    if (hi <= lo)
+        return anchorError(zoom, pointerX, pointerY, screenW, screenH, originX, originY);
+
+    auto cost = [&](const AnchorAlign& a) {
+        double motion = havePrevErr ? std::max(std::fabs(a.errX - prevErrX), std::fabs(a.errY - prevErrY)) : 0.0;
+        double err = std::max(std::fabs(a.errX), std::fabs(a.errY));
+        return 10.0 * std::max(0.0, motion - 0.9) + 0.01 * err + 50.0 * std::fabs(std::log(a.zoom / z));
+    };
+
+    AnchorAlign best = anchorError(zoom, pointerX, pointerY, screenW, screenH, originX, originY);
+    double bestCost = cost(best);
+    auto consider = [&](double cand) {
+        if (!(cand >= lo && cand <= hi))
+            return;
+        AnchorAlign a = anchorError(static_cast<float>(cand), pointerX, pointerY, screenW, screenH, originX, originY);
+        double c = cost(a);
+        if (c < bestCost) { best = a; bestCost = c; }
+    };
+
+    // Zooms that put each axis's ideal offset exactly on a pixel:
+    // c * (1 - 1/z') = A  =>  z' = c / (c - A). Bounded: the window spans at
+    // most ~0.5 % of the zoom, a handful of pixels per axis.
+    const int32_t coords[2] = {pointerX, pointerY};
+    for (int axis = 0; axis < 2; ++axis)
+    {
+        const double c = coords[axis];
+        if (c == 0.0)
+            continue;
+        double a0 = c * (1.0 - 1.0 / lo), a1 = c * (1.0 - 1.0 / hi);
+        if (a0 > a1) std::swap(a0, a1);
+        for (double A = std::floor(a0); A <= std::ceil(a1) && A <= std::floor(a0) + 64.0; A += 1.0)
+        {
+            double d = c - A;
+            if (d != 0.0 && (d > 0.0) == (c > 0.0))
+                consider(c / d);
+        }
+    }
+    // Plus evenly spaced points, for windows with no exact-pixel zoom that
+    // still lets the error move less than a pixel.
+    for (int i = 0; i <= 8; ++i)
+        consider(lo + (hi - lo) * i / 8.0);
+    return best;
 }
 
 ViewportTracker::Offset ViewportTracker::computeElementOffset(

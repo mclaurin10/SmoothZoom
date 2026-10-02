@@ -39,6 +39,37 @@ public:
                                      float zoom, int32_t screenW, int32_t screenH,
                                      int32_t originX = 0, int32_t originY = 0);
 
+    // Anchor snap-back reduction (R-23, AC-2.1.09–11). The API takes whole-pixel
+    // offsets, so the desktop point under the pointer sits up to 0.5 desktop px
+    // (0.5 x zoom screen px) from where proportional mapping wants it, and while
+    // the zoom moves that error jumps back and forth. While the zoom is moving
+    // from prevZoom to zoom, this picks the zoom to display: within
+    // kAnchorNudgeMax of `zoom`, never ahead of it, and at least
+    // kAnchorMinStepFraction of the way from prevZoom (so the zoom stays
+    // monotone and keeps an even pace). It prefers the candidate whose on-screen
+    // anchor error (zoom * (ideal - round(ideal)), per axis) moves less than
+    // 1 px from prevErr, then the smallest error, then the smallest nudge.
+    // Offsets are rounded with lround, as MagBridge does.
+    struct AnchorAlign
+    {
+        float zoom = 1.0f;
+        float errX = 0.0f;   // on-screen anchor error at that zoom, physical px
+        float errY = 0.0f;
+    };
+    static AnchorAlign alignZoomForAnchor(float zoom, float prevZoom,
+                                          bool havePrevErr, float prevErrX, float prevErrY,
+                                          int32_t pointerX, int32_t pointerY,
+                                          int32_t screenW, int32_t screenH,
+                                          int32_t originX = 0, int32_t originY = 0);
+
+    // On-screen anchor error for the pointer at this zoom with rounded offsets.
+    static AnchorAlign anchorError(float zoom, int32_t pointerX, int32_t pointerY,
+                                   int32_t screenW, int32_t screenH,
+                                   int32_t originX = 0, int32_t originY = 0);
+
+    static constexpr float kAnchorNudgeMax = 0.005f;        // 0.5 % of the zoom
+    static constexpr float kAnchorMinStepFraction = 0.5f;   // of this frame's zoom step
+
     // Determine active tracking source based on timestamps and priorities (Doc 3 §3.4)
     // Priority: Caret (if typing within caretIdleMs) > Focus (if recent, debounced) > Pointer
     TrackingSource determineActiveSource(int64_t now,
