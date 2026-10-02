@@ -318,9 +318,10 @@ int runProbeMode()
 // â”€â”€ Trace format â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 // CSV, '#' lines are "key: value" metadata. Columns (by header name):
 //   t_us,qpc,source,delta,flags,injected,shift,ctrl,alt,win,x,y,mod_held,consumed
-// source: WHEEL | HWHEEL | RAW | PTP | MARK | CONTACT
+// source: WHEEL | HWHEEL | RAW | PTP | MARK | CONTACT | STROKE
 //   MARK delta 1 = round-trip begin, 2 = end.
 //   CONTACT delta = precision-touchpad fingers down after a change (0 = lifted).
+//   STROKE = the fingers started a new stroke after a touch (delta unused).
 //   PTP / RAW rows: every event those paths decided (mod_held = the modifier
 //   at that event, consumed = zoomed). Older traces hold only the rows that
 //   reached the accumulator, all with the modifier held: they replay the same.
@@ -328,7 +329,7 @@ int runProbeMode()
 // scrolling direction the trace was recorded under; replay uses it, not the
 // live setting.
 
-enum class TraceKind : uint8_t { Wheel, HWheel, Raw, Ptp, Mark, Contact };
+enum class TraceKind : uint8_t { Wheel, HWheel, Raw, Ptp, Mark, Contact, Stroke };
 
 static const char* kindName(TraceKind k)
 {
@@ -339,6 +340,7 @@ static const char* kindName(TraceKind k)
     case TraceKind::Raw: return "RAW";
     case TraceKind::Ptp: return "PTP";
     case TraceKind::Contact: return "CONTACT";
+    case TraceKind::Stroke: return "STROKE";
     default: return "MARK";
     }
 }
@@ -351,6 +353,7 @@ static const char* sourceName(WheelSource s)
     case WheelSource::HookHWheel: return "HWHEEL";
     case WheelSource::RawInput: return "RAW";
     case WheelSource::Contact: return "CONTACT";
+    case WheelSource::Stroke: return "STROKE";
     default: return "PTP";
     }
 }
@@ -444,6 +447,7 @@ static bool loadTrace(const std::wstring& path, std::wstring& err)
         else if (src == "PTP") e.kind = TraceKind::Ptp;
         else if (src == "MARK") e.kind = TraceKind::Mark;
         else if (src == "CONTACT") e.kind = TraceKind::Contact;
+        else if (src == "STROKE") e.kind = TraceKind::Stroke;
         else { err = L"unknown source in trace"; return false; }
         e.delta = static_cast<int16_t>(std::stoi(get("delta")));
         auto flag = [&](const char* n) { std::string v = get(n); return !v.empty() && v != "0"; };
@@ -607,6 +611,9 @@ void runBench(SharedState& state, bool (*pump)())
             break;
         case TraceKind::Contact:
             InputInterceptor::onTouchpadContacts(e.delta);
+            break;
+        case TraceKind::Stroke:
+            InputInterceptor::onTouchpadStroke();
             break;
         case TraceKind::Mark:
             break;

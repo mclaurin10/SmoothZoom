@@ -64,6 +64,10 @@ public:
     // Called for every report; a new contact ends the current gesture.
     static void onTouchpadContacts(int contacts);
 
+    // The fingers started a new stroke after a touch (two-finger travel past
+    // kTouchpadStrokeStartUnits). Ends a coast the touch stopped (AC-2.1.28).
+    static void onTouchpadStroke();
+
     // PTP two-finger scroll, in the hook's wheel convention (120 per notch).
     // Zooms (touchpad accumulator) only if the gesture is a zoom gesture.
     static ScrollVerdict onTouchpadScroll(int32_t hookConventionDelta, bool modifierHeld);

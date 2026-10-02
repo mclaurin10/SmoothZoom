@@ -30,7 +30,14 @@
   {
     "trace": "touchpad-touch-stops-coast",
     "coast": "on",
-    "check": "the new touch starts a page-scroll gesture",
+    "check": "the touch stops the zoom: leftovers swallowed",
+    "pass": true,
+    "detail": "actions ['swallow'], leaked 0"
+  },
+  {
+    "trace": "touchpad-touch-stops-coast",
+    "coast": "on",
+    "check": "the new stroke starts a page-scroll gesture",
     "pass": true,
     "detail": "actions ['pass']"
   },
@@ -39,7 +46,35 @@
     "coast": "on",
     "check": "no zoom after the touch: only the flick is applied",
     "pass": true,
-    "detail": "applied 656, before 656, after 0"
+    "detail": "applied 656, before 656"
+  },
+  {
+    "trace": "touchpad-touch-stops-page-coast",
+    "coast": "on",
+    "check": "page flick and its coast pass, Shift pressed mid-coast",
+    "pass": true,
+    "detail": "actions ['pass']"
+  },
+  {
+    "trace": "touchpad-touch-stops-page-coast",
+    "coast": "on",
+    "check": "leftovers after the touch still go to the app",
+    "pass": true,
+    "detail": "actions ['pass']"
+  },
+  {
+    "trace": "touchpad-touch-stops-page-coast",
+    "coast": "on",
+    "check": "a new stroke with Shift held zooms",
+    "pass": true,
+    "detail": "actions ['zoom']"
+  },
+  {
+    "trace": "touchpad-touch-stops-page-coast",
+    "coast": "on",
+    "check": "only the new stroke is applied",
+    "pass": true,
+    "detail": "applied 63, stroke 63"
   },
   {
     "trace": "touchpad-zoom-flick-shift-released",
@@ -135,7 +170,14 @@
   {
     "trace": "touchpad-touch-stops-coast",
     "coast": "off",
-    "check": "the new touch starts a page-scroll gesture",
+    "check": "the touch stops the zoom: leftovers swallowed",
+    "pass": true,
+    "detail": "actions ['swallow'], leaked 0"
+  },
+  {
+    "trace": "touchpad-touch-stops-coast",
+    "coast": "off",
+    "check": "the new stroke starts a page-scroll gesture",
     "pass": true,
     "detail": "actions ['pass']"
   },
@@ -144,7 +186,35 @@
     "coast": "off",
     "check": "no zoom after the touch: only the flick is applied",
     "pass": true,
-    "detail": "applied 340, before 340, after 0"
+    "detail": "applied 340, before 340"
+  },
+  {
+    "trace": "touchpad-touch-stops-page-coast",
+    "coast": "off",
+    "check": "page flick and its coast pass, Shift pressed mid-coast",
+    "pass": true,
+    "detail": "actions ['pass']"
+  },
+  {
+    "trace": "touchpad-touch-stops-page-coast",
+    "coast": "off",
+    "check": "leftovers after the touch still go to the app",
+    "pass": true,
+    "detail": "actions ['pass']"
+  },
+  {
+    "trace": "touchpad-touch-stops-page-coast",
+    "coast": "off",
+    "check": "a new stroke with Shift held zooms",
+    "pass": true,
+    "detail": "actions ['zoom']"
+  },
+  {
+    "trace": "touchpad-touch-stops-page-coast",
+    "coast": "off",
+    "check": "only the new stroke is applied",
+    "pass": true,
+    "detail": "applied 63, stroke 63"
   },
   {
     "trace": "touchpad-zoom-flick-shift-released",

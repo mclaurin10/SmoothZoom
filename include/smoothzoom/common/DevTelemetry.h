@@ -25,6 +25,7 @@ enum class WheelSource : uint8_t
     RawInput   = 2, // main.cpp WM_INPUT RIM_TYPEMOUSE fallback (every event after dedup; consumed = zoomed)
     Ptp        = 3, // main.cpp precision-touchpad HID path (every two-finger scroll step; consumed = zoomed)
     Contact    = 4, // precision-touchpad finger count changed (delta = fingers down, 0 = lifted)
+    Stroke     = 5, // precision-touchpad fingers started a new stroke (two-finger travel past the threshold)
 };
 
 enum ModBits : uint8_t { kModShift = 1, kModCtrl = 2, kModAlt = 4, kModWin = 8 };

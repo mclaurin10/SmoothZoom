@@ -105,16 +105,31 @@ def check(trace, coast, events, frames):
         expect("after a pause, plain scroll passes", actions(after) == ["pass"] and leaked(after) == len(after),
                f"actions {actions(after)}")
         expect("zoomed by the whole spin", final_zoom(frames) > 1.1 ** 13, f"{final_zoom(frames):.3f}")
-    elif trace == "touchpad-touch-stops-coast":
+    elif trace in ("touchpad-touch-stops-coast", "touchpad-touch-stops-page-coast"):
         touch = next(i for i, e in enumerate(events)
                      if e["source"] == "CONTACT" and e["delta"] != "0" and i > 0)
-        before, after = wheel_rows(events, 0, touch), wheel_rows(events, touch)
-        expect("flick and its coast zoom", actions(before) == (["swallow", "zoom"] if coast == "off" else ["zoom"]),
-               f"actions {actions(before)}")
-        expect("the new touch starts a page-scroll gesture", actions(after) == ["pass"], f"actions {actions(after)}")
-        expect("no zoom after the touch: only the flick is applied",
-               applied_sum(frames) == zoom_sum(before) and zoom_sum(after) == 0,
-               f"applied {applied_sum(frames)}, before {zoom_sum(before)}, after {zoom_sum(after)}")
+        stroke = next(i for i, e in enumerate(events) if e["source"] == "STROKE")
+        before, leftovers, after = (wheel_rows(events, 0, touch), wheel_rows(events, touch, stroke),
+                                    wheel_rows(events, stroke))
+        if trace == "touchpad-touch-stops-coast":
+            expect("flick and its coast zoom",
+                   actions(before) == (["swallow", "zoom"] if coast == "off" else ["zoom"]),
+                   f"actions {actions(before)}")
+            expect("the touch stops the zoom: leftovers swallowed", actions(leftovers) == ["swallow"]
+                   and leaked(leftovers) == 0, f"actions {actions(leftovers)}, leaked {leaked(leftovers)}")
+            expect("the new stroke starts a page-scroll gesture", actions(after) == ["pass"],
+                   f"actions {actions(after)}")
+            expect("no zoom after the touch: only the flick is applied",
+                   applied_sum(frames) == zoom_sum(before) and zoom_sum(leftovers + after) == 0,
+                   f"applied {applied_sum(frames)}, before {zoom_sum(before)}")
+        else:
+            expect("page flick and its coast pass, Shift pressed mid-coast", actions(before) == ["pass"]
+                   and leaked(before) == len(before), f"actions {actions(before)}")
+            expect("leftovers after the touch still go to the app", actions(leftovers) == ["pass"]
+                   and leaked(leftovers) == len(leftovers), f"actions {actions(leftovers)}")
+            expect("a new stroke with Shift held zooms", actions(after) == ["zoom"], f"actions {actions(after)}")
+            expect("only the new stroke is applied", applied_sum(frames) == zoom_sum(after) and zoom_sum(after) > 0,
+                   f"applied {applied_sum(frames)}, stroke {zoom_sum(after)}")
     else:
         expect("known trace", False, "no expectations for this trace")
     return out

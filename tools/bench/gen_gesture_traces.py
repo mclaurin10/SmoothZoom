@@ -22,8 +22,14 @@ Contacts are CONTACT rows (delta = fingers down). Deterministic.
                                       spin goes on 45 ms apart; then a pause and
                                       a plain page scroll.
   touchpad-touch-stops-coast          Shift+flick, Shift released in the coast,
-                                      then a new two-finger touch mid-coast that
-                                      page-scrolls (PTP rows, no Shift).
+                                      then a touch mid-coast: Windows sends the
+                                      coast's leftovers for a few more events,
+                                      then the fingers start a page-scroll stroke
+                                      (STROKE row, PTP rows, no Shift).
+  touchpad-touch-stops-page-coast     page-scroll flick, then Shift goes down and
+                                      the pad is touched mid-coast (Shift+click):
+                                      the leftovers still scroll the page; a new
+                                      stroke with Shift held zooms.
 
 Usage:  python tools/bench/gen_gesture_traces.py
 """
@@ -130,16 +136,45 @@ def touch_stops_coast():
     for i, d in enumerate(coast_deltas(45, 12)):
         t.row("WHEEL", d, 1 if i < 3 else 0)
         t.wait_ms(7)
-    # New touch while the coast would still be running: Windows stops sending
-    # it (on TEMPLAPTOP, tails cut off when a new stroke starts), and the new
-    # two-finger motion arrives on the PTP path (hook silent > 50 ms).
-    t.row("CONTACT", 2, 0)
-    t.wait_ms(10)
+    touch_and_new_stroke(t, leftover_from=8, shift=0, new_stroke_sign=-1)
+    return t
+
+
+def touch_and_new_stroke(t, leftover_from, shift, new_stroke_sign):
+    # Touch while the coast is still running. As recorded on TEMPLAPTOP
+    # (bench/traces-recorded-gestures/touch-stop-coast.csv), Windows keeps the
+    # coast going for a few more events ~16 ms apart, then the fingers start a
+    # new stroke; its motion arrives on the PTP path once the hook is silent.
+    t.row("CONTACT", 2, shift)
+    for d in coast_deltas(leftover_from, 4):
+        t.wait_ms(16)
+        t.row("WHEEL", d, shift)
+    t.wait_ms(6)
+    t.row("STROKE", 0, shift)
+    t.wait_ms(50)
     for d in finger_deltas(12, 6):
-        t.row("PTP", d, 0)
+        t.row("PTP", new_stroke_sign * d, shift)
         t.wait_ms(8)
     t.wait_ms(-4)
+    t.row("CONTACT", 0, shift)
+
+
+def touch_stops_page_coast():
+    t = Trace("touchpad-touch-stops-page-coast",
+              "page-scroll flick; Shift pressed and the pad touched mid-coast; new stroke with Shift zooms")
+    t.wait_ms(100)
+    t.row("CONTACT", 2, 0)
+    t.wait_ms(14)
+    for d in finger_deltas(10, 40):
+        t.row("WHEEL", d, 0)
+        t.wait_ms(7)
+    t.wait_ms(-4)
     t.row("CONTACT", 0, 0)
+    t.wait_ms(4)
+    for i, d in enumerate(coast_deltas(45, 12)):
+        t.row("WHEEL", d, 0 if i < 6 else 1)
+        t.wait_ms(7)
+    touch_and_new_stroke(t, leftover_from=10, shift=1, new_stroke_sign=+1)
     return t
 
 
@@ -148,7 +183,7 @@ def main():
     out_dir = os.path.join(root, "bench", "gesture-traces")
     os.makedirs(out_dir, exist_ok=True)
     for tr in (zoom_flick_shift_released(), page_flick_shift_pressed(),
-               wheel_shift_released(), touch_stops_coast()):
+               wheel_shift_released(), touch_stops_coast(), touch_stops_page_coast()):
         tr.write(out_dir)
 
 

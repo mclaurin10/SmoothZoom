@@ -41,6 +41,7 @@
 #include "DevTools.h"
 #endif
 
+#include <cmath>
 #include <filesystem>
 #include <fstream>
 #include <memory>
@@ -125,6 +126,11 @@ static float s_ptpWheelRemainder = 0.0f;
 // The device reports the PTP Confidence usage (palm rejection). Until a report
 // shows it set, every touching contact counts as a finger.
 static bool s_ptpSeenConfidence = false;
+// Two-finger travel since the last touch-down (wheel-equivalent units), and
+// whether it has been reported as a new stroke (ScrollGesture.h).
+static int   s_ptpFingersDown = 0;
+static float s_ptpStrokeTravel = 0.0f;
+static bool  s_ptpStrokeReported = false;
 
 // One-shot per-device PTP characterization. Logs the first few normalized
 // two-finger-scroll samples at INFO so a new touchpad can be fingerprinted from
@@ -667,6 +673,9 @@ static bool initPtpDevice(HANDLE hDevice)
     for (auto& c : s_ptpContacts) c = {};
     s_ptpWheelRemainder = 0.0f;
     s_ptpSeenConfidence = false;
+    s_ptpFingersDown = 0;
+    s_ptpStrokeTravel = 0.0f;
+    s_ptpStrokeReported = false;
     s_ptpCharSamplesLogged = 0;  // re-characterize whenever the active device changes
     s_ptpInitDiagLogged = false;
 
@@ -762,6 +771,12 @@ static void handlePtpHidReport(const BYTE* reportData, DWORD reportSize)
     SmoothZoom::InputInterceptor::onTouchpadContacts(fingersDown);
     if (fingersDown == 0)
         s_ptpWheelRemainder = 0.0f;   // no sub-notch carry-over into the next touch
+    if (fingersDown > 0 && s_ptpFingersDown == 0)
+    {
+        s_ptpStrokeTravel = 0.0f;     // touch-down: measure this touch's travel
+        s_ptpStrokeReported = false;
+    }
+    s_ptpFingersDown = fingersDown;
 
     // Only process when we have a complete frame with 2+ contacts
     if (contactCount < 2)
@@ -815,6 +830,21 @@ static void handlePtpHidReport(const BYTE* reportData, DWORD reportSize)
             SmoothZoom::ptpDeltaToWheelEquiv(static_cast<float>(avgDeltaY), charScale),
             s_ptpNaturalScrolling ? 1 : 0);
         s_ptpCharSamplesLogged++;
+    }
+
+    // New stroke: once two fingers have travelled kTouchpadStrokeStartUnits
+    // since the touch, a coast that the touch stopped is over (AC-2.1.28).
+    // Before the dedup, because the stopped coast's leftover wheel events keep
+    // the hook busy while the fingers start to move.
+    if (!s_ptpStrokeReported)
+    {
+        SmoothZoom::PtpAxisScale travelScale{ s_ptpDevice.logicalRangeY };
+        s_ptpStrokeTravel += std::fabs(SmoothZoom::ptpDeltaToWheelEquiv(static_cast<float>(avgDeltaY), travelScale));
+        if (s_ptpStrokeTravel >= SmoothZoom::kTouchpadStrokeStartUnits)
+        {
+            s_ptpStrokeReported = true;
+            SmoothZoom::InputInterceptor::onTouchpadStroke();
+        }
     }
 
     // Dedup with LL hook: skip if hook handled scroll recently

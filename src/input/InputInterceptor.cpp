@@ -721,6 +721,15 @@ void InputInterceptor::onTouchpadContacts(int contacts)
     s_gestures.onTouchpadContacts(contacts, steadyNowUs());
 }
 
+void InputInterceptor::onTouchpadStroke()
+{
+#ifdef SMOOTHZOOM_DEV_TOOLS
+    if (s_wheelTap)
+        tapOther(WheelSource::Stroke, 0, false, false);
+#endif
+    s_gestures.onTouchpadStroke(steadyNowUs());
+}
+
 ScrollVerdict InputInterceptor::onTouchpadScroll(int32_t hookConventionDelta, bool modifierHeld)
 {
     ScrollVerdict g;

@@ -15,6 +15,12 @@
 // A gesture starts on the first scroll event after
 //   - a new touchpad contact (no finger down -> a finger down), or
 //   - a pause longer than kGesturePauseUs since the previous scroll event.
+// Touching the touchpad while a touchpad gesture is coasting stops the coast:
+// Windows keeps sending the coast's wheel events for another 15-100 ms after
+// the touch (recorded on TEMPLAPTOP, bench/traces-recorded-gestures/), so those
+// leftovers stay in the old gesture - swallowed if it was a zoom, still passed
+// on if it was a page scroll - until the fingers start a new stroke (the PTP
+// path reports kTouchpadStrokeStartUnits of two-finger travel) or a pause.
 // A zoom gesture on the touchpad keeps zooming through the coast after the
 // fingers lift when the coast setting (momentumZoom) is on; when it is off the
 // rest of the coast is swallowed (consumed, never zoomed, never passed on).
@@ -53,6 +59,11 @@ inline constexpr int64_t kGesturePauseUs = 150000;
 // final report must not leave every later wheel event on the touchpad).
 inline constexpr int64_t kContactStaleUs = 250000;
 
+// Two-finger travel since the touch (wheel-equivalent units, 120 = one notch,
+// about 8% of the pad's height) that counts as a new stroke: a quarter notch.
+// Touch-down jitter stays well below it.
+inline constexpr float kTouchpadStrokeStartUnits = 30.0f;
+
 enum class ScrollAction : uint8_t
 {
     Pass,     // not ours: the application gets the event
@@ -77,10 +88,16 @@ public:
         const bool down = contacts > 0;
         if (down && !wasDown)
         {
-            // New contact: ends the current gesture, including a coast
-            // ("touching the touchpad stops a coast"). The next scroll event
-            // starts a new gesture with the modifier state at that moment.
-            mode_ = Mode::None;
+            // New contact. During a touchpad coast it stops the coast: the
+            // coast's leftover events keep the old gesture (a zoom is
+            // swallowed from now on) until a new stroke or a pause. Otherwise
+            // it ends the gesture: the next scroll event starts a new one with
+            // the modifier state at that moment.
+            if (mode_ != Mode::None && device_ == ScrollDevice::Touchpad
+                && nowUs - lastScrollUs_ <= kGesturePauseUs)
+                touchStopped_ = true;
+            else
+                endGesture();
             peakContacts_ = 0;
         }
         else if (!down && wasDown && peakContacts_ >= 2)
@@ -95,6 +112,15 @@ public:
         haveContactReport_ = true;
     }
 
+    // The fingers have started a new stroke (two-finger travel past
+    // kTouchpadStrokeStartUnits since the touch). Ends a touch-stopped coast,
+    // so the stroke's own events start a new gesture.
+    void onTouchpadStroke(int64_t /*nowUs*/)
+    {
+        if (touchStopped_)
+            endGesture();
+    }
+
     // Decide one scroll event. modifierHeld: the live modifier test (only used
     // when this event starts a gesture). coastEnabled: the touchpad coast
     // setting. fromTouchpad: the event came from the touchpad's own reports
@@ -103,7 +129,7 @@ public:
                            bool fromTouchpad = false)
     {
         if (mode_ != Mode::None && nowUs - lastScrollUs_ > kGesturePauseUs)
-            mode_ = Mode::None;   // paused: the gesture is over
+            endGesture();   // paused: the gesture is over
 
         const bool down = touchpadDown(nowUs);
         if (mode_ == Mode::None)
@@ -119,6 +145,8 @@ public:
         v.device = device_;
         if (mode_ == Mode::Pass)
             v.action = ScrollAction::Pass;
+        else if (touchStopped_)
+            v.action = ScrollAction::Swallow;   // the touch stopped this zoom coast
         else if (device_ == ScrollDevice::Touchpad && !down && !fromTouchpad && !coastEnabled)
             v.action = ScrollAction::Swallow;   // fingers lifted: the coast is not zoomed
         else
@@ -133,6 +161,9 @@ public:
             && nowUs - lastContactReportUs_ <= kContactStaleUs;
     }
 
+    // True after a touch stopped the current coast (until a stroke or pause).
+    bool touchStopped() const { return touchStopped_; }
+
     // True while a gesture is in progress (no pause yet since its last event).
     bool inGesture(int64_t nowUs) const
     {
@@ -145,7 +176,14 @@ public:
 private:
     enum class Mode : uint8_t { None, Zoom, Pass };
 
+    void endGesture()
+    {
+        mode_ = Mode::None;
+        touchStopped_ = false;
+    }
+
     Mode         mode_ = Mode::None;
+    bool         touchStopped_ = false;    // a touch stopped this gesture's coast
     ScrollDevice device_ = ScrollDevice::Mouse;
     int64_t      lastScrollUs_ = 0;
 

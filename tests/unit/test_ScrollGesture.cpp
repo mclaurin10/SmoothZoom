@@ -135,29 +135,106 @@ TEST_CASE("Modifier pressed mid-gesture with fingers down does not turn a page s
 
 // ─── Gesture boundaries ─────────────────────────────────────────────────────
 
-TEST_CASE("A new touchpad contact ends a gesture, including a coast (AC-2.1.25, AC-2.1.28)", "[ScrollGesture]")
+TEST_CASE("Touching the pad stops a zoom coast: its leftovers are swallowed (AC-2.1.28)", "[ScrollGesture]")
+{
+    // Windows keeps sending the coast for 15-100 ms after the touch (recorded:
+    // -171 then -153 -85 -53 -35 after the contact). Those must neither zoom
+    // nor reach the app, whatever the modifier and the coast setting.
+    for (bool coast : {true, false})
+        for (bool shiftNow : {true, false})
+        {
+            ScrollGestureTracker t;
+            touchpadFlick(t, coast, ms(1000), 5, 5, 0, 7);
+            int64_t now = ms(1000) + 5 * ms(7) + ms(3) + 5 * ms(7) + ms(10);
+            t.onTouchpadContacts(1, now);
+            CHECK(t.touchStopped());
+            for (int i = 0; i < 5; ++i)
+            {
+                now += ms(16);
+                ScrollVerdict v = t.onScroll(shiftNow, coast, now);
+                CHECK(v.action == ScrollAction::Swallow);
+                CHECK(v.device == ScrollDevice::Touchpad);
+            }
+        }
+}
+
+TEST_CASE("Touching the pad during a page coast leaves its leftovers to the app, even with Shift (AC-2.1.27)", "[ScrollGesture]")
 {
     ScrollGestureTracker t;
-    // Zoom flick, Shift released during the coast.
-    FlickResult r = touchpadFlick(t, true, ms(1000), 5, 5, 0, 7);
-    REQUIRE(tally(r.coast).zoom == 5);
-    int64_t now = ms(1000) + 5 * ms(7) + ms(3) + 5 * ms(7);
+    touchpadFlick(t, true, ms(5000), 5, 5, 1000, 1000);
+    int64_t now = ms(5000) + 5 * ms(7) + ms(3) + 5 * ms(7) + ms(10);
+    t.onTouchpadContacts(2, now);          // e.g. Shift+click: Shift is down now
+    for (int i = 0; i < 4; ++i)
+    {
+        now += ms(16);
+        CHECK(t.onScroll(true, true, now).action == ScrollAction::Pass);
+    }
+}
 
-    // Fingers touch again 10 ms later (well inside the pause): new gesture, and
-    // Shift is no longer held, so it is a page scroll.
-    now += ms(10);
+TEST_CASE("A new stroke after the touch starts a new gesture with the modifier then (AC-2.1.25)", "[ScrollGesture]")
+{
+    // Zoom coast, Shift released, touch, leftovers, then a page-scroll stroke.
+    ScrollGestureTracker t;
+    touchpadFlick(t, true, ms(1000), 5, 5, 0, 7);
+    int64_t now = ms(1000) + 5 * ms(7) + ms(3) + 5 * ms(7) + ms(10);
     t.onTouchpadContacts(2, now);
+    now += ms(16);
+    CHECK(t.onScroll(false, true, now).action == ScrollAction::Swallow);
+    now += ms(20);
+    t.onTouchpadStroke(now);
+    CHECK_FALSE(t.touchStopped());
     now += ms(7);
     CHECK(t.onScroll(false, true, now).action == ScrollAction::Pass);
 
-    // The reverse: a page-scroll coast, then a touch with Shift held zooms.
+    // Page coast, touch, new stroke with Shift held: a zoom gesture.
     ScrollGestureTracker u;
-    FlickResult p = touchpadFlick(u, true, ms(5000), 5, 5, 1000, 1000);
-    REQUIRE(tally(p.coast).pass == 5);
+    touchpadFlick(u, true, ms(5000), 5, 5, 1000, 1000);
     now = ms(5000) + 5 * ms(7) + ms(3) + 5 * ms(7) + ms(10);
     u.onTouchpadContacts(2, now);
-    now += ms(7);
-    CHECK(u.onScroll(true, true, now).action == ScrollAction::Zoom);
+    now += ms(16);
+    CHECK(u.onScroll(true, true, now).action == ScrollAction::Pass);   // leftover
+    u.onTouchpadStroke(now + ms(5));
+    CHECK(u.onScroll(true, true, now + ms(12)).action == ScrollAction::Zoom);
+}
+
+TEST_CASE("A touch-stopped coast also ends on a pause", "[ScrollGesture]")
+{
+    ScrollGestureTracker t;
+    touchpadFlick(t, true, ms(1000), 5, 5, 0, 7);
+    int64_t now = ms(1000) + 5 * ms(7) + ms(3) + 5 * ms(7) + ms(10);
+    t.onTouchpadContacts(1, now);
+    now += ms(16);
+    CHECK(t.onScroll(false, true, now).action == ScrollAction::Swallow);
+    now += kGesturePauseUs + ms(1);
+    CHECK(t.onScroll(false, true, now).action == ScrollAction::Pass);
+    CHECK_FALSE(t.touchStopped());
+}
+
+TEST_CASE("A new contact with no coast running ends the gesture at once (AC-2.1.25)", "[ScrollGesture]")
+{
+    // The previous gesture paused out before the touch: no stop window.
+    ScrollGestureTracker t;
+    touchpadFlick(t, true, ms(1000), 5, 5, 0, 1000);
+    int64_t now = ms(1000) + 5 * ms(7) + ms(3) + 5 * ms(7) + kGesturePauseUs + ms(5);
+    t.onTouchpadContacts(2, now);
+    CHECK_FALSE(t.touchStopped());
+    CHECK(t.onScroll(false, true, now + ms(7)).action == ScrollAction::Pass);
+
+    // A mouse gesture is never "coasting": a touch ends it at once.
+    ScrollGestureTracker m;
+    CHECK(m.onScroll(true, true, ms(100)).device == ScrollDevice::Mouse);
+    m.onTouchpadContacts(2, ms(120));
+    CHECK_FALSE(m.touchStopped());
+    CHECK(m.onScroll(false, true, ms(130)).action == ScrollAction::Pass);
+}
+
+TEST_CASE("A stroke signal without a stopped coast changes nothing", "[ScrollGesture]")
+{
+    ScrollGestureTracker t;
+    t.onTouchpadContacts(2, ms(100));
+    CHECK(t.onScroll(true, true, ms(107)).action == ScrollAction::Zoom);
+    t.onTouchpadStroke(ms(110));
+    CHECK(t.onScroll(false, true, ms(114)).action == ScrollAction::Zoom);
 }
 
 TEST_CASE("A finger already down is not a new contact; a second finger landing is not either", "[ScrollGesture]")
