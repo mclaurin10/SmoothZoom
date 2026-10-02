@@ -20,7 +20,11 @@ namespace SmoothZoom
 // the version the file was written with (0 = legacy / pre-versioning) so future
 // code can detect and migrate older configs. (Forward-compatibility, no silent
 // default of changed fields.)
-inline constexpr int kSettingsSchemaVersion = 1;
+//   1: versioned config (Phase 6).
+//   2: separate touchpad settings (touchpadSensitivity,
+//      touchpadReverseScrollDirection). A config written before 2 copies its
+//      scrollSensitivity / reverseScrollDirection into them (AC-2.9.22).
+inline constexpr int kSettingsSchemaVersion = 2;
 
 // Default scroll-gesture modifier for new settings: VK_LSHIFT (Shift+Scroll,
 // AC-2.1.04). Also the fallback for an invalid modifierKeyVK in config.json.
@@ -46,7 +50,7 @@ struct SettingsSnapshot
     bool    followKeyboardFocus = true;
     bool    followTextCursor    = true;
     bool    colorInversionEnabled = false;
-    bool    reverseScrollDirection = false;
+    bool    reverseScrollDirection = false;          // mouse (AC-2.9.21)
 
     // Keyboard zoom shortcuts (AC-2.8.13–15): modifier + Plus/Minus/Esc, the
     // Ctrl+Alt peek toggle and Ctrl+Alt+I. Win+Ctrl+M (settings) is not gated.
@@ -64,8 +68,17 @@ struct SettingsSnapshot
     bool    blockStickyKeysShortcut = true;
 
     // Input interoperability (A3, B3):
-    float   scrollSensitivity   = 1.0f;  // multiplier on scroll-gesture zoom rate
-    bool    momentumZoom        = true;  // allow inertial/momentum scroll to drive zoom
+    float   scrollSensitivity   = 1.0f;  // mouse: multiplier on scroll-gesture zoom rate (AC-2.9.20)
+    // Touchpad coast (AC-2.1.28–29, "Keep zooming after a flick"): a touchpad
+    // zoom gesture keeps zooming through its coast after the fingers lift.
+    // Off: zooming stops at the lift and the coast is swallowed. Never applies
+    // to a mouse wheel.
+    bool    momentumZoom        = true;
+
+    // Touchpad (schema 2, AC-2.9.20–22). Direction: off = fingers up (away
+    // from you) zooms in, whatever Windows' touchpad scrolling direction.
+    float   touchpadSensitivity = 1.0f;
+    bool    touchpadReverseScrollDirection = false;
 
     // Diagnostics: file/debug log verbosity. 0=Debug 1=Info 2=Warn 3=Error —
     // mirrors LogLevel in Logger.h (cast directly). config.json stores the

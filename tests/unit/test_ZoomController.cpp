@@ -836,6 +836,35 @@ TEST_CASE("Non-positive scroll sensitivity is rejected (A3 defense-in-depth)", "
     REQUIRE(zc.targetZoom() == Approx(1.1f).margin(0.001f));
 }
 
+TEST_CASE("Touchpad and mouse sensitivities apply to their own device (AC-2.9.20)", "[ZoomController][Interop]")
+{
+    ZoomController zc;
+    zc.applySettings(1.0f, 10.0f, 0.25f, 2.0f, 1, /*mouse*/ 1.0f, /*touchpad*/ 2.0f);
+
+    zc.applyScrollDelta(60, 0.0, ScrollDevice::Touchpad);   // half a notch at 2x = one notch
+    REQUIRE(zc.targetZoom() == Approx(1.1f).margin(0.001f));
+    REQUIRE(zc.currentZoom() == zc.targetZoom());           // touchpad stays direct
+
+    ZoomController m;
+    m.applySettings(1.0f, 10.0f, 0.25f, 2.0f, 1, /*mouse*/ 0.5f, /*touchpad*/ 2.0f);
+    m.applyScrollDelta(240, 0.0, ScrollDevice::Mouse);      // two notches at 0.5x = one
+    REQUIRE(m.targetZoom() == Approx(1.1f).margin(0.001f));
+    REQUIRE(m.scrollSmoothing());                           // whole notches still glide
+}
+
+TEST_CASE("Device defaults to mouse; equal sensitivities give identical zoom", "[ZoomController][Interop]")
+{
+    ZoomController a, b;
+    a.applySettings(1.0f, 10.0f, 0.25f, 2.0f, 1, 1.5f, 1.5f);
+    b.applySettings(1.0f, 10.0f, 0.25f, 2.0f, 1, 1.5f, 1.5f);
+    a.applyScrollDelta(-35);
+    a.applyScrollDelta(-21);
+    b.applyScrollDelta(-35, 0.0, ScrollDevice::Mouse);
+    b.applyScrollDelta(-21, 0.0, ScrollDevice::Touchpad);
+    REQUIRE(a.targetZoom() == b.targetZoom());
+    REQUIRE(a.currentZoom() == b.currentZoom());
+}
+
 // =============================================================================
 // Phase 5C: Tray Toggle tests (AC-2.9.15)
 // =============================================================================

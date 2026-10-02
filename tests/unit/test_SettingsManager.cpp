@@ -443,6 +443,97 @@ TEST_CASE("save stamps current schemaVersion; legacy migrates forward on write",
     REQUIRE(mgr2.snapshot()->schemaVersion == kSettingsSchemaVersion);
 }
 
+// =============================================================================
+// Schema 2: separate touchpad settings (AC-2.9.20–22) and the coast setting
+// =============================================================================
+
+TEST_CASE("Fresh install: touchpad settings default, coast on", "[SettingsManager][Schema][Touchpad]")
+{
+    SettingsManager mgr;
+    auto snap = mgr.snapshot();
+    REQUIRE(kSettingsSchemaVersion == 2);
+    REQUIRE(snap->touchpadSensitivity == Approx(1.0f));
+    REQUIRE(snap->touchpadReverseScrollDirection == false);
+    REQUIRE(snap->scrollSensitivity == Approx(1.0f));
+    REQUIRE(snap->reverseScrollDirection == false);
+    REQUIRE(snap->momentumZoom == true);
+}
+
+TEST_CASE("Upgraded schema-1 config copies its custom scroll values to the touchpad", "[SettingsManager][Schema][Touchpad]")
+{
+    auto path = writeTempFile(R"({"schemaVersion": 1, "scrollSensitivity": 2.5,
+                                  "reverseScrollDirection": true, "momentumZoom": false})",
+                              "schema1_custom.json");
+    SettingsManager mgr;
+    REQUIRE(mgr.loadFromFile(path.c_str()));
+    auto snap = mgr.snapshot();
+    REQUIRE(snap->schemaVersion == 1);
+    REQUIRE(snap->scrollSensitivity == Approx(2.5f));
+    REQUIRE(snap->reverseScrollDirection == true);
+    REQUIRE(snap->touchpadSensitivity == Approx(2.5f));        // copied
+    REQUIRE(snap->touchpadReverseScrollDirection == true);     // copied
+    REQUIRE(snap->momentumZoom == false);                      // kept
+
+    // Saving writes schema 2 with both sets; reloading keeps the values.
+    std::string rt = (std::filesystem::temp_directory_path() / "smoothzoom_test_schema1_rt.json").string();
+    REQUIRE(mgr.saveToFile(rt.c_str()));
+    SettingsManager mgr2;
+    REQUIRE(mgr2.loadFromFile(rt.c_str()));
+    auto s2 = mgr2.snapshot();
+    REQUIRE(s2->schemaVersion == 2);
+    REQUIRE(s2->touchpadSensitivity == Approx(2.5f));
+    REQUIRE(s2->touchpadReverseScrollDirection == true);
+    REQUIRE(s2->scrollSensitivity == Approx(2.5f));
+    REQUIRE(s2->reverseScrollDirection == true);
+}
+
+TEST_CASE("Upgraded schema-1 config with default values copies defaults (nothing changes)", "[SettingsManager][Schema][Touchpad]")
+{
+    auto path = writeTempFile(R"({"schemaVersion": 1, "maxZoom": 8.0})", "schema1_default.json");
+    SettingsManager mgr;
+    REQUIRE(mgr.loadFromFile(path.c_str()));
+    REQUIRE(mgr.snapshot()->touchpadSensitivity == Approx(1.0f));
+    REQUIRE(mgr.snapshot()->touchpadReverseScrollDirection == false);
+}
+
+TEST_CASE("Legacy unversioned config with a custom sensitivity is migrated too", "[SettingsManager][Schema][Touchpad]")
+{
+    auto path = writeTempFile(R"({"scrollSensitivity": 0.4})", "schema0_custom.json");
+    SettingsManager mgr;
+    REQUIRE(mgr.loadFromFile(path.c_str()));
+    REQUIRE(mgr.snapshot()->touchpadSensitivity == Approx(0.4f));
+}
+
+TEST_CASE("Schema-2 config keeps separate touchpad and mouse values", "[SettingsManager][Schema][Touchpad]")
+{
+    auto path = writeTempFile(R"({"schemaVersion": 2, "scrollSensitivity": 0.5, "reverseScrollDirection": false,
+                                  "touchpadSensitivity": 3.0, "touchpadReverseScrollDirection": true})",
+                              "schema2_split.json");
+    SettingsManager mgr;
+    REQUIRE(mgr.loadFromFile(path.c_str()));
+    auto snap = mgr.snapshot();
+    REQUIRE(snap->scrollSensitivity == Approx(0.5f));
+    REQUIRE(snap->reverseScrollDirection == false);
+    REQUIRE(snap->touchpadSensitivity == Approx(3.0f));
+    REQUIRE(snap->touchpadReverseScrollDirection == true);
+}
+
+TEST_CASE("Schema-1 file never reads touchpad keys (copy wins); out-of-range touchpad value keeps the copy",
+          "[SettingsManager][Schema][Touchpad]")
+{
+    auto p1 = writeTempFile(R"({"schemaVersion": 1, "scrollSensitivity": 2.0, "touchpadSensitivity": 4.0})",
+                            "schema1_stray.json");
+    SettingsManager a;
+    REQUIRE(a.loadFromFile(p1.c_str()));
+    REQUIRE(a.snapshot()->touchpadSensitivity == Approx(2.0f));
+
+    auto p2 = writeTempFile(R"({"schemaVersion": 2, "scrollSensitivity": 2.0, "touchpadSensitivity": 9.0})",
+                            "schema2_range.json");
+    SettingsManager b;
+    REQUIRE(b.loadFromFile(p2.c_str()));
+    REQUIRE(b.snapshot()->touchpadSensitivity == Approx(2.0f));
+}
+
 TEST_CASE("defaultZoomLevel out of range for custom bounds → keeps default", "[SettingsManager][Phase5]")
 {
     // maxZoom=3.0, defaultZoomLevel=5.0 (above max) → default should stay 2.0

@@ -97,7 +97,8 @@ static int32_t s_lastRawPtrY = 0;
 static uint64_t s_cachedSettingsVersion = 0;
 static bool s_followKeyboardFocus = true;   // Match SettingsSnapshot defaults
 static bool s_followTextCursor = true;
-static bool s_reverseScrollDirection = false;
+static bool s_reverseScrollDirection = false;           // mouse
+static bool s_touchpadReverseScrollDirection = false;   // touchpad (AC-2.9.21)
 
 // Phase 6: Color inversion state — toggled by ToggleInvert command, synced from settings.
 // Render thread only (no contention). (AC-2.10.01–AC-2.10.05)
@@ -339,10 +340,11 @@ void RenderLoop::frameTick()
             s_zoomController.applySettings(
                 snap->minZoom, snap->maxZoom,
                 snap->keyboardZoomStep, snap->defaultZoomLevel,
-                snap->animationSpeed, snap->scrollSensitivity);
+                snap->animationSpeed, snap->scrollSensitivity, snap->touchpadSensitivity);
             s_followKeyboardFocus = snap->followKeyboardFocus;
             s_followTextCursor = snap->followTextCursor;
             s_reverseScrollDirection = snap->reverseScrollDirection;
+            s_touchpadReverseScrollDirection = snap->touchpadReverseScrollDirection;
 
             // Phase 6: Sync color inversion from settings (AC-2.10.03, AC-2.10.04)
             // BF-1: On first tick, force-apply regardless of state match to ensure
@@ -367,7 +369,8 @@ void RenderLoop::frameTick()
     s_screenOriginX = s_state->screenOriginX.load(std::memory_order_relaxed);
     s_screenOriginY = s_state->screenOriginY.load(std::memory_order_relaxed);
 
-    // 1. Consume scroll deltas (atomic exchange with 0), one per device.
+    // 1. Consume scroll deltas (atomic exchange with 0), one per device
+    //    (AC-2.9.20–21). scrollDelta, their raw sum, is for bench telemetry.
     int32_t mouseDelta = s_state->scrollAccumulator.exchange(0, std::memory_order_acquire);
     int32_t touchpadDelta = s_state->touchpadScrollAccumulator.exchange(0, std::memory_order_acquire);
     int32_t scrollDelta = mouseDelta + touchpadDelta;
@@ -424,8 +427,14 @@ void RenderLoop::frameTick()
             if (inputAgeSeconds > 0.1)
                 inputAgeSeconds = 0.0;   // stale stamp (e.g. touchpad path): treat as fresh
         }
-        s_zoomController.applyScrollDelta(s_reverseScrollDirection ? -scrollDelta : scrollDelta,
-                                          inputAgeSeconds);
+        // Each device with its own direction and sensitivity. The log zoom
+        // model is additive, so two calls in one frame equal one combined call.
+        if (mouseDelta != 0)
+            s_zoomController.applyScrollDelta(s_reverseScrollDirection ? -mouseDelta : mouseDelta,
+                                              inputAgeSeconds, ScrollDevice::Mouse);
+        if (touchpadDelta != 0)
+            s_zoomController.applyScrollDelta(s_touchpadReverseScrollDirection ? -touchpadDelta : touchpadDelta,
+                                              inputAgeSeconds, ScrollDevice::Touchpad);
     }
 
     // 4. Compute dt and advance animation (Phase 2: ease-out interpolation)

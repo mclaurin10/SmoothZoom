@@ -4,6 +4,7 @@
 // Zoom level state, scroll accumulation, animation targets. Doc 3 §3.5
 // =============================================================================
 
+#include "smoothzoom/common/Types.h"
 #include <cstdint>
 
 namespace SmoothZoom
@@ -26,7 +27,10 @@ public:
     // 120) is smoothed toward the target by tick() (AC-2.2.03).
     // inputAgeSeconds: how long ago the newest of these inputs arrived (the
     // smoothing comes to rest a fixed time after the input, not the frame).
-    void applyScrollDelta(int32_t accumulatedDelta, double inputAgeSeconds = 0.0);
+    // device selects the sensitivity setting (AC-2.9.20); the zoom model is
+    // the same for both.
+    void applyScrollDelta(int32_t accumulatedDelta, double inputAgeSeconds = 0.0,
+                          ScrollDevice device = ScrollDevice::Mouse);
 
     // End an active scroll gesture: Scrolling → Idle (no-op in Idle/Animating,
     // and deferred while notch smoothing is still in flight).
@@ -60,10 +64,11 @@ public:
     // detects a new settings version. Triggers animation if zoom is out of new
     // bounds (AC-2.9.05, AC-2.9.06).
     // animationSpeed: 0=slow, 1=normal, 2=fast
-    // scrollSensitivity: multiplier on scroll-gesture zoom rate (1.0 = default).
+    // scrollSensitivity / touchpadSensitivity: multipliers on the mouse and
+    // touchpad scroll-gesture zoom rate (1.0 = default, AC-2.9.20).
     void applySettings(float minZoom, float maxZoom, float keyboardStep,
                        float defaultZoomLevel, int animationSpeed,
-                       float scrollSensitivity = 1.0f);
+                       float scrollSensitivity = 1.0f, float touchpadSensitivity = 1.0f);
 
     // Reset to 1.0× instantly (shutdown path)
     void reset();
@@ -88,7 +93,8 @@ private:
     // Scales the normalized scroll delta before the logarithmic zoom model so
     // users can compensate for device differences (free-spin vs fine wheels,
     // touchpad feel). 1.0 = default.
-    float scrollSensitivity_ = 1.0f;
+    float scrollSensitivity_ = 1.0f;      // mouse
+    float touchpadSensitivity_ = 1.0f;    // touchpad (AC-2.9.20)
 
     // Whole-notch scroll smoothing (AC-2.2.03): displayed log-zoom and its
     // velocity (log units/s), critically damped toward log(targetZoom_).

@@ -50,7 +50,8 @@ static constexpr double kSmoothSnapLog = 1e-5;
 // for this long: a touchpad frame that happens to sum to 120 stays direct.
 static constexpr double kFineHoldSeconds = 0.25;
 
-void ZoomController::applyScrollDelta(int32_t accumulatedDelta, double inputAgeSeconds)
+void ZoomController::applyScrollDelta(int32_t accumulatedDelta, double inputAgeSeconds,
+                                      ScrollDevice device)
 {
     if (accumulatedDelta == 0)
         return;
@@ -71,10 +72,13 @@ void ZoomController::applyScrollDelta(int32_t accumulatedDelta, double inputAgeS
     // Logarithmic zoom model (AC-2.1.06):
     // Each 120-unit notch multiplies zoom by kScrollZoomBase.
     // Sub-notch deltas (Precision Touchpad) scale proportionally.
-    // scrollSensitivity_ scales the effective input so users can tune zoom rate
-    // across devices (A3); 1.0 = default, leaving prior behaviour unchanged.
+    // The device's sensitivity scales the effective input so users can tune
+    // the zoom rate per device (A3, AC-2.9.20); 1.0 = default, leaving prior
+    // behaviour unchanged.
+    const float sensitivity =
+        (device == ScrollDevice::Touchpad) ? touchpadSensitivity_ : scrollSensitivity_;
     float normalizedDelta =
-        static_cast<float>(accumulatedDelta) / kWheelDelta * scrollSensitivity_;
+        static_cast<float>(accumulatedDelta) / kWheelDelta * sensitivity;
 
     // Soft-approach bounds attenuation (AC-2.1.15):
     // As zoom nears min or max, attenuate the delta to decelerate smoothly.
@@ -336,7 +340,8 @@ bool ZoomController::tick(float dtSeconds)
 
 void ZoomController::applySettings(float minZoom, float maxZoom,
                                     float keyboardStep, float defaultZoomLevel,
-                                    int animationSpeed, float scrollSensitivity)
+                                    int animationSpeed, float scrollSensitivity,
+                                    float touchpadSensitivity)
 {
     minZoom_ = minZoom;
     maxZoom_ = maxZoom;
@@ -346,6 +351,7 @@ void ZoomController::applySettings(float minZoom, float maxZoom,
     // Scroll sensitivity (A3): guard against non-positive values from a crafted
     // config; the SettingsManager validates range, this is defense-in-depth.
     scrollSensitivity_ = (scrollSensitivity > 0.0f) ? scrollSensitivity : 1.0f;
+    touchpadSensitivity_ = (touchpadSensitivity > 0.0f) ? touchpadSensitivity : 1.0f;
 
     // Wire animation speed: 0=slow, 1=normal, 2=fast
     switch (animationSpeed)

@@ -693,13 +693,15 @@ bool startRecord(SharedState& state)
     fprintf(s_recordFile, "# smoothzoom-trace: 1\n# kind: record\n# computer: %s\n# qpc_freq: %lld\n"
             "# qpc_start: %lld\n# screen: %dx%d origin %d,%d\n# refresh_period_ms: %.4f\n# power: %s\n"
             "# modifier_vk: 0x%X\n# reverse_scroll: %d\n# scroll_sensitivity: %.3f\n"
-            "# touchpad_natural: %d\n# touchpad_coast: %d\n",
+            "# touchpad_natural: %d\n# touchpad_reverse: %d\n# touchpad_sensitivity: %.3f\n# touchpad_coast: %d\n",
             computerName().c_str(), (long long)qpcFreq(), (long long)s_recordStartQpc,
             state.screenWidth.load(), state.screenHeight.load(), state.screenOriginX.load(), state.screenOriginY.load(),
             period > 0 ? double(period) * 1000.0 / double(qpcFreq()) : 0.0, powerSource(),
             InputInterceptor::configuredModifierVK(),
             snap ? (snap->reverseScrollDirection ? 1 : 0) : 0, snap ? snap->scrollSensitivity : 1.0f,
-            InputInterceptor::touchpadNaturalScrolling() ? 1 : 0, snap ? (snap->momentumZoom ? 1 : 0) : 1);
+            InputInterceptor::touchpadNaturalScrolling() ? 1 : 0,
+            snap ? (snap->touchpadReverseScrollDirection ? 1 : 0) : 0,
+            snap ? snap->touchpadSensitivity : 1.0f, snap ? (snap->momentumZoom ? 1 : 0) : 1);
     fprintf(s_recordFile, "%s\n", kTraceColumns);
     fflush(s_recordFile);
     InputInterceptor::setWheelTap(hookTap);
