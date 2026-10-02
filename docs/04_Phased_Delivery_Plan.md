@@ -453,7 +453,7 @@ Formal measurement against all performance criteria from Scope §6.2:
 
 > **Status:** Current. The phase gate is verification, not new features.
 
-> **Approved scope change (2026-10-01):** the user approved one behavior change during Phase 7: `Shift` as the default scroll modifier, and a persisted tray "Keyboard shortcuts" setting that gates every keyboard zoom shortcut (Doc 1 §2.1/§2.8/§2.9; Doc 2 AC-2.1.22, AC-2.8.13–15; Doc 5 R-26 to R-30). It is not a phase-gate violation. VER-1 now covers **143** ACs: the 139 baselined plus the 4 added. Branch `feature/shift-scroll`.
+> **Approved scope change (2026-10-01):** the user approved one behavior change during Phase 7: `Shift` as the default scroll modifier, and a persisted tray "Keyboard shortcuts" setting that gates every keyboard zoom shortcut (Doc 1 §2.1/§2.8/§2.9; Doc 2 AC-2.1.22–24, AC-2.8.13–15; Doc 5 R-26 to R-31). It is not a phase-gate violation. VER-1 now covers **145** ACs: the 139 baselined plus the 6 added. Branch `feature/shift-scroll`.
 
 ### 9A.1 Purpose
 
@@ -465,7 +465,7 @@ This phase is specified in full in the standalone PRD **`07_v1.0_Release_Verific
 
 | # | Criterion | Folds in |
 |---|-----------|----------|
-| VER-1 | All 143 acceptance criteria from Document 2 (139 baselined + AC-2.1.22, AC-2.8.13–15 added 2026-10-01), excluding the deferred items, verified PASS against the signed build; results recorded in the checklist. | E6.13 |
+| VER-1 | All 145 acceptance criteria from Document 2 (139 baselined + AC-2.1.22–24, AC-2.8.13–15 added 2026-10-01), excluding the deferred items, verified PASS against the signed build; results recorded in the checklist. | E6.13 |
 | VER-2 | Full performance audit on the Intel UHD 620 reference machine **and** dev hardware: CPU idle <2%, CPU active <5%, frame latency ≤16 ms, GPU <10%, memory <50 MB. Adaptive frame-rate (R-18) implemented if the idle target is missed. | E6.12 |
 | VER-3 | Interactive/elevated test matrix passes: dual-monitor (E6.4–E6.7), monitor unplug while zoomed (E6.9), mixed-DPI / `WM_DPICHANGED`, UAC / secure desktop (E6.10), `Win+L` lock/unlock transient-key reset, sleep/resume, native-Magnifier conflict (E6.8 / AC-ERR.01–02). | E6.4–E6.10 |
 | VER-4 | Crash recovery validated live (force-kill → zoom resets, sentinel cleaned), graceful exit animation (AC-2.9.16), and hook-watchdog reinstall (AC-ERR.03) all confirmed on the signed build. | E6.11 |

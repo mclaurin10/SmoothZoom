@@ -320,7 +320,9 @@ These risks concern the global low-level hooks that intercept mouse and keyboard
 
 **Description:** Windows opens the Sticky Keys prompt when `Shift` is pressed five times in a row with no other key in between. Zooming in short bursts is exactly that pattern. The AC re-recordings show 7 to 26 separate Shift-held bursts per 20-second trace. Wheel and touchpad events do not count as "another key", and SmoothZoom never consumes `Shift` (AC-2.1.22), so Windows sees every press. With `Win` or `Alt` as the modifier this does not happen.
 
-**Mitigation options (not implemented, decision pending):**
+**Mitigation (implemented 2026-10-01, option 2 below, AC-2.1.23–24):** while `Shift` is the modifier and the opt-out setting "Block Sticky Keys prompt" is on (default), InputInterceptor clears only the Sticky Keys shortcut bits, in memory only, never while Sticky Keys is on. It restores them from the user's profile on exit, on modifier change, on setting change and in the crash handler. Verified live on TEMPLAPTOP: 510 → 498 while running → 510 after quit. A Win modifier left it untouched. After a forced kill it stayed 498 until the next run's exit restored 510. The profile stayed 510 throughout. **Residual:** after a kill, the prompt stays blocked until the next SmoothZoom exit or sign-out.
+
+**Options considered:**
 1. Document it, and point users to Settings → Accessibility → Keyboard → Sticky keys → turn off "Keyboard shortcut for Sticky keys". This is a one-time user action.
 2. While SmoothZoom runs, clear only the Sticky Keys *hotkey* flag (`SKF_HOTKEYACTIVE`) via `SystemParametersInfo(SPI_SETSTICKYKEYS)` without persisting it, and restore it on exit and in the crash handler. This is Microsoft's documented pattern for games ("Disabling Shortcut Keys in Games"), applied only when Sticky Keys itself is off. It changes an accessibility setting on behalf of users of an accessibility tool, so it needs an explicit product decision and an AC.
 3. Return the default modifier to `Win` (R-07's original rationale), keeping `Shift` as an option.
@@ -742,7 +744,7 @@ The native Windows Magnifier has this same issue — `Win+Plus`/`Win+Minus` may 
 | R-28 | `+` and `_` untypeable with shortcuts on (Shift modifier) | High | Medium | 7 | Input |
 | R-29 | Touchpad vs mouse zoom direction under natural scrolling | High | Low | 1 | Input |
 | R-30 | Shift+two-finger not swallowed in DManip apps (confirmed in Edge) | High | Medium | 1 | Input |
-| R-31 | Repeated Shift presses trigger the Sticky Keys prompt | High | Medium | 7 | Input |
+| R-31 | Repeated Shift presses trigger the Sticky Keys prompt (mitigated: AC-2.1.23–24) | High | Medium | 7 | Input |
 
 ---
 

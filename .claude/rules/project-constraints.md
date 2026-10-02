@@ -20,8 +20,9 @@ The current work is verification/certification, not new features (see
 "Keyboard shortcuts" setting (Doc 2 AC-2.1.22, AC-2.8.13–15; Doc 5 R-26–R-30) landed
 during Phase 7 by explicit user approval. Do not assume Win is the modifier: WinKeyManager
 only runs when Win is configured, and shortcuts/peek/Ctrl+Alt+I are gated by
-`keyboardShortcutsEnabled`. Dev/test runs pass `--config <path>` so the user's real
-`config.json` is never touched.
+`keyboardShortcutsEnabled`. While Shift is the modifier, the Sticky Keys 5×Shift shortcut
+is suppressed in memory and restored on exit/crash (`StickyKeysPolicy.h`, AC-2.1.23–24).
+Dev/test runs pass `--config <path>` so the user's real `config.json` is never touched.
 
 **Phase 8 — Input Interoperability** is the deferred next phase (input-interop P0 has
 already landed: `ScrollNormalizer`, `scrollSensitivity`, `momentumZoom`). Do not start it

@@ -11,7 +11,7 @@
 
 > **Status (2026-06-18):** These 139 acceptance criteria are the authoritative v1.0 behavior set and are frozen for the Phase 7 verification sweep (see `07_v1.0_Release_Verification_PRD.md`, tracked in `manual_test_checklist_v2.md`). Three ACs are formally deferred (§15). Two scroll-tuning settings that landed early — `scrollSensitivity` and `momentumZoom` — are intentionally **not** part of these 139; their behavioral acceptance criteria belong to the deferred Phase 8 (Input Interoperability) and will be authored there.
 
-> **Change (2026-10-01, approved scope during Phase 7):** `Shift` is now the default scroll-gesture modifier, and a persisted **"Keyboard shortcuts"** setting (tray menu) gates every keyboard zoom shortcut. Four ACs were added: **AC-2.1.22** and **AC-2.8.13–15**, for a total of **143**. Reworded to match: AC-2.1.01–05, AC-2.1.19–21, AC-2.2.04/06/07, AC-2.8.01–12, AC-2.9.14 and AC-2.10.01. Related risks: R-26 to R-30 (Doc 5).
+> **Change (2026-10-01, approved scope during Phase 7):** `Shift` is now the default scroll-gesture modifier, and a persisted **"Keyboard shortcuts"** setting (tray menu) gates every keyboard zoom shortcut. Six ACs were added: **AC-2.1.22–24** and **AC-2.8.13–15**, for a total of **145** (AC-2.1.23/24, Sticky Keys, added the same day after R-31 was observed). Reworded to match: AC-2.1.01–05, AC-2.1.19–21, AC-2.2.04/06/07, AC-2.8.01–12, AC-2.9.14 and AC-2.10.01. Related risks: R-26 to R-31 (Doc 5).
 
 ---
 
@@ -86,6 +86,10 @@ Where a criterion involves timing, distances, or thresholds, the stated value is
 ### 2G. Shift as the Modifier
 
 **AC-2.1.22** — With `Shift` as the modifier, SmoothZoom never consumes `Shift` key-down or key-up events, so `Shift` keeps working for typing, selection and every `Shift`+key combination. Only scroll events received while `Shift` is held are consumed. That includes applications that use `Shift`+scroll for horizontal scrolling (R-26). Scroll-gesture zoom works whether "Keyboard shortcuts" is on or off.
+
+**AC-2.1.23** — With `Shift` as the modifier and "Block Sticky Keys prompt" on (the default, in the settings window), pressing `Shift` five times in a row while SmoothZoom runs does not open the Windows "Turn on Sticky Keys?" prompt. If Sticky Keys itself is already on, SmoothZoom leaves it completely unchanged. With `Win` or `Alt` as the modifier, or with the setting off, Windows behaves as if SmoothZoom were not running.
+
+**AC-2.1.24** — The Sticky Keys shortcut always returns to the user's own setting: when SmoothZoom exits normally, when it crashes, when the modifier changes away from `Shift`, and when "Block Sticky Keys prompt" is turned off (the last two immediately, no restart). SmoothZoom never writes the user's saved accessibility settings. If SmoothZoom is killed, the shortcut stays blocked until the next sign-out or the next SmoothZoom exit, whichever comes first.
 
 ---
 
@@ -489,7 +493,7 @@ For quick reference, all acceptance criteria organized by ID prefix:
 
 | Prefix | Feature Area | Count |
 |--------|-------------|-------|
-| AC-2.1 | Scroll-Gesture Zoom | 22 |
+| AC-2.1 | Scroll-Gesture Zoom | 24 |
 | AC-2.2 | Smooth Zoom Animation | 10 |
 | AC-2.3 | Full-Screen Magnification | 11 |
 | AC-2.4 | Continuous Viewport Tracking | 13 |
@@ -502,4 +506,4 @@ For quick reference, all acceptance criteria organized by ID prefix:
 | AC-MM | Multi-Monitor Basics | 4 |
 | AC-ERR | Conflict and Error Handling | 5 |
 | Deferred | Post-v1 (R-01) | 3 |
-| **Total** | | **143** (139 baselined + 4 added 2026-10-01) |
+| **Total** | | **145** (139 baselined + 6 added 2026-10-01) |

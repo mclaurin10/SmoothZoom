@@ -164,6 +164,8 @@ The keyboard hook callback:
 
    The hook stays installed while shortcuts are off, because it also carries modifier tracking, toggle-key tracking, Win+Ctrl+M and the caret-priority timestamp. There is no `RegisterHotKey`, accelerator table or keyboard Raw Input path.
 
+**Sticky Keys shortcut (AC-2.1.23–24, R-31):** Windows opens the Sticky Keys prompt when `Shift` is pressed five times in a row, and zooming with a `Shift` modifier does exactly that. InputInterceptor's settings observer (main thread, never a hook callback) applies a pure policy, `StickyKeysPolicy.h` (unit-tested). It acts only when `blockStickyKeysShortcut` is on, `Shift` is the modifier, and Sticky Keys itself is off. Then it clears only `SKF_HOTKEYACTIVE | SKF_CONFIRMHOTKEY` via `SystemParametersInfo(SPI_SETSTICKYKEYS)` with `fWinIni = 0`, so the change is never written to the profile. The bits are restored when the condition stops holding, in `uninstall()` on normal exit, and in `crashHandler()` (`InputInterceptor::crashRestoreStickyKeys`, POD state only). The restore value comes from the persisted profile (`HKCU\Control Panel\Accessibility\StickyKeys` `Flags`), so a run that was killed before it could restore is repaired by the next run's exit. Sign-out also restores, because nothing was persisted. Since a failed config load notifies no observers, `main.cpp` notifies them once with the defaults so a fresh install starts suppressing.
+
 **Precision Touchpad (PTP) support via Raw Input:**
 
 Precision Touchpad devices deliver scroll gestures as HID reports through Raw Input (`WM_INPUT`) rather than synthesized `WM_MOUSEWHEEL` messages. InputInterceptor registers for Raw Input from HID touchpad devices and parses the reports to detect two-finger vertical scroll:
@@ -635,6 +637,7 @@ struct SettingsSnapshot {
     float   scrollSensitivity;      // 1.0  (0.1–5.0; input-interop P0)
     bool    momentumZoom;           // true (input-interop P0; gating logic is Phase 8)
     bool    keyboardShortcutsEnabled; // false on fresh install; true for an existing config without the key
+    bool    blockStickyKeysShortcut;  // true; only acts while Shift is the modifier (AC-2.1.23)
 };
 ```
 

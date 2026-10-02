@@ -47,7 +47,7 @@ The user holds the modifier key (default `Shift`) and scrolls the mouse wheel or
 **Key behavioral details:**
 
 - The default modifier key is `Shift` (`VK_LSHIFT` / `VK_RSHIFT`). Alternatives configurable in settings: `Win` and `Alt` (`Ctrl` is excluded, see §5). A fresh install uses `Shift`; an existing configuration keeps its saved modifier.
-- `Shift` was chosen as the one-handed default. Its trade-off: `Shift+Scroll` is horizontal scroll in browsers and Excel, and SmoothZoom consumes it in every application (Doc 5 R-26). `Win+Scroll` remains available for users who need `Shift+Scroll`. The `Shift` key itself is never consumed.
+- `Shift` was chosen as the one-handed default. Its trade-off: `Shift+Scroll` is horizontal scroll in browsers and Excel, and SmoothZoom consumes it in every application (Doc 5 R-26). `Win+Scroll` remains available for users who need `Shift+Scroll`. The `Shift` key itself is never consumed. Because zooming means pressing `Shift` repeatedly, SmoothZoom blocks the Windows Sticky Keys prompt (5× `Shift`) while `Shift` is the modifier, and restores the user's own setting on exit (opt-out, AC-2.1.23–24).
 - **Start Menu suppression (only when `Win` is the modifier):** Pressing and releasing the `Win` key by itself normally opens the Start Menu. When SmoothZoom detects that a scroll event was consumed while `Win` was held, it must suppress the Start Menu activation on key release. This is a well-established technique used by tools such as PowerToys and AutoHotkey, typically accomplished by injecting a no-op keypress (e.g., a phantom `VK_NONAME` or `Ctrl` down/up) before the `Win` key-up event reaches the shell.
 - Scroll events are consumed (not forwarded to applications) only while the modifier key is held.
 - The zoom center point is the pointer's screen position at the moment each scroll event arrives. If the user moves the pointer while scrolling, the zoom center tracks with it.
@@ -151,6 +151,7 @@ The application provides a settings interface accessible via a system tray icon 
 |---------|---------|-----------------|
 | Scroll-gesture modifier key | `Shift` | `Shift`, `Win`, `Alt` (`Ctrl` excluded) |
 | Keyboard shortcuts | Off (fresh install); On (upgraded config) | On / Off (tray menu; gates all zoom shortcuts except `Win+Ctrl+M`) |
+| Block Sticky Keys prompt | On | On / Off (only acts while `Shift` is the modifier; never changes Sticky Keys itself or the saved profile) |
 | Temporary toggle key combo | `Ctrl+Alt` | Any two-key modifier combo |
 | Minimum zoom level | 1.0× | 1.0× to 5.0× |
 | Maximum zoom level | 10.0× | 2.0× to 10.0× |

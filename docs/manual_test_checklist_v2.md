@@ -305,7 +305,7 @@ These are documented as out-of-scope until Desktop Duplication API migration:
 
 ---
 
-## 5. Full Acceptance-Criteria Tracker (143 ACs: 139 + 4 added 2026-10-01) — VER-1
+## 5. Full Acceptance-Criteria Tracker (145 ACs: 139 + 6 added 2026-10-01) — VER-1
 
 The authoritative AC list is Document 2. This table is the v1.0 verification record. Status
 legend:
@@ -317,7 +317,7 @@ legend:
 - `⊘ def` — deferred or reframed (see §4 and Doc 2 §15)
 - `—` — not yet exercised
 
-### 2.1 Scroll-Gesture Zoom (22)
+### 2.1 Scroll-Gesture Zoom (24)
 
 | AC | Description | Status |
 |----|-------------|--------|
@@ -342,7 +342,9 @@ legend:
 | AC-2.1.19 | Changing modifier in settings takes effect immediately | ⚠ open (earlier: no effect) |
 | AC-2.1.20 | Non-Win modifier: no Start Menu suppression logic | ⚠ open (clarify expected) |
 | AC-2.1.21 | Ctrl-exclusion rationale + alt-modifier warning | ⊘ def (reframed, Doc 2 §15.2) |
-| AC-2.1.22 | Shift modifier: Shift keys never consumed; only Shift+wheel consumed; works with shortcuts off | UT (KeyDecision, WheelDecision); injected wheel 10-01 (zoom in on wheel-up; plain/Ctrl/Alt pass); real wheel + touchpad recorded 10-01 (shortcuts off: every Shift-held event drove zoom). Sticky Keys prompt appeared in several runs (R-31); Edge scrolled sideways with Shift+two-finger (R-30) |
+| AC-2.1.22 | Shift modifier: Shift keys never consumed; only Shift+wheel consumed; works with shortcuts off | UT (KeyDecision, WheelDecision); injected wheel 10-01 (zoom in on wheel-up; plain/Ctrl/Alt pass); real wheel + touchpad recorded 10-01 (shortcuts off: every Shift-held event drove zoom). Sticky Keys prompt appeared in several runs (R-31, fixed by AC-2.1.23); Edge scrolled sideways with Shift+two-finger (R-30) |
+| AC-2.1.23 | Shift modifier + setting on: 5× Shift opens no Sticky Keys prompt; Sticky Keys itself untouched if on; Win/Alt or setting off: unchanged | UT (StickyKeysPolicy); flags 510→498 while running, Win untouched, 10-01 — real 5× Shift prompt check pending |
+| AC-2.1.24 | Shortcut restored on exit, crash, modifier change, setting off; profile never written; kill repaired on next exit | UT; exit 498→510, kill→relaunch→exit 510, profile stays 510, 10-01 — modifier change / setting toggle live pending |
 
 ### 2.2 Smooth Zoom Animation (10)
 
