@@ -76,3 +76,64 @@ TEST_CASE("modifierHeldFromState maps the configured modifier to its key bit", "
     CHECK(modifierHeldFromState(VK_CONTROL, false, true, false, false));
     CHECK_FALSE(modifierHeldFromState(0x41, true, true, true, true));
 }
+
+// ── Shift+scroll as the default gesture (AC-2.1.01, AC-2.1.02, AC-2.1.22) ──
+// The hook computes "modifier held" from live key state; modifierHeldFromState
+// is the same mapping from a modifier snapshot, so these cases run the whole
+// decision from "which keys are down" to "consume / pass through".
+
+static WheelDecision wheelWithKeys(int modVK, int16_t delta, bool shift, bool ctrl, bool alt, bool win)
+{
+    const bool held = wheelIsZoomCandidate(WheelKind::Vertical, modVK)
+                   && modifierHeldFromState(modVK, shift, ctrl, alt, win);
+    return decideWheel(WheelKind::Vertical, delta, modVK, held);
+}
+
+TEST_CASE("Shift modifier: Shift+wheel zooms with the raw delta", "[WheelDecision][ShiftScroll]")
+{
+    for (int16_t delta : { int16_t(120), int16_t(-120), int16_t(33), int16_t(-7), int16_t(1014) })
+    {
+        WheelDecision d = wheelWithKeys(VK_LSHIFT, delta, true, false, false, false);
+        CHECK(d.consume);
+        CHECK(d.accumulatorDelta == delta);
+        CHECK_FALSE(d.markWinUsedForZoom);  // no Win-key handling with Shift
+    }
+}
+
+TEST_CASE("Shift modifier: plain, Ctrl+, Alt+ and Win+wheel pass through", "[WheelDecision][ShiftScroll]")
+{
+    struct Keys { bool shift, ctrl, alt, win; const char* name; };
+    const Keys cases[] = {
+        { false, false, false, false, "plain" },
+        { false, true,  false, false, "Ctrl" },
+        { false, false, true,  false, "Alt" },
+        { false, true,  true,  false, "Ctrl+Alt" },
+        { false, false, false, true,  "Win" },
+    };
+    for (const auto& k : cases)
+        for (int16_t delta : { int16_t(120), int16_t(-120), int16_t(20) })
+        {
+            INFO(k.name << " delta=" << delta);
+            WheelDecision d = wheelWithKeys(VK_LSHIFT, delta, k.shift, k.ctrl, k.alt, k.win);
+            CHECK_FALSE(d.consume);
+            CHECK(d.accumulatorDelta == 0);
+            CHECK_FALSE(d.markWinUsedForZoom);
+        }
+}
+
+TEST_CASE("Shift modifier: right Shift and generic VK_SHIFT behave the same", "[WheelDecision][ShiftScroll]")
+{
+    for (int vk : { VK_RSHIFT, VK_SHIFT })
+    {
+        CHECK(wheelWithKeys(vk, 120, true, false, false, false).consume);
+        CHECK_FALSE(wheelWithKeys(vk, 120, false, true, false, false).consume);
+        CHECK_FALSE(wheelWithKeys(vk, 120, false, false, true, false).consume);
+    }
+}
+
+TEST_CASE("Shift modifier never marks the Win key, on either wheel axis", "[WheelDecision][ShiftScroll]")
+{
+    for (WheelKind kind : { WheelKind::Vertical, WheelKind::Horizontal })
+        for (bool held : { false, true })
+            CHECK_FALSE(decideWheel(kind, 120, VK_LSHIFT, held).markWinUsedForZoom);
+}

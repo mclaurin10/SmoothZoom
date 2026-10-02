@@ -65,6 +65,12 @@ static int s_toggleKey1VK  = VK_LCONTROL;
 static int s_toggleKey2VK  = VK_LMENU;
 static HWND s_msgWindow    = nullptr;
 
+// Modifier + Plus/Minus/Esc zoom shortcuts on/off (tray "Keyboard shortcuts",
+// AC-2.8.13–15). The keyboard hook stays installed while off — it still tracks
+// the modifier, the Ctrl+Alt toggle, Win+Ctrl+M, Ctrl+Alt+I and caret-priority
+// keystrokes — but the shortcut decision passes every key through.
+static bool s_shortcutsEnabled = false;
+
 // Tracks non-Win modifier key state via keyboard hook for reliable detection
 // in mouse hook. Both hooks run on the main thread — no synchronization needed.
 static bool s_nonWinModifierHeld = false;
@@ -75,6 +81,7 @@ static void onSettingsChanged(const SettingsSnapshot& s, void* /*userData*/)
     s_modifierKeyVK = s.modifierKeyVK;
     s_toggleKey1VK  = s.toggleKey1VK;
     s_toggleKey2VK  = s.toggleKey2VK;
+    s_shortcutsEnabled = s.keyboardShortcutsEnabled;
     s_nonWinModifierHeld = false;  // Reset on config change to avoid stale state
     s_winKeyMgr.reset();  // BF-2: Clear stale Win key state on modifier change
 }
@@ -216,9 +223,10 @@ static LRESULT CALLBACK mouseHookProc(int nCode, WPARAM wParam, LPARAM lParam)
 }
 
 // ─── Keyboard Hook Callback ─────────────────────────────────────────────────
-// Tracks Win key via WinKeyManager. Consumes zoom-in/out keys only when the
-// configured modifier is held (prevents character leak with Shift modifier);
-// all other keyboard events pass through. (AC-2.1.18)
+// Tracks Win key via WinKeyManager (Win modifier only). When keyboard shortcuts
+// are enabled, consumes zoom-in/out keys only while the configured modifier is
+// held (prevents character leak with Shift modifier); when they are disabled it
+// consumes nothing. All other keyboard events pass through. (AC-2.1.18, AC-2.8.14)
 // Phase 4: Tracks Ctrl+Alt for temporary toggle (AC-2.7.01–AC-2.7.10).
 
 // Phase 4/5B: Toggle key state — configurable keys (3 bools + 1 queue push), R-05 safe.
@@ -244,8 +252,10 @@ static LRESULT CALLBACK keyboardHookProc(int nCode, WPARAM wParam, LPARAM lParam
     bool isDown = (wParam == WM_KEYDOWN || wParam == WM_SYSKEYDOWN);
     bool isUp = (wParam == WM_KEYUP || wParam == WM_SYSKEYUP);
 
-    // Track Win key state via WinKeyManager (AC-2.1.04: both LWin and RWin)
-    if (info->vkCode == VK_LWIN || info->vkCode == VK_RWIN)
+    // Track Win key state via WinKeyManager (AC-2.1.04: both LWin and RWin).
+    // Only when Win IS the modifier: with Shift/Alt there is no Start Menu to
+    // suppress, so the state machine stays Idle and never injects (AC-2.1.20).
+    if (isWinModifier() && (info->vkCode == VK_LWIN || info->vkCode == VK_RWIN))
     {
         if (isDown)
         {
@@ -299,7 +309,7 @@ static LRESULT CALLBACK keyboardHookProc(int nCode, WPARAM wParam, LPARAM lParam
     const KeyDecision kd = decideShortcutKey(
         static_cast<int>(info->vkCode), isDown, isUp,
         (info->flags & LLKHF_INJECTED) != 0,
-        s_modifierKeyVK, isConfiguredModifierHeld(), /*shortcutsEnabled*/ true);
+        s_modifierKeyVK, s_shortcutsEnabled && isConfiguredModifierHeld(), s_shortcutsEnabled);
 
     switch (kd.action)
     {
@@ -340,17 +350,20 @@ static LRESULT CALLBACK keyboardHookProc(int nCode, WPARAM wParam, LPARAM lParam
         }
 
         // Win+Ctrl+M → open settings (AC-2.8.11)
-        // Always Win-based regardless of configured modifier.
-        // Physical Win check guards against a stale state machine (missed
-        // key-up across the secure desktop) turning plain Ctrl+M into this.
+        // Always Win-based regardless of configured modifier, and not gated by
+        // the "Keyboard shortcuts" setting (it is not a zoom shortcut and types
+        // no character). The physical Win check is authoritative; with the Win
+        // modifier the state machine must also agree, which guards against a
+        // stale state (missed key-up across the secure desktop) turning plain
+        // Ctrl+M into this. WinKeyManager is only fed with the Win modifier.
         if (info->vkCode == 'M'
-            && s_winKeyMgr.state() != WinKeyManager::State::Idle
+            && (!isWinModifier() || s_winKeyMgr.state() != WinKeyManager::State::Idle)
             && ((GetAsyncKeyState(VK_LWIN) | GetAsyncKeyState(VK_RWIN)) & 0x8000)
             && (GetAsyncKeyState(VK_CONTROL) & 0x8000)
             && s_msgWindow)
         {
             PostMessageW(s_msgWindow, WM_OPEN_SETTINGS, 0, 0);
-            s_winKeyMgr.markUsedForZoom();
+            if (isWinModifier()) s_winKeyMgr.markUsedForZoom();
         }
 
         // Ctrl+Alt+I → toggle color inversion (Phase 6: AC-2.10.01)
