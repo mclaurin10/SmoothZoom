@@ -220,7 +220,8 @@ static DWORD WINAPI watchdogThread(LPVOID)
         if (now >= timeoutAt)
         {
             SZ_LOG_WARN("DevTools", L"--timeout %d s reached â€” requesting clean exit", s_timeoutSec);
-            setExitCode(kExitWatchdog);
+            // --record uses --timeout as its normal end; only an unfinished bench fails.
+            if (s_mode == Mode::Bench) setExitCode(kExitWatchdog);
             break;
         }
     }
@@ -661,6 +662,14 @@ void tapAccumulator(WheelSource source, int16_t delta)
 
 bool startRecord(SharedState& state)
 {
+    // Create the trace's folder (like --bench does for --out): a missing folder
+    // used to fail the open, and the run then idled to --timeout recording nothing.
+    {
+        std::error_code ec;
+        std::filesystem::path parent = std::filesystem::path(s_recordPath).parent_path();
+        if (!parent.empty())
+            std::filesystem::create_directories(parent, ec);
+    }
     if (_wfopen_s(&s_recordFile, s_recordPath.c_str(), L"w") != 0)
         s_recordFile = nullptr;
     if (!s_recordFile)

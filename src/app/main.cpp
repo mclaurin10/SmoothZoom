@@ -1602,8 +1602,14 @@ int WINAPI wWinMain(
     // Low-level hooks require a message pump on the installing thread.
     // The pump runs until WM_QUIT is posted (by Ctrl+Q via InputInterceptor).
 #ifdef SMOOTHZOOM_DEV_TOOLS
-    if (SmoothZoom::DevTools::mode() == SmoothZoom::DevTools::Mode::Record)
-        SmoothZoom::DevTools::startRecord(g_sharedState);
+    if (SmoothZoom::DevTools::mode() == SmoothZoom::DevTools::Mode::Record
+        && !SmoothZoom::DevTools::startRecord(g_sharedState))
+    {
+        // Nothing would be recorded: fail fast with a distinct exit code
+        // instead of running silently until --timeout. Normal shutdown path.
+        SmoothZoom::DevTools::setExitCode(SmoothZoom::DevTools::kExitBadArgs);
+        PostQuitMessage(0);
+    }
     if (SmoothZoom::DevTools::mode() == SmoothZoom::DevTools::Mode::Bench)
     {
         // Replay replaces the GetMessage pump; it pumps the queue itself.
