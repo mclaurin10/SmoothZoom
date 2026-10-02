@@ -21,3 +21,10 @@ keep or revert. Full gate (5 runs/trace) runs on every stop attempt (Stop hook, 
 
 1. **Touchpad holes — C-05 / C-07 / C-08 on tp-flick, tp-terminal, tp-edge.** Input-limited. Between consecutive touchpad events the recorded stream itself pauses 39–80 ms inside a gesture (inertia tails, finger pauses < 100 ms), and the zoom correctly does not move when there is no input. Apart from holes at a zoom bound (excluded by the yardstick), 17 of the 19 remaining holes move the zoom < 0.4 % across the gap (most < 0.1 %), i.e. sub-visible. Filling them needs touchpad input to be smoothed or extrapolated over the following frames, which the brief rules out ("keep touchpad input effectively direct; the smoothing is for wheels"). Not changed.
 2. **Touchpad snap-backs — C-18 on tp-terminal (≈ 24 %) and tp-flick (≈ 15 %, borderline).** 120 of 122 tp-terminal snap-backs are on input frames during a continuous stream of 0.3–0.7 % steps. With the bounds that keep touchpad direct and evenly paced (shown step ≥ ½ of the true step, nudge ≤ 0.5 %), the alignment window at those steps spans < 1 desktop px of offset. Loosening the minimum step (3d) breaks C-23; loosening it only between events (3e) did not help. Remaining levers (larger nudge, smaller minimum step mid-stream) trade peripheral pace evenness for anchor steadiness; not taken.
+
+### Full gates (Stop hook, 5 runs/trace)
+
+| Gate | Time | Code | Result | Notes |
+|------|------|------|--------|-------|
+| 1 | 2026-10-01 22:34 | f14bc09 | FAIL 7 / 172 | tp-edge C-08 2.05 P; tp-flick C-05 6.7 %, C-07 1.101 P, C-08 4.9 P; tp-terminal C-05 2.4 %, C-08 4.0 P, C-18 24.0 %. All wheel traces, cold start, anchor error, latency and guards pass. |
+| 2 | 2026-10-01 22:46 | f14bc09 | **Invalid** (FAIL 13 / 172) | Laptop on battery during the run, and real two-finger touchpad input during the tp-edge replay (PTP contacts in its log; 2 of 5 runs aborted, settle up to 1.1 s, anchor up to 676× floor). Counted by the stop gate (2 of 15) but not a code result. |
