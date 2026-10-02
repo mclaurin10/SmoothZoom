@@ -55,7 +55,8 @@ struct TransformSample
     float    zoom = 1.0f;        // zoom computed this frame (== sent when updated)
     float    idealOffX = 0, idealOffY = 0;   // float proportional offset from the RAW cursor
     float    offX = 0, offY = 0;             // float offset RenderLoop computed (any source)
-    int32_t  appliedX = 0, appliedY = 0;     // ints handed to MagSetFullscreenTransform
+    int32_t  appliedX = 0, appliedY = 0;     // offsets the API holds (MagGetFullscreenTransform read-back)
+    float    rbZoom = 1.0f;                  // magnification the API holds (read-back)
     int32_t  cursorX = 0, cursorY = 0;       // raw GetCursorPos
     int32_t  scrollDelta = 0;    // accumulator delta consumed this frame
     uint8_t  source = 0;         // TrackingSource

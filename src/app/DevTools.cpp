@@ -945,18 +945,20 @@ static void writeBenchOutputs()
     {
         std::ofstream o(dir / "frames.csv");
         o << "t_ms,set_begin_ms,set_end_ms,vblank_ms,c_refresh,period_ms,target_zoom,zoom,ideal_x,ideal_y,"
-             "off_x,off_y,applied_x,applied_y,cursor_x,cursor_y,scroll_delta,source,mode,updated,ok\n";
+             "off_x,off_y,applied_x,applied_y,cursor_x,cursor_y,scroll_delta,source,mode,updated,ok,"
+             "rb_zoom,rb_x,rb_y\n";
         char line[512];
         for (uint32_t i = 0; i < n; ++i)
         {
             const TransformSample& s = smp[i];
+            // applied_x/y and rb_x/y are both the MagGetFullscreenTransform read-back.
             snprintf(line, sizeof(line),
-                     "%.4f,%.4f,%.4f,%.4f,%llu,%.4f,%.6f,%.6f,%.3f,%.3f,%.3f,%.3f,%d,%d,%d,%d,%d,%u,%u,%u,%u\n",
+                     "%.4f,%.4f,%.4f,%.4f,%llu,%.4f,%.6f,%.6f,%.3f,%.3f,%.3f,%.3f,%d,%d,%d,%d,%d,%u,%u,%u,%u,%.7f,%d,%d\n",
                      rel(s.qpcTick), rel(s.qpcSetBegin), rel(s.qpcSetEnd), rel(s.qpcVBlank),
                      (unsigned long long)s.cRefresh, double(s.qpcRefreshPeriod) * 1000.0 / f,
                      s.targetZoom, s.zoom, s.idealOffX, s.idealOffY, s.offX, s.offY,
                      s.appliedX, s.appliedY, s.cursorX, s.cursorY, s.scrollDelta,
-                     s.source, s.mode, s.updated, s.ok);
+                     s.source, s.mode, s.updated, s.ok, s.rbZoom, s.appliedX, s.appliedY);
             o << line;
         }
     }
@@ -966,7 +968,9 @@ static void writeBenchOutputs()
         for (const auto& r : s_injects)
         {
             const TraceEvent& e = s_trace[r.traceIndex];
-            o << r.traceIndex << ',' << e.tUs << ',' << rel(r.qpc) << ',' << kindName(e.kind) << ','
+            char injectMs[32];   // fixed 0.1 us resolution (default stream precision is 6 significant digits)
+            snprintf(injectMs, sizeof(injectMs), "%.4f", rel(r.qpc));
+            o << r.traceIndex << ',' << e.tUs << ',' << injectMs << ',' << kindName(e.kind) << ','
               << e.delta << ',' << (r.modHeld ? 1 : 0) << ',' << (r.consumed ? 1 : 0) << '\n';
         }
     }

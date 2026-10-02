@@ -114,6 +114,12 @@ static constexpr int64_t kPerfReportInterval = 600;
 // before start(); read only on the render thread. Null = no telemetry.
 static TransformTelemetry* s_devTelemetry = nullptr;
 
+// What MagGetFullscreenTransform reports after the last successful update. The
+// bench scores the anchor from these, not from a model of MagBridge's float->int
+// conversion, so the numbers follow whatever MagBridge actually sends.
+static float   s_devRbZoom = 1.0f;
+static int32_t s_devRbX = 0, s_devRbY = 0;
+
 // Append one sample (render thread only). Copies into the pre-allocated buffer
 // and stamps DWM timing: no allocation, no lock, no I/O. DwmGetCompositionTiming-
 // Info reads DWM's shared timing data and only runs while telemetry is enabled.
@@ -701,8 +707,19 @@ void RenderLoop::frameTick()
         t.idealOffY = ideal.y;
         t.offX = offset.x;
         t.offY = offset.y;
-        t.appliedX = static_cast<int32_t>(offset.x);  // MagBridge::setTransform truncation
-        t.appliedY = static_cast<int32_t>(offset.y);
+        if (changed && devOk)
+        {
+            float rbZoom = 1.0f, rbX = 0.0f, rbY = 0.0f;
+            if (s_magBridge.getTransform(rbZoom, rbX, rbY))
+            {
+                s_devRbZoom = rbZoom;
+                s_devRbX = static_cast<int32_t>(rbX);  // exact: getTransform widens the API's ints
+                s_devRbY = static_cast<int32_t>(rbY);
+            }
+        }
+        t.appliedX = s_devRbX;
+        t.appliedY = s_devRbY;
+        t.rbZoom = s_devRbZoom;
         t.cursorX = rawPtrX;
         t.cursorY = rawPtrY;
         t.scrollDelta = scrollDelta;
