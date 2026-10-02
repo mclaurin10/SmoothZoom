@@ -362,6 +362,17 @@ static LONG WINAPI crashHandler(EXCEPTION_POINTERS* /*exInfo*/)
         // Swallow — we're already in a crash handler
     }
 
+    // Put back the Sticky Keys shortcut if it was suppressed (AC-2.1.24). It is
+    // never persisted, so sign-out restores it anyway; this restores it now.
+    __try
+    {
+        SmoothZoom::InputInterceptor::crashRestoreStickyKeys();
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER)
+    {
+        // Swallow — we're already in a crash handler
+    }
+
     // Remove the sentinel ONLY if BOTH global Mag effects were cleared. Either API
     // can return FALSE without raising (secure desktop active, Mag state torn
     // down) — in that case the screen may still be magnified and/or inverted, and
@@ -1352,8 +1363,14 @@ int WINAPI wWinMain(
     // --bench runs on built-in defaults so baselines don't drift with the
     // user's config.json (and never writes it back), unless --config names a
     // file explicitly; then that file is loaded (still never written).
+    bool settingsLoaded = false;
     if (!g_configPath.empty() && (!devUnattended() || devConfigExplicit()))
-        g_settingsManager.loadFromFile(g_configPath.c_str());
+        settingsLoaded = g_settingsManager.loadFromFile(g_configPath.c_str());
+    // A failed load (fresh install, corrupt file) notifies nobody. Observers whose
+    // defaults need an action (InputInterceptor's Sticky Keys policy) must still
+    // see the default snapshot once.
+    if (!settingsLoaded)
+        g_settingsManager.applySnapshot(*g_settingsManager.snapshot());
     SZ_LOG_INFO("Main", L"Config: %S", g_configPath.c_str());
     // Ensure SharedState has settings even if load failed (defaults apply):
     {

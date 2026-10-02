@@ -56,6 +56,13 @@ struct SettingsSnapshot
     // ("Keyboard shortcuts"); takes effect immediately.
     bool    keyboardShortcutsEnabled = false;
 
+    // While Shift is the scroll modifier, stop Windows' Sticky Keys *shortcut*
+    // (Shift pressed five times) from popping its prompt mid-zoom (AC-2.1.23,
+    // R-31). Opt-out; on by default, also for upgraded configs. Only the two
+    // shortcut bits change, never while Sticky Keys itself is on, never
+    // persisted to the user profile, and restored on exit (AC-2.1.24).
+    bool    blockStickyKeysShortcut = true;
+
     // Input interoperability (A3, B3):
     float   scrollSensitivity   = 1.0f;  // multiplier on scroll-gesture zoom rate
     bool    momentumZoom        = true;  // allow inertial/momentum scroll to drive zoom

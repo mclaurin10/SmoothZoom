@@ -145,6 +145,7 @@ bool SettingsManager::loadFromFile(const char* path)
     // reached or fails) gets the SettingsSnapshot default, off.
     settings.keyboardShortcutsEnabled = true;
     readBool("keyboardShortcutsEnabled", settings.keyboardShortcutsEnabled);
+    readBool("blockStickyKeysShortcut", settings.blockStickyKeysShortcut);
 
     // ── Log level (diagnostics) ──
     // Stored as a human-friendly string ("debug"/"info"/"warn"/"error",
@@ -210,6 +211,7 @@ bool SettingsManager::saveToFile(const char* path) const
     j["scrollSensitivity"]     = snap->scrollSensitivity;
     j["momentumZoom"]          = snap->momentumZoom;
     j["keyboardShortcutsEnabled"] = snap->keyboardShortcutsEnabled;
+    j["blockStickyKeysShortcut"] = snap->blockStickyKeysShortcut;
     // logLevel written as a human-readable string (mirrors the load mapping).
     j["logLevel"]              = (snap->logLevel == 0) ? "debug" :
                                  (snap->logLevel == 2) ? "warn"  :

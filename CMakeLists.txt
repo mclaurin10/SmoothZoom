@@ -263,6 +263,7 @@ if(SMOOTHZOOM_BUILD_TESTS)
         tests/unit/test_SeqLock.cpp
         tests/unit/test_WheelDecision.cpp
         tests/unit/test_KeyDecision.cpp
+        tests/unit/test_StickyKeysPolicy.cpp
         src/logic/ZoomController.cpp
         src/logic/ViewportTracker.cpp
         src/input/WinKeyManager.cpp

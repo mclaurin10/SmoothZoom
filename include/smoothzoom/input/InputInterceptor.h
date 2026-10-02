@@ -34,6 +34,10 @@ public:
     // likely missed during the outage).
     bool forceReinstall();
 
+    // Crash handler: put the Sticky Keys shortcut back if SmoothZoom suppressed
+    // it (AC-2.1.24). No allocation, no registry, no logging.
+    static bool crashRestoreStickyKeys();
+
     // GetTickCount64 timestamp of the most recent hook callback invocation.
     // The watchdog compares this against GetLastInputInfo to detect dead hooks.
     static int64_t lastCallbackTick();

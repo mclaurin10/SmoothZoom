@@ -16,6 +16,7 @@
 #include "smoothzoom/input/ModifierUtils.h"
 #include "smoothzoom/input/WheelDecision.h"
 #include "smoothzoom/input/KeyDecision.h"
+#include "smoothzoom/input/StickyKeysPolicy.h"
 #include "smoothzoom/common/AppMessages.h"
 #include "smoothzoom/common/SharedState.h"
 #include "smoothzoom/common/Types.h"
@@ -76,6 +77,81 @@ static bool s_shortcutsEnabled = false;
 // in mouse hook. Both hooks run on the main thread — no synchronization needed.
 static bool s_nonWinModifierHeld = false;
 
+// ─── Sticky Keys shortcut suppression (AC-2.1.23/24, R-31) ──────────────────
+// Main thread only (settings observer, uninstall); never from a hook callback.
+// POD statics so the crash handler can restore without allocating.
+static bool     s_stickySuppressed = false;
+static uint32_t s_stickyUserFlags  = 0;   // user's flags when suppression began
+
+// The user's own setting, from the profile (SmoothZoom never writes it).
+static bool readPersistedStickyFlags(uint32_t& out)
+{
+    wchar_t buf[32] = {};
+    DWORD cb = sizeof(buf);
+    if (RegGetValueW(HKEY_CURRENT_USER, L"Control Panel\\Accessibility\\StickyKeys", L"Flags",
+                     RRF_RT_REG_SZ, nullptr, buf, &cb) != ERROR_SUCCESS)
+        return false;
+    return parseStickyFlagsString(buf, out);
+}
+
+static bool restoreStickyShortcut(bool useProfile)
+{
+    if (!s_stickySuppressed)
+        return true;
+    STICKYKEYS sk = { sizeof(sk) };
+    if (!SystemParametersInfoW(SPI_GETSTICKYKEYS, sizeof(sk), &sk, 0))
+        return false;
+    uint32_t user = s_stickyUserFlags;
+    if (useProfile)
+    {
+        uint32_t persisted = 0;
+        if (readPersistedStickyFlags(persisted))
+            user = persisted;  // reflects any change the user made in Settings meanwhile
+    }
+    sk.dwFlags = restoredStickyFlags(sk.dwFlags, user);
+    // fWinIni = 0: in-memory only, the profile is never written.
+    if (!SystemParametersInfoW(SPI_SETSTICKYKEYS, sizeof(sk), &sk, 0))
+        return false;
+    s_stickySuppressed = false;
+    return true;
+}
+
+static void applyStickyShortcutPolicy(bool wanted)
+{
+    if (!wanted)
+    {
+        if (s_stickySuppressed && restoreStickyShortcut(true))
+            SZ_LOG_INFO("InputInterceptor", L"Sticky Keys shortcut restored");
+        return;
+    }
+    if (s_stickySuppressed)
+        return;
+
+    STICKYKEYS sk = { sizeof(sk) };
+    if (!SystemParametersInfoW(SPI_GETSTICKYKEYS, sizeof(sk), &sk, 0))
+        return;
+    if (!stickyKeysMayBeChanged(sk.dwFlags))
+    {
+        SZ_LOG_INFO("InputInterceptor", L"Sticky Keys is on - shortcut left unchanged");
+        return;
+    }
+    // Restore target = the profile value when readable. After a previous run was
+    // killed mid-suppression, the in-memory flags still have the shortcut off,
+    // but the profile does not, so this also repairs that case on exit.
+    uint32_t user = sk.dwFlags;
+    uint32_t persisted = 0;
+    if (readPersistedStickyFlags(persisted))
+        user = persisted;
+    s_stickyUserFlags = user;
+
+    sk.dwFlags = suppressedStickyFlags(sk.dwFlags);
+    if (SystemParametersInfoW(SPI_SETSTICKYKEYS, sizeof(sk), &sk, 0))  // fWinIni = 0
+    {
+        s_stickySuppressed = true;
+        SZ_LOG_INFO("InputInterceptor", L"Sticky Keys shortcut suppressed (user flags 0x%X)", user);
+    }
+}
+
 // Phase 4/5B: Toggle key state — configurable keys (3 bools + 1 queue push),
 // R-05 safe. Declared here so the settings observer can release an engaged
 // peek when shortcuts are turned off.
@@ -90,6 +166,7 @@ static void onSettingsChanged(const SettingsSnapshot& s, void* /*userData*/)
     s_toggleKey1VK  = s.toggleKey1VK;
     s_toggleKey2VK  = s.toggleKey2VK;
     s_shortcutsEnabled = s.keyboardShortcutsEnabled;
+    applyStickyShortcutPolicy(stickyShortcutSuppressionWanted(s.blockStickyKeysShortcut, s.modifierKeyVK));
     if (!s_shortcutsEnabled && s_toggleEngaged)
     {
         // Turning shortcuts off mid-peek: end the peek now (AC-2.8.14).
@@ -450,6 +527,9 @@ bool InputInterceptor::install(SharedState& state)
 
 void InputInterceptor::uninstall()
 {
+    if (s_stickySuppressed && restoreStickyShortcut(true))
+        SZ_LOG_INFO("InputInterceptor", L"Sticky Keys shortcut restored");
+
     if (s_mouseHook)
     {
         UnhookWindowsHookEx(s_mouseHook);
@@ -514,6 +594,13 @@ bool InputInterceptor::forceReinstall()
     s_lastHookCallbackTick = static_cast<int64_t>(GetTickCount64());
 
     return isHealthy();
+}
+
+bool InputInterceptor::crashRestoreStickyKeys()
+{
+    // Exception-filter safe: two SystemParametersInfo calls on POD state, no
+    // registry read, no allocation, no logging.
+    return restoreStickyShortcut(false);
 }
 
 int64_t InputInterceptor::lastCallbackTick()

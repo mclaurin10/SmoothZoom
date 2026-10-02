@@ -558,3 +558,27 @@ TEST_CASE("Fresh install (no config.json) ⇒ shortcuts off; upgrade (config.jso
     text << f.rdbuf();
     CHECK(text.str().find("\"keyboardShortcutsEnabled\": true") != std::string::npos);
 }
+
+TEST_CASE("blockStickyKeysShortcut: on by default, also for upgraded configs; persists", "[SettingsManager][StickyKeys]")
+{
+    SettingsManager fresh;
+    CHECK(fresh.snapshot()->blockStickyKeysShortcut == true);
+
+    auto legacy = writeTempFile(R"({"modifierKeyVK": 91})", "sticky_legacy.json");
+    SettingsManager upgraded;
+    REQUIRE(upgraded.loadFromFile(legacy.c_str()));
+    CHECK(upgraded.snapshot()->blockStickyKeysShortcut == true);
+
+    for (bool on : { false, true })
+    {
+        SettingsSnapshot s;
+        s.blockStickyKeysShortcut = on;
+        SettingsManager m1;
+        m1.applySnapshot(s);
+        std::string rt = (std::filesystem::temp_directory_path() / "smoothzoom_test_sticky_rt.json").string();
+        REQUIRE(m1.saveToFile(rt.c_str()));
+        SettingsManager m2;
+        REQUIRE(m2.loadFromFile(rt.c_str()));
+        CHECK(m2.snapshot()->blockStickyKeysShortcut == on);
+    }
+}

@@ -57,6 +57,7 @@ static constexpr int IDC_START_ZOOMED_CHECK = 1015;
 static constexpr int IDC_REVERSE_SCROLL_CHECK = 1018;
 static constexpr int IDC_SCROLL_SENS_EDIT = 1019;
 static constexpr int IDC_MOMENTUM_CHECK   = 1020;
+static constexpr int IDC_STICKY_KEYS_CHECK = 1021;
 static constexpr int IDC_APPLY_BUTTON     = 1016;
 static constexpr int IDC_CLOSE_BUTTON     = 1017;
 
@@ -417,7 +418,7 @@ void TrayUI::createSettingsWindow()
     auto scale = [dpi](int v) { return MulDiv(v, dpi, 96); };
 
     int wndW = scale(480);
-    int wndH = scale(672); // +1 numeric row (scroll sensitivity) +1 checkbox (momentum)
+    int wndH = scale(696); // +1 numeric row (scroll sensitivity) +2 checkboxes (momentum, sticky keys)
 
     // Center on screen
     int screenW = GetSystemMetrics(SM_CXSCREEN);
@@ -574,6 +575,10 @@ void TrayUI::createSettingsWindow()
     createCheck(L"Momentum / Inertial Scroll (not yet active)", IDC_MOMENTUM_CHECK, curY, false);
     curY += checkGap;
 
+    // AC-2.1.23: opt-out; only acts while Shift is the scroll modifier.
+    createCheck(L"Block Sticky Keys prompt (5\u00D7 Shift) with Shift modifier", IDC_STICKY_KEYS_CHECK, curY);
+    curY += checkGap;
+
     createCheck(L"Start with Windows", IDC_AUTOSTART_CHECK, curY);
     curY += checkGap;
 
@@ -654,6 +659,8 @@ void TrayUI::populateFromSnapshot()
                          snap->reverseScrollDirection ? BST_CHECKED : BST_UNCHECKED, 0);
     SendDlgItemMessageW(settingsHwnd_, IDC_MOMENTUM_CHECK, BM_SETCHECK,
                          snap->momentumZoom ? BST_CHECKED : BST_UNCHECKED, 0);
+    SendDlgItemMessageW(settingsHwnd_, IDC_STICKY_KEYS_CHECK, BM_SETCHECK,
+                         snap->blockStickyKeysShortcut ? BST_CHECKED : BST_UNCHECKED, 0);
     SendDlgItemMessageW(settingsHwnd_, IDC_AUTOSTART_CHECK, BM_SETCHECK,
                          isAutoStartEnabled() ? BST_CHECKED : BST_UNCHECKED, 0);
     SendDlgItemMessageW(settingsHwnd_, IDC_START_ZOOMED_CHECK, BM_SETCHECK,
@@ -791,6 +798,8 @@ void TrayUI::validateAndApply()
     snap.scrollSensitivity = scrollSens;
     snap.momentumZoom =
         (SendDlgItemMessageW(settingsHwnd_, IDC_MOMENTUM_CHECK, BM_GETCHECK, 0, 0) == BST_CHECKED);
+    snap.blockStickyKeysShortcut =
+        (SendDlgItemMessageW(settingsHwnd_, IDC_STICKY_KEYS_CHECK, BM_GETCHECK, 0, 0) == BST_CHECKED);
 
     // Apply snapshot — observers fire synchronously
     settings_->applySnapshot(snap);
