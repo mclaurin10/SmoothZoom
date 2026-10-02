@@ -35,8 +35,8 @@ namespace SmoothZoom
 {
 
 // ── Constants ───────────────────────────────────────────────────────────────
-// WM_TRAYICON, WM_GRACEFUL_EXIT, IDM_SETTINGS, IDM_TOGGLE_ZOOM, IDM_EXIT
-// are defined in common/AppMessages.h (included above).
+// WM_TRAYICON, WM_GRACEFUL_EXIT, IDM_SETTINGS, IDM_TOGGLE_ZOOM, IDM_EXIT,
+// IDM_KEYBOARD_SHORTCUTS are defined in common/AppMessages.h (included above).
 
 // Settings window control IDs
 static constexpr int IDC_MODIFIER_COMBO  = 1001;
@@ -367,6 +367,11 @@ void TrayUI::showContextMenu()
 
     AppendMenuW(hMenu, MF_STRING, IDM_SETTINGS, L"Settings");
     AppendMenuW(hMenu, MF_STRING, IDM_TOGGLE_ZOOM, L"Toggle Zoom On/Off");
+    // AC-2.8.13: checkmark mirrors the live setting each time the menu opens.
+    auto snap = settings_ ? settings_->snapshot() : nullptr;
+    const bool shortcutsOn = snap && snap->keyboardShortcutsEnabled;
+    AppendMenuW(hMenu, MF_STRING | (shortcutsOn ? MF_CHECKED : MF_UNCHECKED),
+                IDM_KEYBOARD_SHORTCUTS, L"Keyboard shortcuts");
     AppendMenuW(hMenu, MF_SEPARATOR, 0, nullptr);
     AppendMenuW(hMenu, MF_STRING, IDM_EXIT, L"Exit");
 
@@ -806,6 +811,24 @@ HWND TrayUI::settingsHwnd() const
 bool TrayUI::isExitPending() const
 {
     return exitPending_;
+}
+
+void TrayUI::toggleKeyboardShortcuts()
+{
+    if (!settings_)
+        return;
+
+    // Copy the live snapshot and flip one field (same pattern as
+    // validateAndApply and main.cpp's inversion persist path). applySnapshot
+    // notifies InputInterceptor's observer synchronously on this (main) thread,
+    // so the very next key event sees the new value — no restart (AC-2.8.15).
+    auto current = settings_->snapshot();
+    SettingsSnapshot snap = current ? *current : SettingsSnapshot{};
+    snap.keyboardShortcutsEnabled = !snap.keyboardShortcutsEnabled;
+    settings_->applySnapshot(snap);
+
+    if (configPath_)
+        settings_->saveToFile(configPath_);
 }
 
 void TrayUI::requestGracefulExit()

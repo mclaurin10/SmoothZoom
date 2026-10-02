@@ -284,6 +284,7 @@ using SmoothZoom::WM_UPDATE_TRAY_ICON;
 using SmoothZoom::IDM_SETTINGS;
 using SmoothZoom::IDM_TOGGLE_ZOOM;
 using SmoothZoom::IDM_EXIT;
+using SmoothZoom::IDM_KEYBOARD_SHORTCUTS;
 // Explorer restart detection
 static UINT WM_TASKBAR_CREATED = 0;
 
@@ -939,6 +940,11 @@ static LRESULT CALLBACK msgWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lP
         case IDM_SETTINGS:    g_trayUI.showSettingsWindow(); return 0;
         case IDM_TOGGLE_ZOOM: g_sharedState.commandQueue.push(SmoothZoom::ZoomCommand::TrayToggle); return 0;
         case IDM_EXIT:        g_trayUI.requestGracefulExit(); return 0;
+        case IDM_KEYBOARD_SHORTCUTS:
+            g_trayUI.toggleKeyboardShortcuts();
+            SZ_LOG_INFO("Main", L"Keyboard shortcuts = %s",
+                        g_settingsManager.snapshot()->keyboardShortcutsEnabled ? L"ON" : L"OFF");
+            return 0;
         }
         break;
 
@@ -1345,6 +1351,11 @@ int WINAPI wWinMain(
     SZ_LOG_INFO("Main", L"Log level = %d (0=Debug 1=Info 2=Warn 3=Error), source=%s",
                 static_cast<int>(SmoothZoom::logLevelFilter()),
                 envLogLevelSet ? L"env" : L"config");
+    {
+        auto snap = g_settingsManager.snapshot();
+        SZ_LOG_INFO("Main", L"Scroll modifier VK=0x%X, keyboard shortcuts=%s",
+                    snap->modifierKeyVK, snap->keyboardShortcutsEnabled ? L"ON" : L"OFF");
+    }
 
 #ifdef SMOOTHZOOM_DEV_TOOLS
     // --bench: load the trace and allocate render-thread telemetry before the

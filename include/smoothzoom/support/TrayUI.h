@@ -38,6 +38,7 @@ public:
     void recreateTrayIcon();            // Re-add after Explorer restart
     void showBalloonNotification(const wchar_t* title, const wchar_t* message); // AC-ERR.03
     void updateTrayIcon(bool isZoomed); // Swap tray icon between idle/active
+    void toggleKeyboardShortcuts();     // AC-2.8.13: flip, apply now, persist
 
 private:
     HINSTANCE hInstance_ = nullptr;

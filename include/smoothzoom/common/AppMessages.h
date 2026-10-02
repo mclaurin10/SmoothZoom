@@ -26,5 +26,6 @@ static constexpr UINT WM_UPDATE_TRAY_ICON = WM_APP + 4;
 static constexpr UINT IDM_SETTINGS     = 40001;
 static constexpr UINT IDM_TOGGLE_ZOOM  = 40002;
 static constexpr UINT IDM_EXIT         = 40003;
+static constexpr UINT IDM_KEYBOARD_SHORTCUTS = 40004;  // checkable (AC-2.8.13)
 
 } // namespace SmoothZoom
