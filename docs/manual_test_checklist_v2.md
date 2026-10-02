@@ -342,7 +342,7 @@ legend:
 | AC-2.1.19 | Changing modifier in settings takes effect immediately | ⚠ open (earlier: no effect) |
 | AC-2.1.20 | Non-Win modifier: no Start Menu suppression logic | ⚠ open (clarify expected) |
 | AC-2.1.21 | Ctrl-exclusion rationale + alt-modifier warning | ⊘ def (reframed, Doc 2 §15.2) |
-| AC-2.1.22 | Shift modifier: Shift keys never consumed; only Shift+wheel consumed; works with shortcuts off | UT (KeyDecision, WheelDecision); injected wheel 10-01 (zoom in on wheel-up; plain/Ctrl/Alt pass) — real touchpad + mouse pending |
+| AC-2.1.22 | Shift modifier: Shift keys never consumed; only Shift+wheel consumed; works with shortcuts off | UT (KeyDecision, WheelDecision); injected wheel 10-01 (zoom in on wheel-up; plain/Ctrl/Alt pass); real wheel + touchpad recorded 10-01 (shortcuts off: every Shift-held event drove zoom). Sticky Keys prompt appeared in several runs (R-31); Edge scrolled sideways with Shift+two-finger (R-30) |
 
 ### 2.2 Smooth Zoom Animation (10)
 

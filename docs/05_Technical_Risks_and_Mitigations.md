@@ -15,7 +15,7 @@
 
 ## 1. How to Read This Document
 
-Each risk is assigned a unique identifier (R-01 through R-30) and rated on two dimensions:
+Each risk is assigned a unique identifier (R-01 through R-31) and rated on two dimensions:
 
 **Likelihood** — how probable is it that this risk materializes?
 - **Low:** Unlikely given current evidence, but not impossible.
@@ -302,9 +302,28 @@ These risks concern the global low-level hooks that intercept mouse and keyboard
 
 **Description:** In applications that take precision-touchpad input directly (Direct Manipulation: Edge, File Explorer, Settings), the two-finger gesture never reaches `WH_MOUSE_LL`. SmoothZoom sees it only through the PTP Raw Input path in `main.cpp`, which can observe but cannot consume input. So the zoom happens, and the application also receives the gesture: with `Shift` held, many of these apps scroll the page horizontally at the same time.
 
+**Observed 2026-10-01 (TEMPLAPTOP, AC):** confirmed. In the `shift-touchpad-edge` recording all 811 events arrived only on the PTP path (the hook saw none), and Edge scrolled sideways while SmoothZoom zoomed.
+
 **Mitigation:** None in v1.0 beyond documentation. The mouse wheel is consumed correctly in the same apps, because wheel input goes through the hook.
 
 **Contingency:** Investigate suppressing the gesture at the source (e.g. a per-window `DirectManipulation` interaction hook). This is research-grade, so it goes to Phase 8.
+
+---
+
+### R-31: Repeated Shift Presses Trigger the Sticky Keys Prompt
+
+| Attribute | Value |
+|-----------|-------|
+| Likelihood | **High** with Shift as the modifier (observed in several of the five recording sessions, 2026-10-01) |
+| Impact | **Medium** (a modal prompt steals focus mid-gesture; accepting it turns Sticky Keys on and changes how Shift behaves system-wide) |
+| First Exposed | Phase 7 change, 2026-10-01 (Shift became the default modifier) |
+
+**Description:** Windows opens the Sticky Keys prompt when `Shift` is pressed five times in a row with no other key in between. Zooming in short bursts is exactly that pattern. The AC re-recordings show 7 to 26 separate Shift-held bursts per 20-second trace. Wheel and touchpad events do not count as "another key", and SmoothZoom never consumes `Shift` (AC-2.1.22), so Windows sees every press. With `Win` or `Alt` as the modifier this does not happen.
+
+**Mitigation options (not implemented, decision pending):**
+1. Document it, and point users to Settings → Accessibility → Keyboard → Sticky keys → turn off "Keyboard shortcut for Sticky keys". This is a one-time user action.
+2. While SmoothZoom runs, clear only the Sticky Keys *hotkey* flag (`SKF_HOTKEYACTIVE`) via `SystemParametersInfo(SPI_SETSTICKYKEYS)` without persisting it, and restore it on exit and in the crash handler. This is Microsoft's documented pattern for games ("Disabling Shortcut Keys in Games"), applied only when Sticky Keys itself is off. It changes an accessibility setting on behalf of users of an accessibility tool, so it needs an explicit product decision and an AC.
+3. Return the default modifier to `Win` (R-07's original rationale), keeping `Shift` as an option.
 
 ---
 
@@ -722,7 +741,8 @@ The native Windows Magnifier has this same issue — `Win+Plus`/`Win+Minus` may 
 | R-27 | Driver/Options+ converts Shift+wheel to HWHEEL | Low–Medium | Medium | 5 | Input |
 | R-28 | `+` and `_` untypeable with shortcuts on (Shift modifier) | High | Medium | 7 | Input |
 | R-29 | Touchpad vs mouse zoom direction under natural scrolling | High | Low | 1 | Input |
-| R-30 | Shift+two-finger not swallowed in DManip apps | High | Medium | 1 | Input |
+| R-30 | Shift+two-finger not swallowed in DManip apps (confirmed in Edge) | High | Medium | 1 | Input |
+| R-31 | Repeated Shift presses trigger the Sticky Keys prompt | High | Medium | 7 | Input |
 
 ---
 
