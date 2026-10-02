@@ -102,7 +102,7 @@
     "coast": "on",
     "check": "zoom keeps growing after the lift",
     "pass": true,
-    "detail": "1.2691 -> 1.8331"
+    "detail": "1.2294 -> 1.8331"
   },
   {
     "trace": "wheel-shift-released",
