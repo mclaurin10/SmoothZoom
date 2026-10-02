@@ -22,6 +22,7 @@
 #include <windows.h>
 #include <shellapi.h>
 #include <commctrl.h>
+#include <algorithm>
 #include <cmath>
 #include <cstring>
 #include <string>
@@ -239,6 +240,11 @@ LRESULT CALLBACK settingsWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lPar
         break;
     }
 
+    case WM_DPICHANGED:
+        if (s_instance)
+            s_instance->onSettingsDpiChanged(HIWORD(wParam), reinterpret_cast<const RECT*>(lParam));
+        return 0;
+
     case WM_CLOSE:
         DestroyWindow(hWnd);
         return 0;
@@ -247,6 +253,15 @@ LRESULT CALLBACK settingsWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lPar
         if (s_instance)
             s_instance->settingsHwnd_ = nullptr;
         return 0;
+
+    case WM_NCDESTROY:
+        // After the children are gone: the font is no longer in use.
+        if (s_instance && s_instance->settingsFont_)
+        {
+            DeleteObject(s_instance->settingsFont_);
+            s_instance->settingsFont_ = nullptr;
+        }
+        break;
 
     default:
         break;
@@ -273,7 +288,8 @@ bool TrayUI::create(HINSTANCE hInstance, HWND msgWindow, SharedState& state,
     wc.lpfnWndProc = settingsWndProc;
     wc.hInstance = hInstance_;
     wc.hCursor = LoadCursorW(nullptr, IDC_ARROW);
-    wc.hbrBackground = reinterpret_cast<HBRUSH>(COLOR_WINDOW + 1);
+    // Dialog background: what static, checkbox and group-box controls paint with.
+    wc.hbrBackground = reinterpret_cast<HBRUSH>(COLOR_3DFACE + 1);
     wc.lpszClassName = L"SmoothZoomSettings";
     wc.hIcon = LoadIconW(hInstance_, MAKEINTRESOURCE(IDI_APP_ICON));
     RegisterClassExW(&wc);
@@ -401,215 +417,220 @@ void TrayUI::showSettingsWindow()
     createSettingsWindow();
 }
 
-void TrayUI::createSettingsWindow()
+// ── Settings window: font, DPI, layout ─────────────────────────────────────
+// The window is laid out in DIPs (96-DPI pixels) and scaled by its own DPI, so
+// it is right on whatever monitor it is on and is re-laid out when it moves to
+// a monitor with a different scale (WM_DPICHANGED). Text uses the system
+// message font (Segoe UI) at that DPI.
+
+static constexpr DWORD kSettingsStyle = WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU;
+
+// System message font (NONCLIENTMETRICS::lfMessageFont) sized for dpi.
+static HFONT createMessageFont(UINT dpi)
 {
-    // DPI-aware sizing
-    int dpi = 96;
-    HMODULE hUser32 = GetModuleHandleW(L"user32.dll");
-    if (hUser32)
+    NONCLIENTMETRICSW ncm = {};
+    ncm.cbSize = sizeof(ncm);
+    if (SystemParametersInfoForDpi(SPI_GETNONCLIENTMETRICS, sizeof(ncm), &ncm, 0, dpi))
+        return CreateFontIndirectW(&ncm.lfMessageFont);
+    LOGFONTW lf = {};
+    lf.lfHeight = -MulDiv(9, static_cast<int>(dpi), 72);
+    lf.lfWeight = FW_NORMAL;
+    lf.lfCharSet = DEFAULT_CHARSET;
+    lf.lfQuality = CLEARTYPE_QUALITY;
+    wcscpy_s(lf.lfFaceName, L"Segoe UI");
+    return CreateFontIndirectW(&lf);
+}
+
+void TrayUI::setSettingsFont(UINT dpi)
+{
+    HFONT old = settingsFont_;
+    settingsFont_ = createMessageFont(dpi);
+    if (settingsHwnd_)
     {
-        using GetDpiForSystemFn = UINT(WINAPI*)();
-        auto fn = reinterpret_cast<GetDpiForSystemFn>(
-            GetProcAddress(hUser32, "GetDpiForSystem"));
-        if (fn)
-            dpi = static_cast<int>(fn());
+        EnumChildWindows(settingsHwnd_, [](HWND child, LPARAM font) -> BOOL {
+            SendMessageW(child, WM_SETFONT, static_cast<WPARAM>(font), TRUE);
+            return TRUE;
+        }, reinterpret_cast<LPARAM>(settingsFont_));
     }
+    if (old)
+        DeleteObject(old);
+}
 
-    auto scale = [dpi](int v) { return MulDiv(v, dpi, 96); };
+SIZE TrayUI::layoutSettingsControls(bool create)
+{
+    const int dpi = static_cast<int>(settingsDpi_);
+    auto S = [dpi](int v) { return MulDiv(v, dpi, 96); };
+    HWND w = settingsHwnd_;
+    int autoId = 1200;   // labels and other id-less statics, numbered in walk order
+    int right = 0, bottom = 0;
 
-    int wndW = scale(480);
-    int wndH = scale(696); // +1 numeric row (scroll sensitivity) +2 checkboxes (momentum, sticky keys)
-
-    // Center on screen
-    int screenW = GetSystemMetrics(SM_CXSCREEN);
-    int screenH = GetSystemMetrics(SM_CYSCREEN);
-    int x = (screenW - wndW) / 2;
-    int y = (screenH - wndH) / 2;
-
-    settingsHwnd_ = CreateWindowExW(
-        0, L"SmoothZoomSettings", L"SmoothZoom Settings",
-        WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU,
-        x, y, wndW, wndH,
-        nullptr, nullptr, hInstance_, nullptr);
-
-    if (!settingsHwnd_)
-        return;
-
-    // Common layout constants
-    int labelX = scale(20);
-    int ctrlX  = scale(220);
-    int ctrlW  = scale(230);
-    int labelW = scale(190);
-    int rowH   = scale(24);
-    int gap    = scale(40);
-    int checkGap = scale(24);
-
-    int curY = scale(20);
-
-    HFONT hFont = reinterpret_cast<HFONT>(GetStockObject(DEFAULT_GUI_FONT));
-
-    auto createLabel = [&](const wchar_t* text, int yPos) {
-        HWND h = CreateWindowExW(0, L"STATIC", text,
-            WS_CHILD | WS_VISIBLE,
-            labelX, yPos, labelW, rowH,
-            settingsHwnd_, nullptr, hInstance_, nullptr);
-        SendMessageW(h, WM_SETFONT, reinterpret_cast<WPARAM>(hFont), TRUE);
+    // Create or move one control (geometry in DIPs).
+    auto place = [&](int id, const wchar_t* cls, const wchar_t* text, DWORD style, DWORD exStyle,
+                     int x, int y, int cx, int cy, int visibleCy = -1) -> HWND {
+        if (id == 0)
+            id = autoId++;
+        HWND h = nullptr;
+        if (create)
+        {
+            h = CreateWindowExW(exStyle, cls, text, WS_CHILD | style, 0, 0, 0, 0, w,
+                                reinterpret_cast<HMENU>(static_cast<INT_PTR>(id)), hInstance_, nullptr);
+            if (h)
+                SendMessageW(h, WM_SETFONT, reinterpret_cast<WPARAM>(settingsFont_), FALSE);
+        }
+        else
+        {
+            h = GetDlgItem(w, id);
+        }
+        if (h)
+            SetWindowPos(h, nullptr, S(x), S(y), S(cx), S(cy), SWP_NOZORDER | SWP_NOACTIVATE);
+        right = (std::max)(right, x + cx);
+        bottom = (std::max)(bottom, y + (visibleCy >= 0 ? visibleCy : cy));
         return h;
     };
 
-    auto createCombo = [&](int id, int yPos) {
-        HWND h = CreateWindowExW(0, L"COMBOBOX", nullptr,
-            WS_CHILD | WS_VISIBLE | CBS_DROPDOWNLIST | WS_TABSTOP,
-            ctrlX, yPos, ctrlW, scale(200),
-            settingsHwnd_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(id)),
-            hInstance_, nullptr);
-        SendMessageW(h, WM_SETFONT, reinterpret_cast<WPARAM>(hFont), TRUE);
-        return h;
-    };
+    // Single column (as before the regrouping).
+    const int labelX = 20, ctrlX = 220, ctrlW = 230, labelW = 190, rowH = 24, gap = 40, checkGap = 24;
+    int y = 20;
 
-    auto createEdit = [&](int id, int yPos) {
-        HWND h = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", nullptr,
-            WS_CHILD | WS_VISIBLE | ES_AUTOHSCROLL | WS_TABSTOP,
-            ctrlX, yPos, ctrlW, rowH,
-            settingsHwnd_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(id)),
-            hInstance_, nullptr);
-        SendMessageW(h, WM_SETFONT, reinterpret_cast<WPARAM>(hFont), TRUE);
-        return h;
+    auto label = [&](const wchar_t* text, int yPos) {
+        place(0, L"STATIC", text, WS_VISIBLE, 0, labelX, yPos + 3, labelW, rowH - 3);
     };
-
-    auto createCheck = [&](const wchar_t* text, int id, int yPos, bool enabled = true) {
-        HWND h = CreateWindowExW(0, L"BUTTON", text,
-            WS_CHILD | WS_VISIBLE | BS_AUTOCHECKBOX | WS_TABSTOP,
-            labelX, yPos, labelW + ctrlW, rowH,
-            settingsHwnd_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(id)),
-            hInstance_, nullptr);
-        SendMessageW(h, WM_SETFONT, reinterpret_cast<WPARAM>(hFont), TRUE);
-        if (!enabled)
+    auto combo = [&](int id, int yPos, const wchar_t* const* items, int count) {
+        HWND h = place(id, L"COMBOBOX", nullptr, WS_VISIBLE | CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP, 0,
+                       ctrlX, yPos, ctrlW, 200, rowH);
+        if (create && h)
+            for (int i = 0; i < count; ++i)
+                SendMessageW(h, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(items[i]));
+    };
+    auto editBox = [&](int id, int yPos) {
+        place(id, L"EDIT", nullptr, WS_VISIBLE | ES_AUTOHSCROLL | WS_TABSTOP, WS_EX_CLIENTEDGE,
+              ctrlX, yPos, ctrlW, rowH);
+    };
+    auto check = [&](const wchar_t* text, int id, int yPos, bool enabled = true) {
+        HWND h = place(id, L"BUTTON", text, WS_VISIBLE | BS_AUTOCHECKBOX | WS_TABSTOP, 0,
+                       labelX, yPos, labelW + ctrlW, rowH);
+        if (create && h && !enabled)
             EnableWindow(h, FALSE);
-        return h;
     };
 
-    // Row 1: Scroll-Gesture Modifier
-    createLabel(L"Scroll-Gesture Modifier", curY);
-    HWND hModCombo = createCombo(IDC_MODIFIER_COMBO, curY);
-    for (int i = 0; i < kModifierCount; ++i)
-        SendMessageW(hModCombo, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(kModifierNames[i]));
-    curY += gap;
+    static const wchar_t* const kSpeeds[] = { L"Slow", L"Normal", L"Fast" };
 
-    // Row 2: Toggle Key 1
-    createLabel(L"Toggle Key 1", curY);
-    HWND hTog1 = createCombo(IDC_TOGGLE1_COMBO, curY);
-    for (int i = 0; i < kToggleCount; ++i)
-        SendMessageW(hTog1, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(kToggleNames[i]));
-    curY += gap;
+    label(L"Scroll-Gesture Modifier", y);
+    combo(IDC_MODIFIER_COMBO, y, kModifierNames, kModifierCount);
+    y += gap;
+    label(L"Toggle Key 1", y);
+    combo(IDC_TOGGLE1_COMBO, y, kToggleNames, kToggleCount);
+    y += gap;
+    label(L"Toggle Key 2", y);
+    combo(IDC_TOGGLE2_COMBO, y, kToggleNames, kToggleCount);
+    y += gap;
+    place(IDC_VALIDATION_TEXT, L"STATIC", L"", 0, 0, labelX, y, labelW + ctrlW, 40);  // shown on conflict
+    y += 32;
+    label(L"Minimum Zoom (1.0–5.0)", y);
+    editBox(IDC_MIN_ZOOM_EDIT, y);
+    y += gap;
+    label(L"Maximum Zoom (2.0–10.0)", y);
+    editBox(IDC_MAX_ZOOM_EDIT, y);
+    y += gap;
+    label(L"Keyboard Step (5%–100%)", y);
+    editBox(IDC_KB_STEP_EDIT, y);
+    y += gap;
+    label(L"Default Zoom Level", y);
+    editBox(IDC_DEFAULT_ZOOM_EDIT, y);
+    y += gap;
+    label(L"Animation Speed", y);
+    combo(IDC_ANIM_SPEED_COMBO, y, kSpeeds, 3);
+    y += gap;
+    label(L"Scroll Sensitivity (0.1-5.0)", y);
+    editBox(IDC_SCROLL_SENS_EDIT, y);
+    y += gap;
 
-    // Row 3: Toggle Key 2
-    createLabel(L"Toggle Key 2", curY);
-    HWND hTog2 = createCombo(IDC_TOGGLE2_COMBO, curY);
-    for (int i = 0; i < kToggleCount; ++i)
-        SendMessageW(hTog2, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(kToggleNames[i]));
-    curY += gap;
-
-    // Validation text (hidden initially)
-    HWND hValid = CreateWindowExW(0, L"STATIC", L"",
-        WS_CHILD, // Not visible initially
-        labelX, curY, labelW + ctrlW, scale(40),
-        settingsHwnd_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(IDC_VALIDATION_TEXT)),
-        hInstance_, nullptr);
-    SendMessageW(hValid, WM_SETFONT, reinterpret_cast<WPARAM>(hFont), TRUE);
-    curY += scale(32);
-
-    // Row 4: Minimum Zoom
-    createLabel(L"Minimum Zoom (1.0\u20135.0)", curY);
-    createEdit(IDC_MIN_ZOOM_EDIT, curY);
-    curY += gap;
-
-    // Row 5: Maximum Zoom
-    createLabel(L"Maximum Zoom (2.0\u201310.0)", curY);
-    createEdit(IDC_MAX_ZOOM_EDIT, curY);
-    curY += gap;
-
-    // Row 6: Keyboard Step
-    createLabel(L"Keyboard Step (5%\u2013100%)", curY);
-    createEdit(IDC_KB_STEP_EDIT, curY);
-    curY += gap;
-
-    // Row 7: Default Zoom Level
-    createLabel(L"Default Zoom Level", curY);
-    createEdit(IDC_DEFAULT_ZOOM_EDIT, curY);
-    curY += gap;
-
-    // Row 8: Animation Speed
-    createLabel(L"Animation Speed", curY);
-    HWND hAnim = createCombo(IDC_ANIM_SPEED_COMBO, curY);
-    SendMessageW(hAnim, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"Slow"));
-    SendMessageW(hAnim, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"Normal"));
-    SendMessageW(hAnim, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"Fast"));
-    curY += gap;
-
-    // Row 9: Scroll Sensitivity (A3 - multiplier on scroll-gesture zoom rate)
-    createLabel(L"Scroll Sensitivity (0.1-5.0)", curY);
-    createEdit(IDC_SCROLL_SENS_EDIT, curY);
-    curY += gap;
-
-    // Checkboxes
-    createCheck(L"Image Smoothing (always on)", IDC_SMOOTHING_CHECK, curY, false);
-    curY += checkGap;
-
-    createCheck(L"Follow Keyboard Focus", IDC_FOLLOW_FOCUS_CHECK, curY);
-    curY += checkGap;
-
-    createCheck(L"Follow Text Cursor", IDC_FOLLOW_CARET_CHECK, curY);
-    curY += checkGap;
-
-    createCheck(L"Color Inversion", IDC_INVERT_CHECK, curY);
-    curY += checkGap;
-
-    createCheck(L"Reverse Scroll Direction", IDC_REVERSE_SCROLL_CHECK, curY);
-    curY += checkGap;
-
+    check(L"Image Smoothing (always on)", IDC_SMOOTHING_CHECK, y, false);
+    y += checkGap;
+    check(L"Follow Keyboard Focus", IDC_FOLLOW_FOCUS_CHECK, y);
+    y += checkGap;
+    check(L"Follow Text Cursor", IDC_FOLLOW_CARET_CHECK, y);
+    y += checkGap;
+    check(L"Color Inversion", IDC_INVERT_CHECK, y);
+    y += checkGap;
+    check(L"Reverse Scroll Direction", IDC_REVERSE_SCROLL_CHECK, y);
+    y += checkGap;
     // Momentum gating (handoff B3) is deferred and needs real-hardware tuning,
     // so the control is disabled — like "Image Smoothing" above — to avoid
     // presenting a toggle that has no effect. The field is still persisted in
     // config.json for forward-compatibility.
-    createCheck(L"Momentum / Inertial Scroll (not yet active)", IDC_MOMENTUM_CHECK, curY, false);
-    curY += checkGap;
-
+    check(L"Momentum / Inertial Scroll (not yet active)", IDC_MOMENTUM_CHECK, y, false);
+    y += checkGap;
     // AC-2.1.23: opt-out; only acts while Shift is the scroll modifier.
-    createCheck(L"Block Sticky Keys prompt (5\u00D7 Shift) with Shift modifier", IDC_STICKY_KEYS_CHECK, curY);
-    curY += checkGap;
+    check(L"Block Sticky Keys prompt (5× Shift) with Shift modifier", IDC_STICKY_KEYS_CHECK, y);
+    y += checkGap;
+    check(L"Start with Windows", IDC_AUTOSTART_CHECK, y);
+    y += checkGap;
+    check(L"Start Zoomed", IDC_START_ZOOMED_CHECK, y);
+    y += 36;
 
-    createCheck(L"Start with Windows", IDC_AUTOSTART_CHECK, curY);
-    curY += checkGap;
+    // Apply + Close buttons, right-aligned under the controls.
+    const int btnW = 90, btnH = 28, btnGap = 12;
+    const int btnX = ctrlX + ctrlW - btnW * 2 - btnGap;
+    place(IDC_APPLY_BUTTON, L"BUTTON", L"Apply", WS_VISIBLE | BS_PUSHBUTTON | WS_TABSTOP, 0, btnX, y, btnW, btnH);
+    place(IDC_CLOSE_BUTTON, L"BUTTON", L"Close", WS_VISIBLE | BS_PUSHBUTTON | WS_TABSTOP, 0,
+          btnX + btnW + btnGap, y, btnW, btnH);
 
-    createCheck(L"Start Zoomed", IDC_START_ZOOMED_CHECK, curY);
-    curY += scale(36);
+    return SIZE{ S(right + labelX), S(bottom + 16) };
+}
 
-    // Apply + Close buttons
-    int btnW = scale(90);
-    int btnH = scale(28);
-    int btnGap = scale(12);
-    int btnX = ctrlX + ctrlW - btnW * 2 - btnGap;
+void TrayUI::createSettingsWindow()
+{
+    // Open on the monitor under the pointer (the tray, or wherever Win+Ctrl+M
+    // was pressed), inside its work area.
+    POINT pt = {};
+    GetCursorPos(&pt);
+    MONITORINFO mi = {};
+    mi.cbSize = sizeof(mi);
+    GetMonitorInfoW(MonitorFromPoint(pt, MONITOR_DEFAULTTOPRIMARY), &mi);
+    const RECT wa = mi.rcWork;
 
-    HWND hApply = CreateWindowExW(0, L"BUTTON", L"Apply",
-        WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON | WS_TABSTOP,
-        btnX, curY, btnW, btnH,
-        settingsHwnd_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(IDC_APPLY_BUTTON)),
-        hInstance_, nullptr);
-    SendMessageW(hApply, WM_SETFONT, reinterpret_cast<WPARAM>(hFont), TRUE);
+    // Created hidden on that monitor first so it has that monitor's DPI.
+    settingsHwnd_ = CreateWindowExW(
+        0, L"SmoothZoomSettings", L"SmoothZoom Settings", kSettingsStyle,
+        wa.left, wa.top, 100, 100,
+        nullptr, nullptr, hInstance_, nullptr);
+    if (!settingsHwnd_)
+        return;
 
-    HWND hClose = CreateWindowExW(0, L"BUTTON", L"Close",
-        WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON | WS_TABSTOP,
-        btnX + btnW + btnGap, curY, btnW, btnH,
-        settingsHwnd_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(IDC_CLOSE_BUTTON)),
-        hInstance_, nullptr);
-    SendMessageW(hClose, WM_SETFONT, reinterpret_cast<WPARAM>(hFont), TRUE);
+    settingsDpi_ = GetDpiForWindow(settingsHwnd_);
+    if (settingsDpi_ == 0)
+        settingsDpi_ = 96;
+    setSettingsFont(settingsDpi_);
+    const SIZE client = layoutSettingsControls(true);
+
+    RECT rc = { 0, 0, client.cx, client.cy };
+    AdjustWindowRectExForDpi(&rc, kSettingsStyle, FALSE, 0, settingsDpi_);
+    const int ww = rc.right - rc.left, wh = rc.bottom - rc.top;
+    const int x = wa.left + (std::max)(0, static_cast<int>((wa.right - wa.left - ww) / 2));
+    const int y = wa.top + (std::max)(0, static_cast<int>((wa.bottom - wa.top - wh) / 2));
+    SetWindowPos(settingsHwnd_, nullptr, x, y, ww, wh, SWP_NOZORDER | SWP_NOACTIVATE);
 
     // Populate controls from current settings
     populateFromSnapshot();
 
     ShowWindow(settingsHwnd_, SW_SHOW);
     UpdateWindow(settingsHwnd_);
+}
+
+void TrayUI::onSettingsDpiChanged(UINT dpi, const RECT* suggested)
+{
+    // Moved to a monitor with a different scale (or the scale changed): new
+    // font, controls re-laid out for the new DPI, and the window takes the
+    // rectangle Windows suggests (keeps it under the pointer while dragging).
+    settingsDpi_ = dpi ? dpi : 96;
+    setSettingsFont(settingsDpi_);
+    layoutSettingsControls(false);
+    if (suggested)
+        SetWindowPos(settingsHwnd_, nullptr, suggested->left, suggested->top,
+                     suggested->right - suggested->left, suggested->bottom - suggested->top,
+                     SWP_NOZORDER | SWP_NOACTIVATE);
+    InvalidateRect(settingsHwnd_, nullptr, TRUE);
 }
 
 void TrayUI::populateFromSnapshot()

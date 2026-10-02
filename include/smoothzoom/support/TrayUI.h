@@ -48,6 +48,8 @@ private:
     const char* configPath_ = nullptr;
 
     HWND settingsHwnd_ = nullptr;
+    UINT settingsDpi_ = 96;          // the settings window's own DPI (AC-2.9.24)
+    HFONT settingsFont_ = nullptr;   // system message font at settingsDpi_
     bool exitPending_ = false;
     DWORD exitStartTick_ = 0;
 
@@ -55,6 +57,12 @@ private:
     void removeTrayIcon();
     void showContextMenu();
     void createSettingsWindow();
+    // Create (create = true) or re-position the settings controls for
+    // settingsDpi_. Returns the client size in pixels. One walk defines both
+    // the visual order and the tab order.
+    SIZE layoutSettingsControls(bool create);
+    void onSettingsDpiChanged(UINT dpi, const RECT* suggested);
+    void setSettingsFont(UINT dpi);
     void populateFromSnapshot();
     void validateAndApply();
     void updateValidationState();
