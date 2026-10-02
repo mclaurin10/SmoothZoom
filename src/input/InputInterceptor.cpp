@@ -65,15 +65,23 @@ static int s_toggleKey1VK  = VK_LCONTROL;
 static int s_toggleKey2VK  = VK_LMENU;
 static HWND s_msgWindow    = nullptr;
 
-// Modifier + Plus/Minus/Esc zoom shortcuts on/off (tray "Keyboard shortcuts",
-// AC-2.8.13–15). The keyboard hook stays installed while off — it still tracks
-// the modifier, the Ctrl+Alt toggle, Win+Ctrl+M, Ctrl+Alt+I and caret-priority
-// keystrokes — but the shortcut decision passes every key through.
+// Keyboard zoom shortcuts on/off (tray "Keyboard shortcuts", AC-2.8.13–15):
+// modifier + Plus/Minus/Esc, the Ctrl+Alt peek toggle and Ctrl+Alt+I. The
+// keyboard hook stays installed while off — it still tracks the scroll
+// modifier (Shift+scroll needs it), the toggle keys, Win+Ctrl+M and
+// caret-priority keystrokes — but consumes nothing and posts no zoom command.
 static bool s_shortcutsEnabled = false;
 
 // Tracks non-Win modifier key state via keyboard hook for reliable detection
 // in mouse hook. Both hooks run on the main thread — no synchronization needed.
 static bool s_nonWinModifierHeld = false;
+
+// Phase 4/5B: Toggle key state — configurable keys (3 bools + 1 queue push),
+// R-05 safe. Declared here so the settings observer can release an engaged
+// peek when shortcuts are turned off.
+static bool s_toggleKey1Held = false;
+static bool s_toggleKey2Held = false;
+static bool s_toggleEngaged = false;
 
 // Phase 5B: Settings observer callback — runs on main thread (same as hooks).
 static void onSettingsChanged(const SettingsSnapshot& s, void* /*userData*/)
@@ -82,6 +90,13 @@ static void onSettingsChanged(const SettingsSnapshot& s, void* /*userData*/)
     s_toggleKey1VK  = s.toggleKey1VK;
     s_toggleKey2VK  = s.toggleKey2VK;
     s_shortcutsEnabled = s.keyboardShortcutsEnabled;
+    if (!s_shortcutsEnabled && s_toggleEngaged)
+    {
+        // Turning shortcuts off mid-peek: end the peek now (AC-2.8.14).
+        s_toggleEngaged = false;
+        if (s_state)
+            s_state->commandQueue.push(ZoomCommand::ToggleRelease);
+    }
     s_nonWinModifierHeld = false;  // Reset on config change to avoid stale state
     s_winKeyMgr.reset();  // BF-2: Clear stale Win key state on modifier change
 }
@@ -229,11 +244,6 @@ static LRESULT CALLBACK mouseHookProc(int nCode, WPARAM wParam, LPARAM lParam)
 // consumes nothing. All other keyboard events pass through. (AC-2.1.18, AC-2.8.14)
 // Phase 4: Tracks Ctrl+Alt for temporary toggle (AC-2.7.01–AC-2.7.10).
 
-// Phase 4/5B: Toggle key state — configurable keys (3 bools + 1 queue push), R-05 safe.
-static bool s_toggleKey1Held = false;
-static bool s_toggleKey2Held = false;
-static bool s_toggleEngaged = false;
-
 // Ctrl+Alt+I edge filter: LL hooks receive typematic auto-repeats and
 // KBDLLHOOKSTRUCT carries no repeat flag. Without edge-triggering, holding the
 // chord strobes full-screen inversion at the keyboard repeat rate — a
@@ -288,16 +298,20 @@ static LRESULT CALLBACK keyboardHookProc(int nCode, WPARAM wParam, LPARAM lParam
     if (isToggle1) s_toggleKey1Held = isDown;
     if (isToggle2) s_toggleKey2Held = isDown;
 
-    bool bothHeld = s_toggleKey1Held && s_toggleKey2Held;
-    if (bothHeld && !s_toggleEngaged)
+    // Held-key tracking above always runs; only the engage/release edge is
+    // gated by the "Keyboard shortcuts" setting (see KeyDecision.h).
+    switch (decideToggleChord(s_toggleKey1Held && s_toggleKey2Held, s_toggleEngaged, s_shortcutsEnabled))
     {
+    case ToggleEdge::Engage:
         s_toggleEngaged = true;
         s_state->commandQueue.push(ZoomCommand::ToggleEngage);
-    }
-    if (!bothHeld && s_toggleEngaged)
-    {
+        break;
+    case ToggleEdge::Release:
         s_toggleEngaged = false;
         s_state->commandQueue.push(ZoomCommand::ToggleRelease);
+        break;
+    case ToggleEdge::None:
+        break;
     }
 
     // Clear the inversion-chord edge filter on 'I' release (see s_invertChordDown)
@@ -366,13 +380,15 @@ static LRESULT CALLBACK keyboardHookProc(int nCode, WPARAM wParam, LPARAM lParam
             if (isWinModifier()) s_winKeyMgr.markUsedForZoom();
         }
 
-        // Ctrl+Alt+I → toggle color inversion (Phase 6: AC-2.10.01)
-        // Edge-triggered via s_invertChordDown — see declaration comment.
-        if (info->vkCode == 'I')
+        // Ctrl+Alt+I → toggle color inversion (Phase 6: AC-2.10.01), gated by
+        // the "Keyboard shortcuts" setting. Edge-triggered via s_invertChordDown
+        // — see declaration comment.
+        if (info->vkCode == 'I' && s_shortcutsEnabled)
         {
             bool ctrlHeld = (GetAsyncKeyState(VK_CONTROL) & 0x8000) != 0;
             bool altHeld  = (GetAsyncKeyState(VK_MENU)    & 0x8000) != 0;
-            if (ctrlHeld && altHeld && !s_invertChordDown)
+            if (decideInvertChord(static_cast<int>(info->vkCode), isDown, ctrlHeld, altHeld,
+                                  s_invertChordDown, s_shortcutsEnabled))
             {
                 s_invertChordDown = true;
                 s_state->commandQueue.push(ZoomCommand::ToggleInvert);

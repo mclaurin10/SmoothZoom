@@ -8,8 +8,10 @@
 //
 // Extracted from InputInterceptor's keyboard hook, the same way WheelDecision.h
 // was extracted from the mouse hook, so the hook and unit tests run the exact
-// same decision. Covers only the modifier+key zoom shortcuts (AC-2.8.01–10);
-// modifier/toggle tracking, Win+Ctrl+M and Ctrl+Alt+I stay in the hook.
+// same decision. Covers every shortcut the "Keyboard shortcuts" setting gates
+// (AC-2.8.13–15): modifier + Plus/Minus/Esc (AC-2.8.01–10), the Ctrl+Alt peek
+// toggle (AC-2.7.x) and Ctrl+Alt+I (AC-2.10.01). Key-state tracking and
+// Win+Ctrl+M (settings, never gated) stay in the hook.
 // Header-only, no Win32 dependency (VK constants come from ModifierUtils.h).
 // Hook-safe: no allocation, no I/O, a few comparisons.
 // =============================================================================
@@ -82,6 +84,31 @@ inline KeyDecision decideShortcutKey(int vkCode, bool isDown, bool isUp, bool in
 
     d.markWinUsedForZoom = (d.action != ShortcutAction::None) && isWinModifierVK(modifierVK);
     return d;
+}
+
+// ── Ctrl+Alt hold-to-peek (AC-2.7.01–10) ─────────────────────────────────────
+// The hook always tracks whether both toggle keys are held; this decides which
+// edge to post. With shortcuts off the toggle never engages, and an engaged
+// toggle releases on the next key event (the hook's settings observer also
+// releases it at once when the setting is turned off).
+enum class ToggleEdge : uint8_t { None, Engage, Release };
+
+inline ToggleEdge decideToggleChord(bool bothToggleKeysHeld, bool engaged, bool shortcutsEnabled)
+{
+    const bool want = shortcutsEnabled && bothToggleKeysHeld;
+    if (want && !engaged) return ToggleEdge::Engage;
+    if (!want && engaged) return ToggleEdge::Release;
+    return ToggleEdge::None;
+}
+
+// ── Ctrl+Alt+I color inversion (AC-2.10.01) ──────────────────────────────────
+// Edge-triggered: chordAlreadyDown is the hook's typematic filter (set on the
+// first qualifying 'I' down, cleared on 'I' up). Never consumed either way.
+inline bool decideInvertChord(int vkCode, bool isDown, bool ctrlHeld, bool altHeld,
+                              bool chordAlreadyDown, bool shortcutsEnabled)
+{
+    return shortcutsEnabled && isDown && vkCode == 'I'
+        && ctrlHeld && altHeld && !chordAlreadyDown;
 }
 
 } // namespace SmoothZoom

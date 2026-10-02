@@ -5,6 +5,9 @@
 
 #include <catch2/catch_test_macros.hpp>
 #include "smoothzoom/input/WheelDecision.h"
+#include "smoothzoom/input/KeyDecision.h"
+#include "smoothzoom/input/ScrollNormalizer.h"
+#include "smoothzoom/support/SettingsManager.h"
 
 using namespace SmoothZoom;
 
@@ -136,4 +139,41 @@ TEST_CASE("Shift modifier never marks the Win key, on either wheel axis", "[Whee
     for (WheelKind kind : { WheelKind::Vertical, WheelKind::Horizontal })
         for (bool held : { false, true })
             CHECK_FALSE(decideWheel(kind, 120, VK_LSHIFT, held).markWinUsedForZoom);
+}
+
+TEST_CASE("Shift+scroll zooms with Keyboard shortcuts OFF (and ON): wheel and touchpad paths",
+          "[WheelDecision][ShiftScroll]")
+{
+    for (bool shortcutsOn : { false, true })
+    {
+        INFO("keyboardShortcutsEnabled=" << shortcutsOn);
+        SettingsSnapshot s;                 // fresh install: Shift modifier
+        s.keyboardShortcutsEnabled = shortcutsOn;
+        REQUIRE(s.modifierKeyVK == VK_LSHIFT);
+
+        // Keyboard hook side: the Shift key itself is never consumed, so the
+        // hook's modifier tracking and the OS both still see it.
+        CHECK_FALSE(decideShortcutKey(VK_LSHIFT, true, false, false, s.modifierKeyVK, true, shortcutsOn).consume);
+        CHECK_FALSE(decideShortcutKey(VK_LSHIFT, false, true, false, s.modifierKeyVK, true, shortcutsOn).consume);
+
+        // LL-hook path: mouse wheel (detented 120) and touchpad two-finger
+        // scroll delivered as WM_MOUSEWHEEL (small deltas, observed on TEMPLAPTOP).
+        // decideWheel takes no shortcuts argument: scroll zoom cannot depend on it.
+        for (int16_t delta : { int16_t(120), int16_t(-120), int16_t(20), int16_t(-3) })
+        {
+            WheelDecision d = decideWheel(WheelKind::Vertical, delta, s.modifierKeyVK,
+                                          modifierHeldFromState(s.modifierKeyVK, true, false, false, false));
+            CHECK(d.consume);
+            CHECK(d.accumulatorDelta == delta);
+        }
+
+        // Precision-touchpad HID path (main.cpp handlePtpHidReport): it polls
+        // GetAsyncKeyState(toGenericVK(modifierKeyVK)) and adds
+        // ptpDeltaToWheelEquiv(...) to the accumulator. Neither reads the
+        // shortcuts setting; check both pieces give a zooming result for Shift.
+        CHECK(toGenericVK(s.modifierKeyVK) == VK_SHIFT);
+        PtpAxisScale scale{ 1000 };
+        CHECK(ptpDeltaToWheelEquiv(-40.0f, scale) != 0.0f);
+        CHECK(ptpDeltaToWheelEquiv(40.0f, scale) != 0.0f);
+    }
 }

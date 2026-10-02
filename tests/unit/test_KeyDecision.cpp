@@ -140,3 +140,38 @@ TEST_CASE("Start-menu suppression flag only with the Win modifier (AC-2.1.16, AC
     // Key-up of a Win chord posts nothing, so it does not mark either.
     CHECK_FALSE(decideShortcutKey(VK_OEM_PLUS, false, true, false, VK_LWIN, true, true).markWinUsedForZoom);
 }
+
+// ── Ctrl+Alt peek toggle and Ctrl+Alt+I are gated too (AC-2.8.14) ──
+
+TEST_CASE("Peek toggle: engages and releases with shortcuts on (AC-2.7.01)", "[KeyDecision]")
+{
+    CHECK(decideToggleChord(true, false, true) == ToggleEdge::Engage);
+    CHECK(decideToggleChord(true, true, true) == ToggleEdge::None);    // still held
+    CHECK(decideToggleChord(false, true, true) == ToggleEdge::Release);
+    CHECK(decideToggleChord(false, false, true) == ToggleEdge::None);
+}
+
+TEST_CASE("Peek toggle: never engages with shortcuts off; an engaged peek releases (AC-2.8.14)", "[KeyDecision]")
+{
+    CHECK(decideToggleChord(true, false, false) == ToggleEdge::None);
+    CHECK(decideToggleChord(false, false, false) == ToggleEdge::None);
+    // Setting turned off while the chord is held and engaged: release on the next event.
+    CHECK(decideToggleChord(true, true, false) == ToggleEdge::Release);
+    CHECK(decideToggleChord(false, true, false) == ToggleEdge::Release);
+}
+
+TEST_CASE("Ctrl+Alt+I fires once per press with shortcuts on (AC-2.10.01)", "[KeyDecision]")
+{
+    CHECK(decideInvertChord('I', true, true, true, false, true));
+    CHECK_FALSE(decideInvertChord('I', true, true, true, true, true));   // typematic repeat
+    CHECK_FALSE(decideInvertChord('I', false, true, true, false, true)); // key-up
+    CHECK_FALSE(decideInvertChord('I', true, true, false, false, true)); // no Alt
+    CHECK_FALSE(decideInvertChord('I', true, false, true, false, true)); // no Ctrl
+    CHECK_FALSE(decideInvertChord('J', true, true, true, false, true));
+}
+
+TEST_CASE("Ctrl+Alt+I does nothing with shortcuts off (AC-2.8.14)", "[KeyDecision]")
+{
+    for (bool repeat : { false, true })
+        CHECK_FALSE(decideInvertChord('I', true, true, true, repeat, false));
+}
