@@ -382,6 +382,8 @@ These risks concern the Windows UI Automation (UIA) framework used for focus fol
 
 > **Implementation note:** Implemented. SetUnhandledExceptionFilter resets zoom to 1.0x. Sentinel file used for crash detection on next launch.
 
+> **Measured 2026-10-01 (TEMPLAPTOP, Windows 11 25H2 build 26200, dev-tools `--selfkill-ms`):** a `TerminateProcess` of SmoothZoom at 9.92× with **no handler running** left the full-screen transform at **1.0×** by the next `--probe` (≤ 1 s later). On this build the OS tears the transform down with the owning process, so the "screen stays magnified" premise of this risk did not reproduce. The sentinel is still left behind and still triggers recovery on the next launch, and `SmoothZoom.exe --reset` (dev builds) restores state explicitly. Also measured: an external `Stop-Process -Force` from a medium-IL shell is **denied**, because the UIAccess process runs at High integrity. See Doc 3 §7.6.
+
 **Contingency:** As a last-resort user recovery mechanism: document that running `Magnify.exe` and then closing it resets the full-screen transform. Alternatively, provide a tiny standalone "SmoothZoom Reset" utility (unsigned, no UIAccess needed — it just calls `MagSetFullscreenTransform(1.0, 0, 0)` from a signed helper) that the user can run from any location.
 
 ---
@@ -492,6 +494,50 @@ These risks concern the Windows UI Automation (UIA) framework used for focus fol
 
 ---
 
+### R-23: Integer Viewport Offsets Quantize the Zoom Anchor
+
+| Attribute | Value |
+|-----------|-------|
+| Likelihood | **High** (measured) |
+| Impact | **Medium** |
+| First Exposed | Phase 1 (identified Phase 7 bench, 2026-10-01) |
+
+**Description:** `MagSetFullscreenTransform` takes the viewport offset as `int` desktop pixels; `MagBridge::setTransform` truncates the float proportional offset (`MagBridge.cpp:87-89`). One desktop pixel of offset error moves the content under the pointer by `zoom` physical pixels, so while zooming with a stationary pointer the "fixed" anchor point (AC-2.1.09–AC-2.1.11) jitters by up to ~`zoom` px every frame. Baseline (TEMPLAPTOP, `bench/baseline/TEMPLAPTOP-AC`): anchor error p95 2.8–9.5 px, max 11.4 px at 10×. This is a shimmer source, not a correctness bug for clicks (proportional mapping keeps the cursor hotspot consistent).
+
+**Mitigation candidates (tuning sessions; none implemented):** round instead of truncate (halves the error); choose the per-frame zoom value so that `pos·(1−1/zoom)` lands on an integer for the anchor (a sub-0.1% zoom adjustment); keep `MagBridge` the only place this happens (R-01 isolation).
+
+**Contingency:** Desktop Duplication migration (R-01) renders with sub-pixel offsets.
+
+---
+
+### R-24: Cold-Start Stall on the First Transform After `MagInitialize`
+
+| Attribute | Value |
+|-----------|-------|
+| Likelihood | **High** (measured every run) |
+| Impact | **Medium** |
+| First Exposed | Phase 1 (identified Phase 7 bench, 2026-10-01) |
+
+**Description:** The first `MagSetFullscreenTransform` that moves away from 1.0× in a process blocks the render thread for **162–210 ms** on TEMPLAPTOP (Arc 140V). Later departures from 1.0× in the same process are fast (≤ 0.1 ms). Input that arrives during the stall is applied in one jump on the next frame, so the user's first zoom after launch visibly freezes, then jumps (AC-2.2.01, AC-2.2.02). The bench reports it as `cold_start` (C-11).
+
+**Mitigation candidates:** pre-warm the magnifier during startup (off-screen of the user's attention, e.g. right after `MagInitialize`), provided it is invisible at 1.0×; investigate which part of DWM setup the first call pays for.
+
+---
+
+### R-25: Render/Main-Thread Stalls While DWM Is Idle (Observed, Cause Unconfirmed)
+
+| Attribute | Value |
+|-----------|-------|
+| Likelihood | **Low–Medium** (2 of 24 bench runs) |
+| Impact | **High** when it occurs |
+| First Exposed | Phase 7 bench, 2026-10-01 |
+
+**Description:** In one gate invocation the bench's main thread (which also services the LL hooks), the render thread and DWM's `cRefresh` counter all paused together, for 940 ms and 246 ms. The render loop blocks in `DwmFlush()`, which only returns when DWM composes, and with a static screen and zoom DWM may not compose. Queued wheel input landed as one +1920 jump. A main-thread stall longer than `LowLevelHooksTimeout` also lets real input bypass the hooks (R-05). Hypothesis to test: the main thread's synchronous `Shell_NotifyIcon` (tray icon switches when zoom first exceeds 1.005×) blocked on a busy Explorer, coinciding with a DWM idle period.
+
+**Mitigation candidates:** move tray-icon updates off the hook thread or make them asynchronous; bound the render loop's wait (e.g. `DwmFlush` paired with a timed wake when input is pending) without breaking the message-pump requirement (`rules/render-loop.md`); a bench trace with deliberate idle periods to reproduce it.
+
+---
+
 ## 8. Category G — Environmental and Compatibility Risks
 
 ---
@@ -589,6 +635,9 @@ The native Windows Magnifier has this same issue — `Win+Plus`/`Win+Minus` may 
 | R-20 | Anti-cheat and security software conflicts | Medium | Medium | 1 | Environment |
 | R-21 | Sleep, hibernate, and user switching | High | Low | 1 | Environment |
 | R-22 | Keyboard layout / virtual key variations | Medium | Low | 2 | Environment |
+| R-23 | Integer viewport offsets quantize the zoom anchor | High | Medium | 1 (found 7) | Performance |
+| R-24 | Cold-start stall on first transform | High | Medium | 1 (found 7) | Performance |
+| R-25 | Render/main-thread stalls while DWM idle | Low–Medium | High | 7 | Performance |
 
 ---
 

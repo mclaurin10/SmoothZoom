@@ -861,3 +861,84 @@ Microsoft recommends the Desktop Duplication API (`IDXGIOutputDuplication`) or `
 4. No other component changes. ZoomController, ViewportTracker, RenderLoop, InputInterceptor, and all other components communicate with MagBridge through the same interface regardless of the underlying implementation.
 
 This migration would increase complexity and development effort but is architecturally bounded to a single component.
+
+---
+
+## 7. Development Tools and Performance Bench (dev builds only)
+
+Added in Phase 7 (2026-10-01) to tune zoom smoothness per machine with a build → deploy → bench loop that is judged on measured numbers. **None of this is in release builds.** Everything is behind the CMake option `SMOOTHZOOM_DEV_TOOLS` (default **OFF**). The one change compiled into every build is the behavior-preserving extraction of the wheel decision (§7.3).
+
+### 7.1 Command Line (dev-tools build)
+
+| Argument | Effect |
+|---|---|
+| `--record <file>` | Normal operation, plus a trace CSV of every wheel message the `WH_MOUSE_LL` hook sees (QPC, WHEEL/HWHEEL, delta, `MSLLHOOKSTRUCT::flags` incl. injected, Shift/Ctrl/Alt/Win, cursor, the hook's modifier verdict, consumed). Also records the Raw Input and PTP accumulator writes in `main.cpp` (kinds `RAW`/`PTP`), because precision-touchpad scroll in Direct-Manipulation apps never reaches the hook. Does not change behavior: loads `config.json` as usual. |
+| `--bench <trace> --out <dir>` | Replays a trace at its recorded timestamps from the **main thread**, through the hook's own decision (§7.3) and side effects. The render thread consumes the input as in production and drives the real `MagSetFullscreenTransform`. Writes `frames.csv`, `events.csv` and `summary.json`. Uses built-in default settings (no `config.json` load/save) plus the trace's `modifier_vk`. Modal dialogs become exit codes. |
+| `--cold` | Bench without the warm-up, to measure the first gesture after launch (R-24). |
+| `--no-cursor`, `--settle-ms N`, `--label S` | Don't `SetCursorPos` to trace positions; quiet time after the last event (default 750 ms); free-form label in the summary. |
+| `--timeout S`, `--selfkill-ms N` | Watchdog: request a clean exit after S s (bench default 180 s); `TerminateProcess` after N ms with no cleanup (kill test). |
+| `--reset` | Same sequence as the stale-sentinel recovery (`MagBridge::initialize` + `shutdown`: cursor shown, 1.0×, input transform off, identity color effect). Exits. Runs before the single-instance check. |
+| `--probe <file>` | Writes the current full-screen transform as JSON without resetting it. |
+
+Exit codes (dev builds): 0 ok · 2 transform failures · 3 watchdog/quit before completion · 4 forced terminate · 9 self-kill · 10 already running · 11 `MagInitialize` failed · 12 bad args/trace · 13 Magnify.exe running · 14 hook install failed.
+
+### 7.2 Threading and Hot-Path Invariants
+
+| Thread | Dev-tools work | Invariant kept |
+|---|---|---|
+| Main | Trace replay loop (high-resolution waitable timer + `MsgWaitForMultipleObjectsEx`, then a ≤1 ms spin), pumping the queue throughout (hooks keep working). Record ring drain on a 200 ms thread timer. All file output. | The hook tap only copies a POD into a **static** ring (no allocation, no I/O); the extra `GetAsyncKeyState` reads exist only while recording. |
+| Render | One `TransformSample` POD per frame into a buffer **allocated before the thread starts** (idle 1.0× frames included), plus `DwmGetCompositionTimingInfo`. | No allocation, lock or I/O (`rules/render-loop.md` 1–3). The telemetry pointer is null unless `--bench`. |
+| **Watchdog (new, dev only)** | Waits on the named event `Local\SmoothZoom.DevTools.Quit` with the `--timeout`/`--selfkill-ms` deadline. It then posts `WM_QUIT` to the main thread, and if clean shutdown has not finished 10 s later it runs the emergency reset and `TerminateProcess`. | **Justification:** a hung main thread cannot enforce its own timeout, and the existing shutdown watchdog is only armed after the message loop exits. The quit event is also the only way a medium-IL script can stop the UIAccess process (see §7.6). |
+
+No component boundary moves. `Magnification.h` stays confined to MagBridge (the dev tools call `MagBridge`). UIA and Caret threads are untouched.
+
+### 7.3 WheelDecision (compiled in all builds)
+
+`include/smoothzoom/input/WheelDecision.h` holds the `WM_MOUSEWHEEL`/`WM_MOUSEHWHEEL` decision as a pure, header-only function: `wheelIsZoomCandidate`, `decideWheel` → `{consume, accumulatorDelta, markWinUsedForZoom}`, and `modifierHeldFromState`. The mouse hook calls it, and `--bench` calls the same function through `InputInterceptor::devInjectWheel`, so replay and live input cannot diverge. It is behavior-preserving: the modifier test is still evaluated lazily (horizontal wheel only with a Shift modifier), and int16 negation matches the old code (`tests/unit/test_WheelDecision.cpp`). The keyboard hook is unchanged.
+
+### 7.4 Bench Metrics (`summary.json`) and Gate Criteria
+
+A **gesture** is a run of consumed inputs with no gap over 100 ms. Its **active refresh range** runs from the refresh of its first transform update to the refresh of its last. A refresh index is computed as `cRefresh + floor((t − qpcVBlank) / period)`. Metrics exclude the warm-up.
+
+| Metric | Definition |
+|---|---|
+| `update_interval_ms` / `_periods` | Gap between consecutive transform updates within a gesture (p50/p95/p99/max), in ms and in refresh periods |
+| `refreshes.missed` / `missed_pct` | Refreshes in an active range with no transform update |
+| `refreshes.multi_update` | Refreshes that received more than one update |
+| `tick_interval_ms`, `late_ticks` | Render-loop frame cadence; ticks later than 1.5 periods |
+| `vblank_phase_ms` | When in the refresh interval each update is issued |
+| `set_call_ms`, `cold_start` | Duration of the `MagSetFullscreenTransform` call; first-transform stall in the warm-up (R-24) |
+| `anchor_error_px` | `‖ideal − applied‖ × zoom` in physical px, for pointer-source updates. *ideal* is the float proportional offset from the raw cursor, *applied* the ints sent to the API. Split into `anchor_quantization_px` (truncation, R-23) and `anchor_deadzone_px` |
+| `roundtrip` | Zoom at trace `MARK 2` ÷ zoom at `MARK 1` − 1 |
+| `latency_ms.input_to_update` | Input injection → first transform update at or after it |
+| `latency_ms.input_to_next_vblank` | Input injection → the vblank after that update completes (lower bound on photon latency) |
+| `settle_ms` | Last input of a gesture → its last transform update |
+
+`bench/criteria.json` thresholds are derived from the refresh period *P* (16.667 ms on TEMPLAPTOP AC) and from what smooth motion requires. They are **not** derived from the baseline:
+
+| Id | Threshold | Rationale |
+|---|---|---|
+| C-01–C-04 | completed, UIAccess, 0 failed updates, 0 dropped samples | Validity of the run (R-12: without UIAccess the API fails silently) |
+| C-05 | missed ≤ 1% | Smooth motion = a new zoom value every refresh while a gesture is in progress (AC-2.2.02/03) |
+| C-06 | 0 refreshes with >1 update | DWM composes once per refresh; a second update hides the first, so steps become uneven |
+| C-07 / C-08 | interval p95 ≤ 1.10 P, max ≤ 1.5 P | One refresh between updates (10% for DwmFlush wake jitter); never a 2-refresh hole |
+| C-09 | 0 late ticks | No render-loop hitch (AC-2.3.10) |
+| C-10 | set call ≤ 2 ms | Small fraction of the frame budget |
+| C-11 | cold start ≤ P | The first zoom must also land on the next frame (AC-2.2.01, R-24) |
+| C-12 / C-13 | input→update p95 ≤ P (+0.3 ms); input→next vblank p95 ≤ 2 P | AC-2.2.01; R-03 tolerable bound |
+| C-14 | settle ≤ 100 ms | No perceptible catch-up (AC-2.2.03, AC-2.4.08); below the AC-2.2.04 animation band |
+| C-15 / C-16 | anchor p95 ≤ 0.5 px, max ≤ 1 px | The point under a stationary pointer must not visibly move (AC-2.1.09–11, R-23) |
+| C-17 | round trip ≤ 0.1 % | In-band scroll in/out by equal input returns to the same zoom (AC-2.1.06, R-17) |
+
+Aggregation over N runs: invariants use the worst run; distributions use the median.
+
+### 7.5 Trace Format
+
+CSV with `# key: value` metadata lines (`modifier_vk`, `screen`, `qpc_freq`, `power`, …) and a header row. The required columns are `t_us,source,delta`; the optional ones are `qpc,flags,injected,shift,ctrl,alt,win,x,y,mod_held,consumed`. `source` is one of `WHEEL | HWHEEL | RAW | PTP | MARK` (MARK delta 1/2 bracket a round-trip segment). Coordinates are physical pixels (PerMonitorV2). The synthetic traces are produced deterministically by `tools/bench/gen_synthetic.py` into `bench/traces/synthetic/`.
+
+### 7.6 Deploy Loop, Security and Exit Safety
+
+- `tools/dev-setup.ps1` (elevated, once): a CurrentUser code-signing cert (non-exportable, CA=false, 6 months) trusted in LocalMachine\Root, plus a user-writable secure folder `C:\Program Files\SmoothZoom Dev\`. `tools/dev-revert.ps1` undoes both. **Tradeoff:** code running as the user can mint UIAccess binaries. Measured: such a process runs with the limited token at **High** integrity (`tools/README.md`).
+- `tools/deploy.ps1` (non-elevated): build `build-dev\` → sign → verify `Valid` → install → launch via ShellExecute. `CreateProcess` on a uiAccess binary fails with `ERROR_ELEVATION_REQUIRED`, and the brokered launch does not inherit the environment, so everything is passed as arguments.
+- `tools/bench/run-bench.ps1` runs traces N times and runs `--reset` after any abnormal exit. `tools/bench/gate.ps1` deploys, benches every trace under `bench/traces/` and evaluates `bench/criteria.json`. It exits 0 on pass and 2 with a stderr summary (Stop-hook compatible).
+- Exit safety: a clean exit (quit event, timeout, end of bench) runs the normal shutdown, which unhooks, resets to 1.0× on the render thread and runs the MagBridge shutdown sequence. An external `Stop-Process` from medium IL is denied. A hard kill (`--selfkill-ms`) was measured to leave the screen at 1.0× on Windows 11 build 26200 (R-14 note). The sentinel and `--reset` remain the backstop.

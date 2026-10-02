@@ -115,3 +115,4 @@ Each component has a single responsibility. No component reaches into another's 
 - Link: `Magnification.lib`, `Dwmapi.lib`, `UIAutomationCore.lib`, `User32.lib`, `Shell32.lib`, `Ole32.lib`, `OleAut32.lib`, `Wtsapi32.lib`, `Hid.lib`, `Advapi32.lib`, `Comctl32.lib`.
 - All builds signed. Self-signed cert installed to Trusted Root CA for dev.
 - Run from secure folder (e.g., `C:\Program Files\SmoothZoom\`).
+- **Perf tuning loop (dev only):** `SMOOTHZOOM_DEV_TOOLS=ON` adds `--record`/`--bench`/`--reset`; non-elevated deploy and the smoothness gate live in `tools/` + `bench/`. See Doc 3 §7.
