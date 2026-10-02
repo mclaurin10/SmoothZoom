@@ -7,6 +7,12 @@
 
 ---
 
+> **Update 2026-10-02:** the user approved pulling two Phase 8 items forward ahead of v1.0,
+> on branch `feature/touchpad-gestures`: **B3 momentum gating** (per-gesture mode lock,
+> touchpad coast setting) and **separate touchpad / mouse settings** (sensitivity,
+> direction), plus a regrouped Settings window. Item #6 (Raw Input / PTP consolidation),
+> B1/B2 and the pinch spike stay deferred. Results are recorded in §7 and §9 below.
+
 ## 1. Goal (one line)
 
 Make zoom/pan/scroll behave consistently across high-precision OEM trackpads (Synaptics, Elan, …), Apple Magic Trackpad, notched mice, free-spin mice, and trackballs.

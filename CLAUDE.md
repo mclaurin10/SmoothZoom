@@ -1,6 +1,6 @@
 # SmoothZoom
 
-**Current Status:** Phases 0–6 complete — **feature-complete v1.0 magnifier**. All ten components plus the Phase 6 hardening set (color inversion, multi-monitor, crash recovery, conflict detection, hook watchdog, config schema versioning) are implemented and merged to `master`. **Current phase: Phase 7 — v1.0 Release Verification & Certification** (performance audit E6.12 + the 139-AC manual sweep E6.13 — see `docs/07_v1.0_Release_Verification_PRD.md`). Input Interoperability is the deferred **Phase 8**.
+**Current Status:** Phases 0–6 complete — **feature-complete v1.0 magnifier**. All ten components plus the Phase 6 hardening set (color inversion, multi-monitor, crash recovery, conflict detection, hook watchdog, config schema versioning) are implemented and merged to `master`. **Current phase: Phase 7 — v1.0 Release Verification & Certification** (performance audit E6.12 + the 139-AC manual sweep E6.13 — see `docs/07_v1.0_Release_Verification_PRD.md`). Input Interoperability is the deferred **Phase 8**; two Phase 8 items were pulled forward by explicit user approval on 2026-10-02 (see the note under Phased Delivery).
 
 Native C++17 Win32 full-screen magnifier for Windows. Hold Shift+Scroll (default modifier; Win or Alt configurable) to smoothly zoom up to 10× with continuous viewport tracking of pointer, keyboard focus, and text cursor. Uses the Windows Magnification API.
 
@@ -75,7 +75,7 @@ Violating these causes silent failure or a broken build. Non-negotiable.
 
 ## Phased Delivery
 
-All feature phases (0–6) are delivered. Each phase produced a runnable, testable build. Check Doc 4 for full exit criteria and AC coverage per phase. **Do not remove or regress shipped features.** Phase 7 is verification/certification (no new features); Phase 8 (Input Interoperability) is deferred — do not start it before v1.0 ships.
+All feature phases (0–6) are delivered. Each phase produced a runnable, testable build. Check Doc 4 for full exit criteria and AC coverage per phase. **Do not remove or regress shipped features.** Phase 7 is verification/certification (no new features); Phase 8 (Input Interoperability) is deferred — do not start it before v1.0 ships, except the two items the user pulled forward (below).
 
 | Phase | Name | Key Delivery | Status |
 |-------|------|-------------|--------|
@@ -90,6 +90,8 @@ All feature phases (0–6) are delivered. Each phase produced a runnable, testab
 | 8 | Input Interoperability | Scroll-sensitivity/momentum settings UI, consolidate Raw Input/PTP into the Input layer, per-device robustness, pinch-feasibility spike | Deferred (post-1.0) |
 
 > **Input-interop P0 has already landed** ahead of Phase 8: `ScrollNormalizer` (device-independent scroll units), continuous precision-touchpad scroll, and the `scrollSensitivity` / `momentumZoom` settings fields. The remaining interop work (settings UI, input-layer consolidation, robustness, pinch spike) is Phase 8 — see `docs/input-interop-handoff.md`.
+
+> **Approved pull-forward (2026-10-02, branch `feature/touchpad-gestures`):** momentum gating (handoff item B3: gesture mode lock + touchpad coast setting) and separate touchpad / mouse scroll settings (sensitivity, direction), with the Settings window regrouped to expose them. The rest of Phase 8 — Raw Input / PTP consolidation (handoff #6), B1/B2 robustness, the pinch spike — stays deferred.
 
 ## Component Boundaries
 

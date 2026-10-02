@@ -26,7 +26,11 @@ Dev/test runs pass `--config <path>` so the user's real `config.json` is never t
 
 **Phase 8 — Input Interoperability** is the deferred next phase (input-interop P0 has
 already landed: `ScrollNormalizer`, `scrollSensitivity`, `momentumZoom`). Do not start it
-before v1.0 ships — see `docs/input-interop-handoff.md`.
+before v1.0 ships — see `docs/input-interop-handoff.md`. **Approved pull-forward
+(2026-10-02):** the user approved two Phase 8 items ahead of v1.0 — momentum gating (B3:
+the per-gesture mode lock and the touchpad coast setting) and separate touchpad / mouse
+scroll sensitivity and direction, with the Settings window regrouped to show them. The
+Raw Input / PTP consolidation (#6), B1/B2 and the pinch spike remain deferred.
 
 **Do not remove or re-scope shipped features.** The phase-gating table that previously
 lived here (forbidding Phase 2+ features) is obsolete — everything through Phase 6 is
