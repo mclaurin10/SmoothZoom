@@ -32,7 +32,7 @@ A **two-phase review + plan** was produced and **approved**, then the **P0 backe
 | Pinch-to-zoom | **Investigate only** — feasibility spike, no shipping commitment (Doc 1 §3.7 still lists it out of scope). |
 | Pan | **Auto-tracking only** — no new user-driven pan gesture; just normalize the existing pointer/focus/caret follow. |
 | Capture backend | **Windows Magnification API as found on disk.** There is **no** Desktop Duplication (DXGI/D3D11) code here despite the "DDA fork" framing. Keep the input layer backend-independent. |
-| Momentum/inertia | **Make it configurable** (recommended default: on). Setting field already added; gating logic deferred to B3. |
+| Momentum/inertia | **Make it configurable** (recommended default: on). **Done 2026-10-02 (B3):** `momentumZoom` is the touchpad coast setting, default on, labelled "Keep zooming after a flick". |
 
 ## 4. Key facts about the codebase (verified)
 
@@ -81,7 +81,7 @@ $cmake = "C:\Program Files\Microsoft Visual Studio\18\Community\Common7\IDE\Comm
 
 ## 7. Remaining work (priority order) — see tasks #5–#8
 
-- **#5 A3-UI** — ⚠️ **mostly DONE as of 2026-06-23** (this item was stale). The settings window
+- **#5 A3-UI** — **DONE 2026-10-02:** the settings window now has touchpad and mouse sensitivity sliders and the coast checkbox (enabled), in a regrouped, DPI-aware window (Doc 2 AC-2.9.20–28). Earlier note: ⚠️ **mostly DONE as of 2026-06-23** (this item was stale). The settings window
   (`src/support/TrayUI.cpp`) already has a working **Scroll Sensitivity (0.1–5.0)** edit field
   (`IDC_SCROLL_SENS_EDIT`, loaded/applied) and a **Momentum** checkbox (`IDC_MOMENTUM_CHECK`) —
   the latter **deliberately disabled** ("not yet active") because B3 gating is deferred and needs
@@ -93,7 +93,7 @@ $cmake = "C:\Program Files\Microsoft Visual Studio\18\Community\Common7\IDE\Comm
 - **#7 P1 robustness (B1/B2/B3):**
   - B1 — per-device dedup via `RAWINPUTHEADER.hDevice`, replacing the coarse 50 ms global `lastLLHookScrollTime` window (can drop high-frequency events).
   - B2 — high-res/free-spin per-frame rate clamp / gentle acceleration in the normalizer (don't change notched feel).
-  - B3 — implement `momentumZoom` gating (field already persists): PTP contact lift-off boundary + a wheel-path decay heuristic.
+  - ~~B3 — implement `momentumZoom` gating~~ **DONE 2026-10-02** (branch `feature/touchpad-gestures`). Not a decay heuristic: a per-gesture mode lock in a pure header (`ScrollGesture.h`, `test_ScrollGesture.cpp`) shared by the hook and the PTP/Raw Input paths. A gesture starts on a new touchpad contact or after a 150 ms pause (derived from the recordings). Its first event's modifier decides zoom or pass-through, and the PTP contact lift-off marks the coast: zoomed with the coast on, swallowed with it off. A touch during a coast stops it; Windows sends 15–100 ms of leftovers after the touch, which stay in the old gesture until a new stroke. The coast setting never applies to a mouse wheel, nor to touchpads without PTP contacts. Verified with synthetic traces (`bench/gesture-traces/`, `tools/bench/check-gestures.ps1`) and two live recordings (`bench/traces-recorded-gestures/`). Docs: Doc 2 AC-2.1.25–31, Doc 3 §3.1, Doc 5 R-33/R-34.
 - **#8 P2:** C1 pinch feasibility spike (reuse `handlePtpHidReport` contact data; no production code); C2 handle `WM_DPICHANGED` in `msgWndProc`.
 
 Several P1 items need **real-hardware tuning** (see plan §"What cannot be verified from code alone").
@@ -110,8 +110,8 @@ Several P1 items need **real-hardware tuning** (see plan §"What cannot be verif
 
 - `kPtpSurfaceFractionPerNotch = 0.02` is a **reasoned default, not hardware-verified** — tune against real Synaptics/Elan pads; users can compensate via `scrollSensitivity`.
 - A1 uses **logical-range fraction** (always available) rather than physical-mm; revisit if absolute finger-travel parity is preferred.
-- Separate mouse vs touchpad sensitivity sliders? (Currently one shared `scrollSensitivity`.)
-- `momentumZoom` default — recommend **on** (macOS-like). Confirm with user.
+- ~~Separate mouse vs touchpad sensitivity sliders?~~ **Answered 2026-10-02 (user): yes.** `touchpadSensitivity` and `touchpadReverseScrollDirection` were added (config schema 2); `scrollSensitivity` and `reverseScrollDirection` are now the mouse settings. Upgraded configs copy their values into the touchpad fields. Each event is attributed by PTP contact state, not delta size. The touchpad direction is its own: fingers up zoom in whatever Windows' natural-scrolling setting.
+- ~~`momentumZoom` default~~ **Answered 2026-10-02 (user): on.** It is a working setting now, and applies to the touchpad only; a free-spin wheel coasts physically and is left alone.
 - Whether to ever adopt the pointer-input stack (`EnableMouseInPointer` / `WM_POINTERSCROLL`) for native high-res/gesture data — larger change, currently out.
 
 ## 10. Pointers

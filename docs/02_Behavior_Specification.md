@@ -6,7 +6,7 @@
 
 **Version:** 1.2
 **Status:** Baselined (v1.0 behavior spec)
-**Last Updated:** 2026-10-01
+**Last Updated:** 2026-10-02
 **Prerequisite:** Document 1 — Project Scope and Non-Scope (v1.2)
 
 > **Status (2026-06-18):** These 139 acceptance criteria are the authoritative v1.0 behavior set and are frozen for the Phase 7 verification sweep (see `07_v1.0_Release_Verification_PRD.md`, tracked in `manual_test_checklist_v2.md`). Three ACs are formally deferred (§15). Two scroll-tuning settings that landed early — `scrollSensitivity` and `momentumZoom` — are intentionally **not** part of these 139; their behavioral acceptance criteria belong to the deferred Phase 8 (Input Interoperability) and will be authored there.
@@ -14,6 +14,8 @@
 > **Change (2026-10-01, approved scope during Phase 7):** `Shift` is now the default scroll-gesture modifier, and a persisted **"Keyboard shortcuts"** setting (tray menu) gates every keyboard zoom shortcut. Six ACs were added: **AC-2.1.22–24** and **AC-2.8.13–15**, for a total of **145** (AC-2.1.23/24, Sticky Keys, added the same day after R-31 was observed). Reworded to match: AC-2.1.01–05, AC-2.1.19–21, AC-2.2.04/06/07, AC-2.8.01–12, AC-2.9.14 and AC-2.10.01. Related risks: R-26 to R-31 (Doc 5).
 
 > **Change (2026-10-01, smoothness tuning, approved before the loop started):** **AC-2.2.03** reworded. Scroll zoom was "direct, not an animated transition"; it is now "tightly coupled to input": touchpad input stays effectively direct, while whole-notch wheel input is smoothed in log-zoom space toward the accumulated target, within the bench bounds C-14, C-19, C-20 and C-21–C-23 (Doc 3 §7.4). The AC count is unchanged (145).
+
+> **Change (2026-10-02, approved Phase 8 pull-forward, branch `feature/touchpad-gestures`):** sixteen ACs added, for a total of **161**. **AC-2.1.25–31** (§2H): each scroll gesture keeps the mode its first event set (zoom or pass-through), the touchpad coast is a working setting, touching the touchpad stops a coast, events are attributed to the touchpad or the mouse, and the touchpad has one zoom direction in every app. **AC-2.9.20–23** (§10F): separate touchpad and mouse sensitivity and direction, the config migration, and the coast setting. **AC-2.9.24–28** (§10G): the regrouped Settings window. Reworded to match: AC-2.1.02, AC-2.1.03 and AC-2.1.05 (the touchpad direction no longer follows Windows' scrolling-direction setting). These are the behavioral ACs for `scrollSensitivity` / `momentumZoom` that the 2026-06-18 note deferred to Phase 8. Related risks: R-26, R-29, R-30 updated; R-33–R-35 added (Doc 5).
 
 > **Change (2026-10-02, approved during the tuning loop):** **AC-2.1.09** clarified. A scroll-gesture zoom counts as pointer input in source arbitration, so it zooms at the pointer even when keyboard focus changed after the mouse last moved. Before, clicking into a text field and then Shift+scrolling without moving the mouse zoomed onto the field instead (found by the bench, where the prompt field of the foreground app held focus). AC count unchanged.
 
@@ -35,13 +37,13 @@ Where a criterion involves timing, distances, or thresholds, the stated value is
 
 **AC-2.1.01** — While the configured scroll-gesture modifier key (default `Shift`) is held and the user scrolls the mouse wheel up (away from the user), the zoom level increases smoothly. Scrolling down decreases the zoom level smoothly.
 
-**AC-2.1.02** — While the modifier key is NOT held, all scroll events pass through to the foreground application with no modification, delay, or side effects. SmoothZoom is completely transparent to scroll input when the modifier is not engaged. With `Shift` as the modifier, plain, `Ctrl`+ and `Alt`+scroll all pass through.
+**AC-2.1.02** — While the modifier key is NOT held, all scroll events pass through to the foreground application with no modification, delay, or side effects. SmoothZoom is completely transparent to scroll input when the modifier is not engaged. With `Shift` as the modifier, plain, `Ctrl`+ and `Alt`+scroll all pass through. The modifier is tested once per scroll gesture, at its first event (AC-2.1.26): the rest of a gesture that began with the modifier held (a spinning wheel, a touchpad coast) is still consumed after the modifier is released, and a gesture that began without it passes through to its end.
 
-**AC-2.1.03** — When the user releases the modifier key, the zoom level remains at whatever value it had reached. It does not snap back to 1.0× or to any other level.
+**AC-2.1.03** — When the user releases the modifier key, the zoom level remains at whatever value it had reached. It does not snap back to 1.0× or to any other level. (The current gesture may still finish first: a touchpad coast keeps zooming, AC-2.1.28.)
 
 **AC-2.1.04** — The scroll-gesture modifier key is configurable: `Shift` (default), `Win`, or `Alt`. Both left and right variants of the configured modifier function identically (e.g., `VK_LSHIFT`/`VK_RSHIFT`, `VK_LWIN`/`VK_RWIN`, `VK_LMENU`/`VK_RMENU`). A fresh install uses `Shift`; an existing configuration keeps the modifier it saved.
 
-**AC-2.1.05** — Two-finger vertical scroll on a Windows Precision Touchpad, while the modifier is held, produces the same zoom behavior as the mouse wheel. The continuous (non-notched) nature of touchpad scroll input produces correspondingly smooth, continuous zoom changes. Zoom direction follows the touchpad's own scrolling-direction setting, so with natural scrolling on, a two-finger swipe and a wheel roll in the same physical direction may zoom opposite ways (R-29).
+**AC-2.1.05** — Two-finger vertical scroll on a Windows Precision Touchpad, while the modifier is held, produces the same zoom behavior as the mouse wheel. The continuous (non-notched) nature of touchpad scroll input produces correspondingly smooth, continuous zoom changes. Zoom direction is the touchpad's own (AC-2.1.31): by default fingers moving up zoom in, like rolling the wheel away, whatever Windows' touchpad scrolling direction, and it can be reversed for the touchpad alone (AC-2.9.21).
 
 ### 2B. Zoom Scaling Model
 
@@ -94,6 +96,24 @@ Where a criterion involves timing, distances, or thresholds, the stated value is
 **AC-2.1.23** — With `Shift` as the modifier and "Block Sticky Keys prompt" on (the default, in the settings window), pressing `Shift` five times in a row while SmoothZoom runs does not open the Windows "Turn on Sticky Keys?" prompt. If Sticky Keys itself is already on, SmoothZoom leaves it completely unchanged. With `Win` or `Alt` as the modifier, or with the setting off, Windows behaves as if SmoothZoom were not running.
 
 **AC-2.1.24** — The Sticky Keys shortcut always returns to the user's own setting: when SmoothZoom exits normally, when it crashes, when the modifier changes away from `Shift`, and when "Block Sticky Keys prompt" is turned off (the last two immediately, no restart). SmoothZoom never writes the user's saved accessibility settings. If SmoothZoom is killed, the shortcut stays blocked until the next sign-out or the next SmoothZoom exit, whichever comes first.
+
+### 2H. Scroll Gestures and Coasting
+
+*A **scroll gesture** is one continuous run of scroll events: a wheel spin, or a two-finger touchpad swipe together with the coast (inertia) Windows adds after the fingers lift.*
+
+**AC-2.1.25** — A scroll gesture starts on the first scroll event after a new touchpad contact (no finger on the touchpad, then a finger down), or after a pause of more than 150 ms since the previous scroll event. Pauses inside one swipe or coast (39–80 ms in the TEMPLAPTOP recordings) never split it. Touching the touchpad while a touchpad gesture is coasting is handled by AC-2.1.28.
+
+**AC-2.1.26** — The modifier state at a gesture's first event decides its mode: zoom or pass-through. The mode does not change until the gesture ends. Releasing the modifier during a zoom gesture does not hand the rest of it to the application: no page scroll follows a zoom flick.
+
+**AC-2.1.27** — A pass-through gesture never zooms, even if the modifier is pressed while it is still moving (for example, `Shift` pressed for `Shift`+click while a page-scroll flick is coasting). Its events, including the coast, keep reaching the application.
+
+**AC-2.1.28** — With "Keep zooming after a flick" on (the default, AC-2.9.23), a touchpad zoom gesture keeps zooming through its coast after the fingers lift and after the modifier is released, until the coast ends. Touching the touchpad stops the coast: from the touch on, the coast's remaining events (Windows sends them for another 15–100 ms) neither zoom nor reach the application. A page-scroll coast that is touched lets its remaining events reach the application as before. The next stroke of the fingers starts a new gesture (AC-2.1.25/26).
+
+**AC-2.1.29** — With "Keep zooming after a flick" off, a touchpad zoom gesture stops zooming when the fingers lift. The rest of its coast is consumed and never reaches the application.
+
+**AC-2.1.30** — Each scroll event belongs to the touchpad while a finger is on it (a resting palm does not count), while a touchpad gesture is coasting, or when a two-finger touch lifted less than 150 ms before a gesture's first event; otherwise it belongs to the mouse. The coast setting applies to the touchpad only: a mouse-wheel gesture (detented, free-spinning or high-resolution) zooms for its whole length, its own physical coast included. A mouse-wheel event that arrives while a touchpad gesture is coasting cannot be told apart from the coast and is treated as part of it. Touchpads that do not report Precision Touchpad contacts are treated as a mouse: their gestures end only on a pause, and the coast setting has no effect on them.
+
+**AC-2.1.31** — A touchpad gesture zooms the same way in every application, whichever path delivers it (wheel messages, or the touchpad's raw reports in apps such as Edge), and whatever Windows' touchpad scrolling direction: by default fingers moving up (away from the user) zoom in. "Reverse direction" in the Touchpad section flips it (AC-2.9.21). Limitation: in apps that take touchpad input directly (Edge, File Explorer), SmoothZoom sees only finger motion, so the zoom stops when the fingers lift whatever the coast setting, and the app also receives the gesture (R-30).
 
 ---
 
@@ -413,6 +433,28 @@ Where a criterion involves timing, distances, or thresholds, the stated value is
 **AC-2.9.18** — When "Start zoomed" is ON, SmoothZoom applies the configured default zoom level immediately on launch. The zoom animation plays after the desktop is visible.
 
 **AC-2.9.19** — When "Start zoomed" is OFF (the default), SmoothZoom starts at 1.0× and waits for user input to engage zoom.
+
+### 10F. Touchpad and Mouse
+
+**AC-2.9.20** — Touchpad sensitivity and mouse sensitivity are separate settings, each 0.1×–5.0× (default 1.0×). Each scales the zoom produced by its own device only (AC-2.1.30) and takes effect immediately.
+
+**AC-2.9.21** — Reverse direction is a separate setting for the touchpad and for the mouse (both off by default: fingers up, or the wheel rolled away, zoom in). Each flips only its own device, immediately.
+
+**AC-2.9.22** — A configuration file written before the touchpad settings existed (schema version below 2) copies its scroll sensitivity and reverse-direction values into the touchpad settings on load, and is saved as schema 2 on the next write. A fresh install uses the defaults. Note: the touchpad direction no longer follows Windows' scrolling direction (AC-2.1.31), so an upgraded user with Windows natural scrolling on sees the touchpad zoom the other way than before until they turn its "Reverse direction" on.
+
+**AC-2.9.23** — "Keep zooming after a flick" (the touchpad coast, AC-2.1.28–29) is on by default, persisted, and takes effect on the next gesture.
+
+### 10G. Settings Window
+
+**AC-2.9.24** — The settings window groups its controls into sections: Activation (modifier, keyboard shortcuts, block Sticky Keys prompt, toggle keys), Zoom (minimum, maximum, default level, keyboard step, animation speed, start zoomed), Touchpad (sensitivity, reverse direction, keep zooming after a flick), Mouse (sensitivity, reverse direction), Tracking (keyboard focus, text cursor), Display (color inversion) and Startup (start with Windows), in two columns. At 150% scaling on a 1920 × 1200 display the whole window fits the work area without scrolling, and no text or control is clipped. There is no image-smoothing control (it is always on, AC-2.3.07; the setting is kept in the file).
+
+**AC-2.9.25** — Text uses the system message font (Segoe UI) at the window's own DPI. The window opens on the monitor under the pointer at that monitor's scale. Moving it to a monitor with a different scale (e.g. a projector) resizes the window to the size Windows suggests and re-scales its text and layout.
+
+**AC-2.9.26** — Touchpad and mouse sensitivity are sliders (0.1×–5.0× in 0.1 steps) that show their current value beside them. The other numeric settings are edit boxes.
+
+**AC-2.9.27** — The "Keyboard shortcuts" checkbox shows the same setting as the tray item (AC-2.8.13). Toggling the tray item while the window is open updates the checkbox; Apply with the checkbox changed changes the setting, and the tray item shows it.
+
+**AC-2.9.28** — The Tab key moves through the controls in visual order (left column top to bottom, then the right column, then Apply and Close). Every slider, edit box and drop-down takes its accessible name from its visible label.
 
 ---
 

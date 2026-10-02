@@ -6,7 +6,7 @@
 
 **Version:** 1.1
 **Status:** Baselined
-**Last Updated:** 2026-06-18
+**Last Updated:** 2026-10-02
 **Prerequisites:** Documents 1–4 of this series
 
 > **Status (2026-06-18):** Phases 0–6 are complete, so most mitigations below are **implemented** (see the per-risk "Implementation note" callouts): MagBridge isolation (R-01), proportional mapping in place of a per-frame input transform (R-04), the 5-second hook watchdog (R-05), UIA rectangle validation + `IUIAutomation6` connection timeout (R-09, R-11), display-change handling (R-16), double-precision zoom math with epsilon snap (R-17), crash handler + dirty-shutdown sentinel (R-14), and session lock/unlock with transient-key reset (R-15, R-21). The **active** risks for the Phase 7 verification campaign (`07_v1.0_Release_Verification_PRD.md`) are **R-18** (performance on the Intel UHD 620 reference machine — adaptive frame-rate held in reserve) and residual **R-06** (intermittent Start Menu suppression, AC-2.1.16) to confirm or close. **R-07 / R-08** (modifier conflicts, touchpad formats) are partially mitigated by the input-interop P0 `ScrollNormalizer` and the `scrollSensitivity` setting; deeper per-device work is the deferred Phase 8.
@@ -15,7 +15,7 @@
 
 ## 1. How to Read This Document
 
-Each risk is assigned a unique identifier (R-01 through R-32) and rated on two dimensions:
+Each risk is assigned a unique identifier (R-01 through R-35) and rated on two dimensions:
 
 **Likelihood** — how probable is it that this risk materializes?
 - **Low:** Unlikely given current evidence, but not impossible.
@@ -240,6 +240,8 @@ These risks concern the global low-level hooks that intercept mouse and keyboard
 
 **Mitigation:** The trade-off is documented (Scope §2.1, AC-2.1.22). `Win` and `Alt` remain selectable for users who rely on `Shift`+Scroll. Plain, `Ctrl`+ and `Alt`+wheel always pass through (unit-tested, `test_WheelDecision.cpp`).
 
+**Update 2026-10-02 (gesture mode lock, AC-2.1.25–27):** what is swallowed is now decided per gesture, by the modifier at its first event, not per event. Two consequences. (a) Slightly more is swallowed: the rest of a Shift-started wheel spin or touchpad coast is consumed after `Shift` is released, until a 150 ms pause, a new touch, or the coast's end (the zoom keeps going, or with the coast setting off the coast is swallowed). Before, those events leaked into the app as page scroll. (b) Less is swallowed: `Shift` pressed in the middle of a plain scroll (e.g. to Shift+click while a page is still coasting) no longer turns the rest into a zoom, so those events reach the app. Switching from page scroll to zoom now needs a pause of more than 150 ms (R-34).
+
 **Contingency:** A per-application exclusion list, or a "Shift+Scroll passes through in these apps" setting. Both are out of v1.0 scope.
 
 ---
@@ -290,6 +292,8 @@ These risks concern the global low-level hooks that intercept mouse and keyboard
 
 **Contingency:** A touchpad-only direction setting (Phase 8, input interoperability).
 
+**Update 2026-10-02 (mitigated, AC-2.1.31, AC-2.9.21):** the touchpad now has its own direction. A touchpad event (attributed by contact state, AC-2.1.30) has Windows' natural-scrolling flip undone, so fingers moving up zoom in whatever Windows' setting, like the wheel rolled away. It has its own "Reverse direction" setting, separate from the mouse's. Verified first that the old paths agreed with each other: in `shift-touchpad-flick.csv` (natural scrolling on) the PTP rows hand over to hook rows mid-swipe with the same sign, so the hook did get Windows' flip and the PTP path matched it. **Residual:** (1) a touchpad event attributed to the mouse (a touchpad without PTP contact reports, or a lost contact report) still follows Windows' setting and the mouse's reverse setting. (2) An upgraded user with natural scrolling on (as on TEMPLAPTOP) sees the touchpad zoom the other way than before. The migration copies the old reverse setting as instructed (AC-2.9.22), so the user turns the touchpad's "Reverse direction" on if they preferred the old way.
+
 ---
 
 ### R-30: Shift+Two-Finger Scroll Cannot Be Swallowed in Direct-Manipulation Apps
@@ -305,6 +309,8 @@ These risks concern the global low-level hooks that intercept mouse and keyboard
 **Observed 2026-10-01 (TEMPLAPTOP, AC):** confirmed. In the `shift-touchpad-edge` recording all 811 events arrived only on the PTP path (the hook saw none), and Edge scrolled sideways while SmoothZoom zoomed.
 
 **Mitigation:** None in v1.0 beyond documentation. The mouse wheel is consumed correctly in the same apps, because wheel input goes through the hook.
+
+**Update 2026-10-02 (gesture mode lock):** the PTP path now feeds the same gesture tracker as the hook (AC-2.1.25–27). In these apps: a gesture that starts without `Shift` never zooms, even if `Shift` goes down mid-gesture (better than before). A zoom gesture keeps zooming if `Shift` is released mid-swipe, and the app, which no longer sees `Shift`, then scrolls vertically instead of sideways. The app generates its own coast, which SmoothZoom never sees, so the zoom stops at the lift whatever the coast setting (AC-2.1.31). Swallowing is impossible on this path, so "Swallow" just means "not zoomed".
 
 **Contingency:** Investigate suppressing the gesture at the source (e.g. a per-window `DirectManipulation` interaction hook). This is research-grade, so it goes to Phase 8.
 
@@ -326,6 +332,54 @@ These risks concern the global low-level hooks that intercept mouse and keyboard
 1. Document it, and point users to Settings → Accessibility → Keyboard → Sticky keys → turn off "Keyboard shortcut for Sticky keys". This is a one-time user action.
 2. While SmoothZoom runs, clear only the Sticky Keys *hotkey* flag (`SKF_HOTKEYACTIVE`) via `SystemParametersInfo(SPI_SETSTICKYKEYS)` without persisting it, and restore it on exit and in the crash handler. This is Microsoft's documented pattern for games ("Disabling Shortcut Keys in Games"), applied only when Sticky Keys itself is off. It changes an accessibility setting on behalf of users of an accessibility tool, so it needs an explicit product decision and an AC.
 3. Return the default modifier to `Win` (R-07's original rationale), keeping `Shift` as an option.
+
+---
+
+### R-33: A Mouse-Wheel Event Is Attributed to the Touchpad (or the Reverse)
+
+| Attribute | Value |
+|-----------|-------|
+| Likelihood | **Low–Medium** (needs mouse and touchpad in use at the same moment) |
+| Impact | **Low–Medium** (wrong sensitivity/direction for that gesture; with the coast off, wheel notches swallowed) |
+| First Exposed | 2026-10-02 (per-device settings, AC-2.1.30) |
+
+**Description:** The hook cannot tell which device a `WM_MOUSEWHEEL` came from, so attribution uses Precision Touchpad contact state (no delta-size heuristics: high-resolution wheels send small deltas too). Misattributions: (a) a finger resting on the touchpad while the mouse wheel turns makes the wheel a touchpad gesture (touchpad sensitivity and direction; under natural scrolling the direction differs from the mouse's); (b) a wheel notch during a touchpad coast joins the coast, and with the coast setting off it is swallowed; (c) a touchpad without PTP contact reports is always "mouse", so it follows Windows' direction and the mouse settings, and the coast setting does nothing for it.
+
+**Mitigation:** Palms (PTP Confidence clear) are not contacts. Contacts not refreshed for 250 ms count as lifted. The "recent lift" rule needs a two-finger touch, so a one-finger pointer move doesn't claim the next wheel event. A coast lasts at most a few hundred ms. Documented in AC-2.1.30, unit-tested (`test_ScrollGesture.cpp`).
+
+**Contingency:** Per-device attribution through Raw Input `hDevice` (handoff B1) once the Raw Input / PTP paths are consolidated (#6), which would let a real mouse event be recognized even during a coast.
+
+---
+
+### R-34: Gesture Boundaries Are Heuristic
+
+| Attribute | Value |
+|-----------|-------|
+| Likelihood | **Medium** |
+| Impact | **Low** (one gesture's worth of zoom or scroll in the wrong mode) |
+| First Exposed | 2026-10-02 (mode lock, AC-2.1.25–28) |
+
+**Description:** Gestures end on a 150 ms pause, a new contact, or (after a touch during a coast) a new stroke of a quarter notch of two-finger travel. A user who switches from page scroll to Shift+scroll within 150 ms keeps scrolling the page until a pause; one who releases Shift and immediately scrolls keeps zooming. A slower touchpad or a heavily loaded system could stretch in-gesture gaps past 150 ms and split a coast; a stroke threshold that is too low lets a touch's jitter end the touch-stop early (leftovers then start a new gesture), too high swallows the start of a new stroke (seen live: the first ~0.1 notch of a stroke after a touch).
+
+**Mitigation:** The pause was derived from the recordings (in-gesture ≤ 75 ms, between gestures ≥ 144 ms: twice the longest in-gesture gap). Touch-to-stop was checked against two live recordings (`bench/traces-recorded-gestures/`): leftovers swallowed or passed as intended, the stroke signal 14–85 ms after the touch. Both constants are in `ScrollGesture.h`.
+
+**Contingency:** Tune from more recordings on other hardware (Phase 8 B-items); expose nothing to users unless a real device needs it.
+
+---
+
+### R-35: Settings Window Scaling on Other Monitors
+
+| Attribute | Value |
+|-----------|-------|
+| Likelihood | **Low** |
+| Impact | **Low** (cosmetic) |
+| First Exposed | 2026-10-02 (DPI-aware settings window, AC-2.9.24–25) |
+
+**Description:** The window is laid out for its own DPI and re-laid out on `WM_DPICHANGED`. That path was not exercised on hardware (no second display during development). Trackbar thumbs and combo-box heights are drawn by Common Controls and may scale differently from the hand layout at unusual scales (e.g. 175%, 225%). The two-column layout must fit a 1280 × 720 work area at 100% too; it is 636 × 526 DIPs, so it does at 100% and 150% on 1080p, but not at 200% on a 1366 × 768 panel.
+
+**Mitigation:** Verified at 150% on TEMPLAPTOP by GDI capture (`tools/capture-settings.ps1`: fits, nothing clipped). Hand check on a projector.
+
+**Contingency:** A scrollable or single-column fallback when the work area is smaller than the window.
 
 ---
 
@@ -766,9 +820,12 @@ The native Windows Magnifier has this same issue — `Win+Plus`/`Win+Minus` may 
 | R-26 | Shift+Scroll swallowed in every application | High | Medium | 7 | Input |
 | R-27 | Driver/Options+ converts Shift+wheel to HWHEEL | Low–Medium | Medium | 5 | Input |
 | R-28 | `+` and `_` untypeable with shortcuts on (Shift modifier) | High | Medium | 7 | Input |
-| R-29 | Touchpad vs mouse zoom direction under natural scrolling | High | Low | 1 | Input |
+| R-29 | Touchpad vs mouse zoom direction under natural scrolling (mitigated 2026-10-02: touchpad direction of its own) | High | Low | 1 | Input |
 | R-30 | Shift+two-finger not swallowed in DManip apps (confirmed in Edge) | High | Medium | 1 | Input |
 | R-31 | Repeated Shift presses trigger the Sticky Keys prompt (mitigated: AC-2.1.23–24) | High | Medium | 7 | Input |
+| R-33 | Wheel event attributed to the wrong device | Low–Medium | Low–Medium | 7 (2026-10-02) | Input |
+| R-34 | Gesture boundaries are heuristic (150 ms pause, stroke threshold) | Medium | Low | 7 (2026-10-02) | Input |
+| R-35 | Settings window scaling on other monitors | Low | Low | 7 (2026-10-02) | UI |
 
 ---
 

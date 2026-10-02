@@ -26,16 +26,18 @@ Every hook callback must:
 
 ```
 WH_MOUSE_LL callback:
-  WM_MOUSEWHEEL + modifier held → atomic-add delta to scrollAccumulator,
-                                   mark Win used for zoom (ONLY if modifier is Win),
-                                   return 1 (CONSUME)
-  WM_MOUSEHWHEEL + Shift modifier held → same, delta negated (R-27)
+  WM_MOUSEWHEEL (or WM_MOUSEHWHEEL with the Shift modifier, delta negated, R-27):
+    stamp lastLLHookScrollTime; verdict = gesture tracker (ScrollGesture.h)
+      Zoom    → add delta to the mouse or touchpad accumulator,
+                mark Win used for zoom (ONLY if modifier is Win), return 1 (CONSUME)
+      Swallow → return 1 (CONSUME, no zoom: coast of a zoom gesture, coast off / touch-stopped)
+      Pass    → return CallNextHookEx (PASS THROUGH)
   WM_MOUSEMOVE                  → write (x, y) to shared state,
                                    return CallNextHookEx (PASS THROUGH)
   Everything else               → return CallNextHookEx (PASS THROUGH)
 ```
 
-**Only `WM_MOUSEWHEEL` with the modifier held is consumed** (plus `WM_MOUSEHWHEEL` when Shift is the modifier). All other mouse events pass through unconditionally. Consuming the wrong event breaks other applications. (AC-2.1.02) The default modifier is **Shift**, so Shift+wheel is swallowed in every app (R-26). The decision is `decideWheel` in `WheelDecision.h` and must never depend on the keyboard-shortcuts setting (AC-2.1.22).
+**Only wheel events of a zoom gesture are consumed.** A scroll gesture's mode is set by the modifier at its **first** event and holds until the gesture ends (a new touchpad contact, or a pause > 150 ms; AC-2.1.25–29). So the rest of a Shift-started spin or coast is consumed after Shift is released, and a gesture that started without Shift passes through even if Shift goes down mid-gesture. All other mouse events pass through unconditionally. Consuming the wrong event breaks other applications. (AC-2.1.02) The default modifier is **Shift**, so Shift+wheel is swallowed in every app (R-26). The decision is `decideWheelInGesture` (the gesture's mode fed to `decideWheel`) in `WheelDecision.h`; it must never depend on the keyboard-shortcuts setting (AC-2.1.22). The tracker is one main-thread instance shared with the PTP / Raw Input handlers (`InputInterceptor::onTouchpadScroll` / `onRawWheel` / `onTouchpadContacts` / `onTouchpadStroke`): a few comparisons, no allocation (R-05).
 
 **Do NOT rely on `WM_MOUSEMOVE` from the hook for pointer position in the RenderLoop.** These events are unreliable when the fullscreen magnifier is active. The RenderLoop reads pointer position via `GetCursorPos()` directly. The hook writes to shared state as a secondary signal only.
 

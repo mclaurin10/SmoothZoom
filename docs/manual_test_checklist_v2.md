@@ -345,6 +345,13 @@ legend:
 | AC-2.1.22 | Shift modifier: Shift keys never consumed; only Shift+wheel consumed; works with shortcuts off | UT (KeyDecision, WheelDecision); injected wheel 10-01 (zoom in on wheel-up; plain/Ctrl/Alt pass); real wheel + touchpad recorded 10-01 (shortcuts off: every Shift-held event drove zoom). Sticky Keys prompt appeared in several runs (R-31, fixed by AC-2.1.23); Edge scrolled sideways with Shift+two-finger (R-30) |
 | AC-2.1.23 | Shift modifier + setting on: 5× Shift opens no Sticky Keys prompt; Sticky Keys itself untouched if on; Win/Alt or setting off: unchanged | UT (StickyKeysPolicy); flags 510→498 while running, Win untouched, 10-01 — real 5× Shift prompt check pending |
 | AC-2.1.24 | Shortcut restored on exit, crash, modifier change, setting off; profile never written; kill repaired on next exit | UT; exit 498→510, kill→relaunch→exit 510, profile stays 510, 10-01 — modifier change / setting toggle live pending |
+| AC-2.1.25 | Gesture starts on a new contact or after a > 150 ms pause; 39–80 ms pauses don't split it | UT (ScrollGesture); gesture check 10-02 (`bench/gesture-traces/`) |
+| AC-2.1.26 | Modifier at a gesture's first event decides zoom/pass until it ends; no page scroll after a zoom flick | UT; gesture check; live recording 10-02 (`touch-stop-coast.csv`: 19 gestures with Shift changing mid-gesture, all kept their first mode) |
+| AC-2.1.27 | Pass-through gesture never zooms, Shift pressed mid-coast included | UT; gesture check; live recording 10-02 (as above) |
+| AC-2.1.28 | Coast on: zoom continues through the coast after lift/release; touching the pad stops it (leftovers neither zoom nor pass) | UT; gesture check; live recording 10-02 (`touch-stop-validate.csv`: leftovers after a touch all swallowed, replay = live on 858 events) — feel by hand pending |
+| AC-2.1.29 | Coast off: zoom stops at lift, coast swallowed | UT; gesture check (coast-off runs) — live pending |
+| AC-2.1.30 | Touchpad vs mouse attribution; coast setting never on a wheel; non-PTP touchpads = mouse | UT; gesture check (`wheel-shift-released`) — mixed mouse+touchpad live pending |
+| AC-2.1.31 | Touchpad direction the same in every app and under either Windows setting (default fingers up = zoom in) | UT (Direction); recorded PTP→hook handover has matching signs — Edge vs Terminal by hand pending |
 
 ### 2.2 Smooth Zoom Animation (10)
 
@@ -451,6 +458,15 @@ legend:
 | AC-2.9.16 | Tray "Exit": animate to 1.0× then exit | ⚠→🔧 06-21 — animates to 1.0× ✅; process-hang HARDENED (shutdown watchdog + forced-exit, ≤5 s guaranteed; build+ctest pass). Clean-boot repro of original hang + termination re-verify on rebuilt signed build still pending. See Resolution log. |
 | AC-2.9.17 | Start with Windows | — |
 | AC-2.9.18/19 | Start zoomed on/off | — |
+| AC-2.9.20 | Separate touchpad / mouse sensitivity, each on its own device only | UT (ZoomController, SettingsManager) — live pending |
+| AC-2.9.21 | Separate touchpad / mouse reverse direction | UT (RenderLoop path by code review) — live pending |
+| AC-2.9.22 | Schema < 2 copies scroll values into the touchpad settings; saved as 2 | UT (SettingsManager: fresh, upgraded default, upgraded custom) |
+| AC-2.9.23 | "Keep zooming after a flick" default on, persisted, immediate | UT (defaults); gesture check with a coast-off config — tray/window toggle live pending |
+| AC-2.9.24 | Settings window sections, two columns, fits 150% work area, nothing clipped | ✅ 10-02 GDI capture (`tools/capture-settings.ps1`): 976×845 px in 1920×1152, no control outside the client area |
+| AC-2.9.25 | System message font at window DPI; opens on pointer's monitor; WM_DPICHANGED re-scales | ◑ 10-02 font/DPI 144 verified in capture — move to a projector pending |
+| AC-2.9.26 | Sensitivity sliders with value | ✅ 10-02 capture (1.0× shown) — drag by hand pending |
+| AC-2.9.27 | Keyboard shortcuts checkbox in sync with the tray item | — (tray click blocked by UIPI for scripts) |
+| AC-2.9.28 | Tab order = visual order; labels name the fields | ◑ 10-02 Z-order dump: every edit/combo/slider directly follows its label; Narrator pending |
 
 ### 2.10 Color Inversion (5)
 

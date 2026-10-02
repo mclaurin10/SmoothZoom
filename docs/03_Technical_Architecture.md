@@ -141,13 +141,12 @@ Threads communicate through shared state structures protected by lightweight syn
 
 The mouse hook callback:
 1. Reads `MSLLHOOKSTRUCT` from `lParam`.
-2. If the event is `WM_MOUSEWHEEL` and the configured modifier (default `Shift`) is currently held:
-   a. Extracts scroll delta from `HIWORD(mouseData)`.
-   b. Atomically adds delta to the scroll accumulator.
-   c. Marks the Win key as used for zoom (WinKeyManager) **only if the modifier is Win**.
-   d. Returns `1` (consume the event — do not pass to next hook).
+2. If the event is a zoom candidate (`WM_MOUSEWHEEL`, or `WM_MOUSEHWHEEL` with the Shift modifier):
+   a. Stamps `lastLLHookScrollTime` (the Raw Input / PTP fallbacks stand down for 50 ms).
+   b. Asks the scroll-gesture tracker for the event's verdict (`ScrollGestureTracker::onScroll`, below): the modifier is tested only when the event starts a gesture.
+   c. **Zoom:** adds the delta to its device's accumulator (mouse, or touchpad in the touchpad's own direction), marks the Win key as used for zoom (WinKeyManager) **only if the modifier is Win**, returns `1`. **Swallow:** returns `1` without zooming. **Pass:** `CallNextHookEx(...)`.
 
-   The decision is the pure function `decideWheel` (`WheelDecision.h`, §7.3). It does not depend on the "Keyboard shortcuts" setting: Shift+scroll zooms with shortcuts on or off. Plain, Ctrl+ and Alt+wheel pass through when Shift is the modifier. `WM_MOUSEHWHEEL` is a zoom candidate only when Shift is the modifier (a driver may convert Shift+wheel to horizontal scroll, R-27); it is negated so scroll-up still zooms in.
+   The decision is `decideWheelInGesture` (`WheelDecision.h`, §7.3): the gesture's mode stands in for the modifier test of the pure `decideWheel`. It does not depend on the "Keyboard shortcuts" setting: Shift+scroll zooms with shortcuts on or off. Plain, Ctrl+ and Alt+wheel pass through when Shift is the modifier. `WM_MOUSEHWHEEL` is a zoom candidate only when Shift is the modifier (a driver may convert Shift+wheel to horizontal scroll, R-27); it is negated so scroll-up still zooms in.
 3. If the event is `WM_MOUSEMOVE`:
    a. Writes pointer position (x, y) to shared state.
    b. Returns `CallNextHookEx(...)` (pass through).
@@ -166,22 +165,51 @@ The keyboard hook callback:
 
 **Sticky Keys shortcut (AC-2.1.23–24, R-31):** Windows opens the Sticky Keys prompt when `Shift` is pressed five times in a row, and zooming with a `Shift` modifier does exactly that. InputInterceptor's settings observer (main thread, never a hook callback) applies a pure policy, `StickyKeysPolicy.h` (unit-tested). It acts only when `blockStickyKeysShortcut` is on, `Shift` is the modifier, and Sticky Keys itself is off. Then it clears only `SKF_HOTKEYACTIVE | SKF_CONFIRMHOTKEY` via `SystemParametersInfo(SPI_SETSTICKYKEYS)` with `fWinIni = 0`, so the change is never written to the profile. The bits are restored when the condition stops holding, in `uninstall()` on normal exit, and in `crashHandler()` (`InputInterceptor::crashRestoreStickyKeys`, POD state only). The restore value comes from the persisted profile (`HKCU\Control Panel\Accessibility\StickyKeys` `Flags`), so a run that was killed before it could restore is repaired by the next run's exit. Sign-out also restores, because nothing was persisted. Since a failed config load notifies no observers, `main.cpp` notifies them once with the defaults so a fresh install starts suppressing.
 
+**Scroll gestures (`ScrollGesture.h`, AC-2.1.25–31, handoff B3):**
+
+Every scroll path asks one `ScrollGestureTracker` (a pure header, no Win32, unit-tested in `test_ScrollGesture.cpp`) for each event's verdict: **Zoom**, **Swallow** (consume, don't zoom) or **Pass**, and for its device (mouse or touchpad). The hook, the PTP and Raw Input handlers in `main.cpp` (through `InputInterceptor::onTouchpadScroll` / `onRawWheel` / `onTouchpadContacts` / `onTouchpadStroke`) and the `--bench` replay all run on the main thread and share the one instance, so a swipe that starts on the PTP path and continues on the hook (as it does in Windows Terminal) keeps one mode. The tracker is a few comparisons on member state: hook-safe (R-05).
+
+```
+gesture start  = first scroll event after (a) a new touchpad contact (0 fingers -> >= 1)
+                 or (b) a pause > kGesturePauseUs (150 ms) since the previous event
+mode           = modifier held at that first event ? Zoom : Pass      (fixed until the gesture ends)
+device         = touchpad if a confident contact is down, or the event comes from the PTP path,
+                 or a two-finger touch lifted <= 150 ms before; else mouse      (fixed per gesture)
+per event:
+  Pass gesture                                   -> Pass
+  Zoom gesture, touch-stopped (see below)        -> Swallow
+  Zoom gesture, touchpad, fingers up, coast off  -> Swallow
+  otherwise                                      -> Zoom
+touch during a touchpad coast -> the gesture stays (touch-stopped) until the fingers start a new
+                 stroke (PTP: kTouchpadStrokeStartUnits = 1/4 notch of two-finger travel since the
+                 touch, reported before the hook dedup) or a pause; then the next event starts anew
+```
+
+- **Pause threshold, 150 ms:** derived from the recorded traces (`bench/traces/recorded/`, `bench/hardware/wheel-observe.csv`): the longest pause inside one gesture is 75 ms (slow two-finger drag; coast tails pause 39–62 ms), separate gestures were ≥ 144 ms apart. 150 ms is twice the longest in-gesture pause.
+- **Contacts:** `handlePtpHidReport` counts touching fingers per report (tip switch, and Confidence when the device reports it, so a resting palm is not a contact) and calls `onTouchpadContacts` for every report. Contacts not refreshed for 250 ms (`kContactStaleUs`) count as lifted.
+- **Touch-to-stop:** Windows does not end the hook-path coast on a new contact. In a live recording (`bench/traces-recorded-gestures/touch-stop-coast.csv`), about half of 60 touches during a coast were followed by 15–100 ms more of the coast's wheel events. Those leftovers therefore stay in the old gesture (a zoom's are swallowed, a page scroll's still pass) until the new stroke. Verified live in `touch-stop-validate.csv`.
+- **Raw Input / PTP cannot consume:** on those paths Swallow simply means "not zoomed"; the application gets the input anyway (R-30). In Direct Manipulation apps (Edge, File Explorer) the coast is generated inside the app, so SmoothZoom sees only finger motion and the zoom stops at the lift.
+- **No PTP contact data** (non-PTP touchpads): no contact reports arrive, so every event is a mouse event; gestures end only on a pause and the coast setting has no effect.
+
+**Per-device accumulators and direction (AC-2.9.20–21, AC-2.1.31):** zooming deltas go to `scrollAccumulator` (mouse) or `touchpadScrollAccumulator`. A touchpad delta is first put in the touchpad's own direction, fingers up = positive, by undoing Windows' natural-scrolling flip (`touchpadCanonicalDelta`). The hook sees the flip applied by Windows. The PTP path first converts finger motion to the hook's convention (`ptpToHookConvention`, as before). So the same motion zooms the same way on both paths and under either Windows setting. `RenderLoop` drains both accumulators each frame, applies each device's reverse setting, and calls `ZoomController::applyScrollDelta(delta, age, device)`, which uses that device's sensitivity. The zoom model is unchanged, and the log model is additive, so two calls in one frame equal one combined call. The notch-smoothing input stamp (`lastScrollInputQpc`) is written for mouse events only.
+
 **Precision Touchpad (PTP) support via Raw Input:**
 
 Precision Touchpad devices deliver scroll gestures as HID reports through Raw Input (`WM_INPUT`) rather than synthesized `WM_MOUSEWHEEL` messages. InputInterceptor registers for Raw Input from HID touchpad devices and parses the reports to detect two-finger vertical scroll:
 
 1. On `WM_INPUT`, the HID preparsed data is queried via `HidP_GetCaps` and `HidP_GetValueCaps` to locate Contact Count (usage 0x54) and per-contact link collections.
 2. Each frame's report is walked contact-by-contact, extracting Contact ID, Tip Switch state, and Y position via `HidP_GetUsageValue` / `HidP_GetUsages`.
-3. When exactly two contacts are active, the average Y delta is computed and converted to `WHEEL_DELTA` units (120 per notch) using a tunable device-units-per-notch constant.
-4. The resulting delta is accumulated to the shared scroll accumulator atomically, following the same path as LL hook scroll events.
+3. Every report updates the touching-finger count for the gesture tracker (above).
+4. When two contacts are active, the average Y delta is computed, checked against the stroke threshold (before the dedup), and converted to `WHEEL_DELTA` units (120 per notch, `ScrollNormalizer`) in the hook's direction convention.
+5. Unless the hook delivered scroll within 50 ms, each whole-unit step goes to `InputInterceptor::onTouchpadScroll` with the live modifier state; it zooms only if its gesture is a zoom gesture.
 
 **LL Hook vs. Raw Input scroll deduplication:**
 
-Some Precision Touchpad drivers deliver scroll events through both the low-level mouse hook (`WM_MOUSEWHEEL`) and Raw Input (`WM_INPUT`) simultaneously. To prevent double-counting, the LL hook callback records a timestamp (`lastLLHookScrollTime`) on every scroll event. The Raw Input and PTP HID handlers check this timestamp and discard their event if an LL hook scroll was processed within the last 50ms.
+Some Precision Touchpad drivers deliver scroll events through both the low-level mouse hook (`WM_MOUSEWHEEL`) and Raw Input (`WM_INPUT`) simultaneously. To prevent double-counting, the LL hook callback records a timestamp (`lastLLHookScrollTime`) on every zoom-candidate scroll event, whatever its gesture's mode (before the gesture lock it was stamped only for consumed events). The Raw Input and PTP HID handlers check this timestamp and discard their event if an LL hook scroll was processed within the last 50ms.
 
 **Scroll normalization (`ScrollNormalizer`):**
 
-All three scroll-ingest paths — the LL hook (`WM_MOUSEWHEEL`/`WM_MOUSEHWHEEL`), Raw Input mouse (`WM_INPUT`/`RIM_TYPEMOUSE`), and the PTP HID two-finger gesture — converge on a single `std::atomic<int32_t> scrollAccumulator`, drained once per frame by `RenderLoop::frameTick` via `exchange(0)`. A pure, header-only helper, `ScrollNormalizer` (`include/smoothzoom/input/ScrollNormalizer.h`, no Win32 dependency, unit-tested), converts each device's raw input into device-independent "wheel-equivalent units" (120 = one notch). For precision touchpads it normalizes the per-contact Y delta against the device's own logical-axis range and carries a float remainder for continuous sub-notch scrolling. `ZoomController` then applies the user's `scrollSensitivity` multiplier before the logarithmic zoom model.
+All three scroll-ingest paths — the LL hook (`WM_MOUSEWHEEL`/`WM_MOUSEHWHEEL`), Raw Input mouse (`WM_INPUT`/`RIM_TYPEMOUSE`), and the PTP HID two-finger gesture — converge on two accumulators, `scrollAccumulator` (mouse) and `touchpadScrollAccumulator`, drained once per frame by `RenderLoop::frameTick` via `exchange(0)`. A pure, header-only helper, `ScrollNormalizer` (`include/smoothzoom/input/ScrollNormalizer.h`, no Win32 dependency, unit-tested), converts each device's raw input into device-independent "wheel-equivalent units" (120 = one notch). For precision touchpads it normalizes the per-contact Y delta against the device's own logical-axis range and carries a float remainder for continuous sub-notch scrolling. `ZoomController` then applies the device's sensitivity multiplier (`scrollSensitivity` for the mouse, `touchpadSensitivity` for the touchpad) before the logarithmic zoom model.
 
 > **Implementation-location note:** The Raw Input registration and PTP HID parsing currently live in `src/app/main.cpp` (main-thread `WM_INPUT` handling, off the render hot path), not yet in this component. Consolidating all three paths behind one Input-layer funnel is a behavior-preserving refactor scheduled for the deferred Phase 8 (`input-interop-handoff.md` item #6). The architecture treats this as known debt, not a design change.
 
@@ -644,7 +672,7 @@ If the application crashes without running this sequence, the screen may be left
 
 ```
 struct SettingsSnapshot {
-    int     schemaVersion;          // kSettingsSchemaVersion (currently 1)
+    int     schemaVersion;          // kSettingsSchemaVersion (currently 2)
     int     modifierKeyVK;          // VK_LSHIFT default (kDefaultModifierVK); VK_LWIN, VK_LMENU also valid (Ctrl excluded)
     int     toggleKey1VK;           // VK_LCONTROL  (temporary-toggle combo, key 1)
     int     toggleKey2VK;           // VK_LMENU     (temporary-toggle combo, key 2)
@@ -659,8 +687,11 @@ struct SettingsSnapshot {
     bool    followKeyboardFocus;    // true
     bool    followTextCursor;       // true
     bool    colorInversionEnabled;  // false (persisted; toggled by Ctrl+Alt+I)
-    float   scrollSensitivity;      // 1.0  (0.1–5.0; input-interop P0)
-    bool    momentumZoom;           // true (input-interop P0; gating logic is Phase 8)
+    bool    reverseScrollDirection; // false: mouse wheel away zooms in (AC-2.9.21)
+    float   scrollSensitivity;      // 1.0  (0.1–5.0): mouse (AC-2.9.20)
+    bool    momentumZoom;           // true: touchpad coast keeps zooming (AC-2.1.28–29, AC-2.9.23)
+    float   touchpadSensitivity;    // 1.0  (0.1–5.0), schema 2 (AC-2.9.20)
+    bool    touchpadReverseScrollDirection; // false: fingers up zoom in, whatever Windows' direction (AC-2.9.21)
     bool    keyboardShortcutsEnabled; // false on fresh install; true for an existing config without the key
     bool    blockStickyKeysShortcut;  // true; only acts while Shift is the modifier (AC-2.1.23)
 };
@@ -670,7 +701,7 @@ struct SettingsSnapshot {
 
 **Shift default and upgrades (2026-10-01):** A fresh install (no `config.json`) starts with `Shift` as the modifier and keyboard shortcuts **off**. An existing `config.json` keeps its saved modifier. If it has no `keyboardShortcutsEnabled` key (written before the setting existed), it loads as **on**, so upgrading users keep their shortcuts. The first save writes the key, so this rule applies once.
 
-**Schema versioning:** `schemaVersion` (constant `kSettingsSchemaVersion`, currently `1`) is stamped on every save. A legacy config without the key is read as version 0 and migrated forward on first save, so new fields can be introduced without silently discarding a user's existing settings.
+**Schema versioning:** `schemaVersion` (constant `kSettingsSchemaVersion`, currently `2`) is stamped on every save. A legacy config without the key is read as version 0 and migrated forward on first save, so new fields can be introduced without silently discarding a user's existing settings. **Schema 2 (2026-10-02):** separate touchpad settings. A file below version 2 copies `scrollSensitivity` / `reverseScrollDirection` into `touchpadSensitivity` / `touchpadReverseScrollDirection` on load (AC-2.9.22); a version-2 file missing either key gets the same copy.
 
 **Observer pattern:** Components that need to respond to settings changes (e.g., InputInterceptor needs to know the modifier key, WinKeyManager needs to know if Win is the modifier) register as observers. When the settings pointer is swapped, observers are notified on the main thread. This is a low-frequency event (only when the user changes a setting) so performance is not a concern.
 
@@ -684,7 +715,11 @@ struct SettingsSnapshot {
 
 **Explorer restart detection:** At startup, TrayUI registers for the `TaskbarCreated` window message via `RegisterWindowMessageW(L"TaskbarCreated")`. Windows broadcasts this message when `explorer.exe` restarts (e.g., after a crash or Shell update). On receipt, TrayUI calls `Shell_NotifyIcon` to re-add the tray icon, ensuring the icon remains visible without requiring a manual application restart.
 
-**Settings window:** A lightweight modal dialog or modeless window built with either Win32 dialogs or a minimal WinUI 3 / WPF UI. The window displays all settings from the SettingsSnapshot and writes changes back through SettingsManager. Complexity is intentionally low — this is a single-page settings panel, not a multi-tab wizard.
+**Settings window (AC-2.9.24–28):** a modeless top-level window of standard Win32 controls (Common Controls v6 visual styles via the manifest; no dark mode, no owner draw). It shows the settings in two columns of group boxes: Activation, Zoom | Touchpad, Mouse, Tracking, Display, Startup. Touchpad and mouse sensitivity are trackbars (0.1×–5.0×, 0.1 steps) with their value beside them. Apply writes the snapshot through SettingsManager and saves `config.json`.
+- **DPI:** the window is created hidden on the monitor under the pointer, takes that monitor's DPI (`GetDpiForWindow`), and is sized with `AdjustWindowRectExForDpi`. Text uses the system message font (`SystemParametersInfoForDpi(SPI_GETNONCLIENTMETRICS)`, Segoe UI) for that DPI. `WM_DPICHANGED` recreates the font, re-lays out the controls and takes the suggested rectangle.
+- **Layout:** one walk (`TrayUI::layoutSettingsControls`) creates the controls on the first call and repositions them on DPI changes, in DIPs scaled by the DPI. Creation order is the visual order, so it is also the tab order, and each field's label is the static just before it, which is where MSAA takes its accessible name from.
+- The "Keyboard shortcuts" checkbox mirrors the tray item; `toggleKeyboardShortcuts` updates it while the window is open. The image-smoothing checkbox was removed (the field stays for compatibility, R-01).
+- `tools\capture-settings.ps1` (dev builds, `--open-settings`) screenshots it with GDI and checks it fits the work area.
 
 ---
 
@@ -912,10 +947,11 @@ Added in Phase 7 (2026-10-01) to tune zoom smoothness per machine with a build �
 
 | Argument | Effect |
 |---|---|
-| `--record <file>` | Normal operation, plus a trace CSV of every wheel message the `WH_MOUSE_LL` hook sees (QPC, WHEEL/HWHEEL, delta, `MSLLHOOKSTRUCT::flags` incl. injected, Shift/Ctrl/Alt/Win, cursor, the hook's modifier verdict, consumed). Also records the Raw Input and PTP accumulator writes in `main.cpp` (kinds `RAW`/`PTP`), because precision-touchpad scroll in Direct-Manipulation apps never reaches the hook. Does not change behavior: loads `config.json` as usual (pass `--config` for test runs). Creates the trace's folder. If the file still cannot be opened it exits at once with code 12 instead of running unrecorded. `--timeout S` is the normal way to end a recording (exit 0). |
+| `--record <file>` | Normal operation, plus a trace CSV of every wheel message the `WH_MOUSE_LL` hook sees (QPC, WHEEL/HWHEEL, delta, `MSLLHOOKSTRUCT::flags` incl. injected, Shift/Ctrl/Alt/Win, cursor, the hook's modifier verdict, consumed). Also records every Raw Input and PTP scroll decision in `main.cpp` (kinds `RAW`/`PTP`, with the modifier state and whether it zoomed), because precision-touchpad scroll in Direct-Manipulation apps never reaches the hook, and the touchpad contact changes (`CONTACT`, delta = fingers down) and new-stroke signals (`STROKE`) the gesture tracker uses (§3.1). The header adds `touchpad_natural`, `touchpad_reverse`, `touchpad_sensitivity` and `touchpad_coast`. Does not change behavior: loads `config.json` as usual (pass `--config` for test runs). Creates the trace's folder. If the file still cannot be opened it exits at once with code 12 instead of running unrecorded. `--timeout S` is the normal way to end a recording (exit 0). |
 | `--bench <trace> --out <dir>` | Replays a trace at its recorded timestamps from the **main thread**, through the hook's own decision (§7.3) and side effects. The render thread consumes the input as in production and drives the real `MagSetFullscreenTransform`. Writes `frames.csv`, `events.csv` and `summary.json`. Uses built-in default settings plus the trace's `modifier_vk`, and never saves. It loads a config only when `--config` names one. Modal dialogs become exit codes. |
 | `--config <path>` | Use this `config.json` instead of `%APPDATA%\SmoothZoom\config.json`. `smoothzoom.log` and the `.running` sentinel go next to it. **Use it for every test and bench run**, so the user's real config, log and crash sentinel are never touched. A path that does not exist means built-in defaults (a "fresh install"), and normal mode creates the file on the first settings change or on exit. `run-bench.ps1` passes `<run dir>\config.json`. |
 | `--cold` | Bench without the warm-up, to measure the first gesture after launch (R-24). |
+| `--open-settings` | Open the settings window at launch (for `tools\capture-settings.ps1`). |
 | `--no-cursor`, `--settle-ms N`, `--label S` | Don't `SetCursorPos` to trace positions; quiet time after the last event (default 750 ms); free-form label in the summary. |
 | `--timeout S`, `--selfkill-ms N` | Watchdog: request a clean exit after S s (bench default 180 s); `TerminateProcess` after N ms with no cleanup (kill test). |
 | `--reset` | Same sequence as the stale-sentinel recovery (`MagBridge::initialize` + `shutdown`: cursor shown, 1.0×, input transform off, identity color effect). Exits. Runs before the single-instance check. |
@@ -935,7 +971,7 @@ No component boundary moves. `Magnification.h` stays confined to MagBridge (the 
 
 ### 7.3 WheelDecision (compiled in all builds)
 
-`include/smoothzoom/input/WheelDecision.h` holds the `WM_MOUSEWHEEL`/`WM_MOUSEHWHEEL` decision as a pure, header-only function: `wheelIsZoomCandidate`, `decideWheel` → `{consume, accumulatorDelta, markWinUsedForZoom}`, and `modifierHeldFromState`. The mouse hook calls it, and `--bench` calls the same function through `InputInterceptor::devInjectWheel`, so replay and live input cannot diverge. It is behavior-preserving: the modifier test is still evaluated lazily (horizontal wheel only with a Shift modifier), and int16 negation matches the old code (`tests/unit/test_WheelDecision.cpp`). The keyboard hook's shortcut decisions were extracted the same way into `KeyDecision.h` (2026-10-01, `tests/unit/test_KeyDecision.cpp`).
+`include/smoothzoom/input/WheelDecision.h` holds the `WM_MOUSEWHEEL`/`WM_MOUSEHWHEEL` decision as a pure, header-only function: `wheelIsZoomCandidate`, `decideWheel` → `{consume, accumulatorDelta, markWinUsedForZoom}`, and `modifierHeldFromState`. The mouse hook calls it, and `--bench` calls the same function through `InputInterceptor::devInjectWheel`, so replay and live input cannot diverge. Since the gesture lock (2026-10-02) the hook calls `decideWheelInGesture`, which feeds `decideWheel` the gesture's mode instead of the live modifier test and zeroes the delta of a swallowed event; `decideWheel` itself is unchanged. It is behavior-preserving: the modifier test is still evaluated lazily (horizontal wheel only with a Shift modifier), and int16 negation matches the old code (`tests/unit/test_WheelDecision.cpp`). The keyboard hook's shortcut decisions were extracted the same way into `KeyDecision.h` (2026-10-01, `tests/unit/test_KeyDecision.cpp`).
 
 ### 7.4 Bench Metrics and Gate Criteria (yardstick v2, frozen at tag `loop-start`)
 
@@ -985,7 +1021,7 @@ Baseline under v2 (`e90ca18`, before tuning): 49 of 172 checks fail, all in four
 
 ### 7.5 Trace Format
 
-CSV with `# key: value` metadata lines (`modifier_vk`, `screen`, `qpc_freq`, `power`, …) and a header row. The required columns are `t_us,source,delta`; the optional ones are `qpc,flags,injected,shift,ctrl,alt,win,x,y,mod_held,consumed`. `source` is one of `WHEEL | HWHEEL | RAW | PTP | MARK` (MARK delta 1/2 bracket a round-trip segment). Coordinates are physical pixels (PerMonitorV2). The synthetic traces are produced deterministically by `tools/bench/gen_synthetic.py` into `bench/traces/synthetic/`.
+CSV with `# key: value` metadata lines (`modifier_vk`, `screen`, `qpc_freq`, `power`, …) and a header row. The required columns are `t_us,source,delta`; the optional ones are `qpc,flags,injected,shift,ctrl,alt,win,x,y,mod_held,consumed`. `source` is one of `WHEEL | HWHEEL | RAW | PTP | MARK | CONTACT | STROKE` (MARK delta 1/2 bracket a round-trip segment; CONTACT delta = touchpad fingers down after a change; STROKE = the fingers started a new stroke). Replay applies the trace's `touchpad_natural` (default 0), not the live Windows setting. Traces without CONTACT rows replay exactly as before: their hook events are mouse events and RAW/PTP rows (all recorded with the modifier held) zoom. `events.csv` gains two trailing columns, `action` (zoom/swallow/pass) and `device`; the existing metrics ignore them, and CONTACT/STROKE rows are not inputs (consumed = 0). The scroll-gesture traces in `bench/gesture-traces/` (generated by `tools/bench/gen_gesture_traces.py`) are outside `bench/traces/`, so the smoothness gate does not bench them; `tools/bench/check-gestures.ps1` runs each with the coast on and off (`run-bench.ps1 -ConfigTemplate`) and `check_gestures.py` checks the verdicts. Live recordings of the gesture behavior are in `bench/traces-recorded-gestures/`. Coordinates are physical pixels (PerMonitorV2). The synthetic traces are produced deterministically by `tools/bench/gen_synthetic.py` into `bench/traces/synthetic/`.
 
 ### 7.6 Deploy Loop, Security and Exit Safety
 

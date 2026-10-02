@@ -11,11 +11,11 @@ Five core design docs, a v1.0 verification PRD, and a research report specify th
 | Doc | File | Covers |
 |-----|------|--------|
 | 1 — Scope | `01_Project_Scope_and_Non-Scope.md` | In/out of scope, success criteria, constraints, settings |
-| 2 — Behavior Spec | `02_Behavior_Specification.md` | 145 acceptance criteria (139 baselined + 6 added 2026-10-01; AC-numbered). The authority on behavior. |
+| 2 — Behavior Spec | `02_Behavior_Specification.md` | 161 acceptance criteria (139 baselined + 6 added 2026-10-01 + 16 added 2026-10-02; AC-numbered). The authority on behavior. |
 | 3 — Architecture | `03_Technical_Architecture.md` | Components, threading, data flow, pseudocode, build/deploy |
 | 4 — Phases | `04_Phased_Delivery_Plan.md` | Phases 0–8: exit criteria, AC-to-phase mapping (0–6 delivered, 7 verifying, 8 deferred) |
 | 5 — Risks | `05_Technical_Risks_and_Mitigations.md` | 22 risks (R-01–R-22) with mitigations |
-| 7 — Verification PRD | `07_v1.0_Release_Verification_PRD.md` | v1.0 release verification & certification: perf audit, AC sweep (now 145), exit criteria |
+| 7 — Verification PRD | `07_v1.0_Release_Verification_PRD.md` | v1.0 release verification & certification: perf audit, AC sweep (now 161), exit criteria |
 
 Cite **AC numbers** for behavior (e.g., AC-2.1.06), **risk IDs** for technical concerns (e.g., R-05), and **exit criteria** for phase gates (e.g., E1.4).
 
@@ -86,7 +86,7 @@ All feature phases (0–6) are delivered. Each phase produced a runnable, testab
 | 4 | Temporary Toggle | Ctrl+Alt hold-to-peek, bidirectional, state preservation | Done |
 | 5 | Settings, Tray, Persistence | config.json, settings window, tray icon, configurable modifier/shortcuts | Done |
 | 6 | Polish & Hardening | Color inversion, multi-monitor, crash recovery, conflict detection, hook watchdog, schema versioning | Done |
-| 7 | v1.0 Release Verification | Performance audit (E6.12), 145-AC manual sweep (E6.13), interactive/elevated test matrix → certified, signed v1.0 | **Current** |
+| 7 | v1.0 Release Verification | Performance audit (E6.12), 161-AC manual sweep (E6.13), interactive/elevated test matrix → certified, signed v1.0 | **Current** |
 | 8 | Input Interoperability | Scroll-sensitivity/momentum settings UI, consolidate Raw Input/PTP into the Input layer, per-device robustness, pinch-feasibility spike | Deferred (post-1.0) |
 
 > **Input-interop P0 has already landed** ahead of Phase 8: `ScrollNormalizer` (device-independent scroll units), continuous precision-touchpad scroll, and the `scrollSensitivity` / `momentumZoom` settings fields. The remaining interop work (settings UI, input-layer consolidation, robustness, pinch spike) is Phase 8 — see `docs/input-interop-handoff.md`.
@@ -101,7 +101,7 @@ Each component has a single responsibility. No component reaches into another's 
 - **WinKeyManager** is factored out of InputInterceptor for testability of the Win key state machine. It is fed Win key events **only when Win is the configured modifier**; with Shift (default) or Alt it stays idle and never injects.
 - **Default modifier is Shift** (`kDefaultModifierVK`, since 2026-10-01). An existing config keeps its saved modifier. A persisted **"Keyboard shortcuts"** setting (tray menu, `keyboardShortcutsEnabled`) gates modifier+Plus/Minus/Esc, the Ctrl+Alt peek and Ctrl+Alt+I. It is off on a fresh install and on for an existing config without the key. Win+Ctrl+M is never gated. Scroll-gesture zoom never depends on it. Decisions live in the pure headers `WheelDecision.h` / `KeyDecision.h`.
 - **Sticky Keys shortcut** (5× Shift prompt) is suppressed while Shift is the modifier (`blockStickyKeysShortcut`, opt-out, AC-2.1.23–24, R-31). In-memory only (`fWinIni = 0`), never while Sticky Keys is on, and restored on exit, modifier/setting change and in the crash handler. Policy in `StickyKeysPolicy.h`.
-- **InputInterceptor** consumes keyboard events only for the four zoom keys (`VK_OEM_PLUS`, `VK_ADD`, `VK_OEM_MINUS`, `VK_SUBTRACT`), only while keyboard shortcuts are on and the configured modifier is held — on both key-down and key-up, injected or not. It never consumes a modifier key (Shift included). This prevents a `+`/`_` character leak when the modifier is Shift (and from peripheral macros that synthesize `Shift+=`/`Shift+-`). All other keyboard events pass through (observe-only). It consumes scroll events only when the modifier is held.
+- **InputInterceptor** consumes keyboard events only for the four zoom keys (`VK_OEM_PLUS`, `VK_ADD`, `VK_OEM_MINUS`, `VK_SUBTRACT`), only while keyboard shortcuts are on and the configured modifier is held — on both key-down and key-up, injected or not. It never consumes a modifier key (Shift included). This prevents a `+`/`_` character leak when the modifier is Shift (and from peripheral macros that synthesize `Shift+=`/`Shift+-`). All other keyboard events pass through (observe-only). It consumes scroll events only of a **zoom gesture**: the modifier at a gesture's first event decides zoom or pass-through until the gesture ends (new touchpad contact or a 150 ms pause; touch-to-stop for coasts). One `ScrollGestureTracker` (`ScrollGesture.h`, pure, unit-tested) serves the hook and the PTP / Raw Input paths in `main.cpp`. Touchpad events have their own accumulator, sensitivity and direction (fingers up = zoom in, independent of Windows' natural scrolling); the touchpad coast (`momentumZoom`) never applies to a mouse wheel.
 - **ViewportTracker** arbitrates between sources: active typing → Caret; recent focus change (after 100ms debounce) → Focus; otherwise → Pointer. Transitions between sources animate over 200ms.
 - **ZoomController** has four modes: IDLE, SCROLL_DIRECT, ANIMATING, TOGGLING. Uses `double` internally for zoom math, converts to `float` only at the API boundary. Snaps to 1.0× within epsilon 0.005. (R-17)
 
