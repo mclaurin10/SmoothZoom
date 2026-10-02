@@ -48,7 +48,9 @@ public:
     // kAnchorMinStepFraction of the way from prevZoom (so the zoom stays
     // monotone and keeps an even pace). It prefers the candidate whose on-screen
     // anchor error (zoom * (ideal - round(ideal)), per axis) moves less than
-    // 1 px from prevErr, then the smallest error, then the smallest nudge.
+    // 1 px from prevErr; a larger move is cheap if it continues the axis's last
+    // >= 1 px move (prevDir, -1/0/+1) and expensive if it reverses it (a
+    // snap-back); then the smallest error, then the smallest nudge.
     // Offsets are rounded with lround, as MagBridge does.
     struct AnchorAlign
     {
@@ -60,7 +62,8 @@ public:
                                           bool havePrevErr, float prevErrX, float prevErrY,
                                           int32_t pointerX, int32_t pointerY,
                                           int32_t screenW, int32_t screenH,
-                                          int32_t originX = 0, int32_t originY = 0);
+                                          int32_t originX = 0, int32_t originY = 0,
+                                          int prevDirX = 0, int prevDirY = 0);
 
     // On-screen anchor error for the pointer at this zoom with rounded offsets.
     static AnchorAlign anchorError(float zoom, int32_t pointerX, int32_t pointerY,

@@ -76,7 +76,12 @@ static bool s_deadzoneInitialized = false;
 static float   s_anchorErrX = 0.0f, s_anchorErrY = 0.0f;
 static int32_t s_anchorPtrX = 0, s_anchorPtrY = 0;
 static bool    s_anchorValid = false;
+static int     s_anchorDirX = 0, s_anchorDirY = 0;   // direction of each axis's last >= 1 px anchor move
 static float   s_prevTrueZoom = 1.0f;
+static int     s_framesSinceTrueZoomChange = 0;
+// After the true zoom stops, the shown zoom closes any remaining alignment lag
+// over at most this many frames (at least half of it per frame), then lands.
+static constexpr int kAnchorCatchUpFrames = 3;
 
 // Phase 3: Source tracking state — all pre-allocated, no heap on hot path.
 static int64_t s_lastPointerMoveTimeMs = 0;  // Updated on ANY pointer movement (WS2A fix)
@@ -595,21 +600,37 @@ void RenderLoop::frameTick()
     //      pixel grid. Monotone and never ahead (ViewportTracker); at rest the
     //      exact zoom is shown, so resting levels and round trips are unchanged.
     const float trueZoom = zoom;
+    const bool trueZoomChanged = (zoom != s_prevTrueZoom);
+    s_framesSinceTrueZoomChange = trueZoomChanged ? 0 : s_framesSinceTrueZoomChange + 1;
     if (newSource == TrackingSource::Pointer && s_activeSource == TrackingSource::Pointer
         && !s_sourceTransitionActive && zoom > 1.0f)
     {
         const bool samePtr = s_anchorValid
             && s_anchorPtrX == s_committedPtrX && s_anchorPtrY == s_committedPtrY;
+        if (!samePtr)
+            s_anchorDirX = s_anchorDirY = 0;
+        // Align while the zoom moves, and while closing a leftover lag for a
+        // few frames after it stops (touchpad input between events). Not on
+        // the frame where the controller comes to rest (Idle): that frame must
+        // show the exact zoom, or landing on it costs one more frame.
+        const bool moving = trueZoomChanged
+            && s_zoomController.mode() != ZoomController::Mode::Idle;
+        const bool catchingUp = !trueZoomChanged && s_lastZoom != zoom
+            && s_framesSinceTrueZoomChange < kAnchorCatchUpFrames;
         ViewportTracker::AnchorAlign a;
-        // Not on the frame where the controller comes to rest (Idle): that
-        // frame must show the exact zoom, or landing on it costs one more frame.
-        if (zoom != s_prevTrueZoom && s_lastZoom > 1.0f
-            && s_zoomController.mode() != ZoomController::Mode::Idle)
+        if ((moving || catchingUp) && s_lastZoom > 1.0f)
             a = ViewportTracker::alignZoomForAnchor(zoom, s_lastZoom, samePtr, s_anchorErrX, s_anchorErrY,
-                    s_committedPtrX, s_committedPtrY, s_screenW, s_screenH, s_screenOriginX, s_screenOriginY);
+                    s_committedPtrX, s_committedPtrY, s_screenW, s_screenH, s_screenOriginX, s_screenOriginY,
+                    s_anchorDirX, s_anchorDirY);
         else
             a = ViewportTracker::anchorError(zoom, s_committedPtrX, s_committedPtrY,
                     s_screenW, s_screenH, s_screenOriginX, s_screenOriginY);
+        if (samePtr)
+        {
+            const float mx = a.errX - s_anchorErrX, my = a.errY - s_anchorErrY;
+            if (mx >= 1.0f || mx <= -1.0f) s_anchorDirX = (mx > 0.0f) ? 1 : -1;
+            if (my >= 1.0f || my <= -1.0f) s_anchorDirY = (my > 0.0f) ? 1 : -1;
+        }
         zoom = a.zoom;
         s_anchorErrX = a.errX;
         s_anchorErrY = a.errY;
@@ -620,6 +641,7 @@ void RenderLoop::frameTick()
     else
     {
         s_anchorValid = false;
+        s_anchorDirX = s_anchorDirY = 0;
     }
     s_prevTrueZoom = trueZoom;
 

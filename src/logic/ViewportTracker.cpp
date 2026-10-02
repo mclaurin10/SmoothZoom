@@ -71,7 +71,8 @@ ViewportTracker::AnchorAlign ViewportTracker::alignZoomForAnchor(float zoom, flo
                                                                 bool havePrevErr, float prevErrX, float prevErrY,
                                                                 int32_t pointerX, int32_t pointerY,
                                                                 int32_t screenW, int32_t screenH,
-                                                                int32_t originX, int32_t originY)
+                                                                int32_t originX, int32_t originY,
+                                                                int prevDirX, int prevDirY)
 {
     if (zoom <= 1.0f || prevZoom <= 0.0f || zoom == prevZoom)
         return anchorError(zoom, pointerX, pointerY, screenW, screenH, originX, originY);
@@ -87,10 +88,19 @@ ViewportTracker::AnchorAlign ViewportTracker::alignZoomForAnchor(float zoom, flo
     if (hi <= lo)
         return anchorError(zoom, pointerX, pointerY, screenW, screenH, originX, originY);
 
+    // A move under ~1 px is free; a larger one that keeps the axis's direction
+    // is a drift (mild); one that reverses it is a visible snap-back.
+    auto axisCost = [](double m, int dir) {
+        double over = std::fabs(m) - 0.9;
+        if (over <= 0.0)
+            return 0.0;
+        bool reverses = dir != 0 && ((m > 0.0) != (dir > 0));
+        return (reverses ? 10.0 : 2.0) * over;
+    };
     auto cost = [&](const AnchorAlign& a) {
-        double motion = havePrevErr ? std::max(std::fabs(a.errX - prevErrX), std::fabs(a.errY - prevErrY)) : 0.0;
+        double motion = havePrevErr ? axisCost(a.errX - prevErrX, prevDirX) + axisCost(a.errY - prevErrY, prevDirY) : 0.0;
         double err = std::max(std::fabs(a.errX), std::fabs(a.errY));
-        return 10.0 * std::max(0.0, motion - 0.9) + 0.01 * err + 50.0 * std::fabs(std::log(a.zoom / z));
+        return motion + 0.01 * err + 50.0 * std::fabs(std::log(a.zoom / z));
     };
 
     AnchorAlign best = anchorError(zoom, pointerX, pointerY, screenW, screenH, originX, originY);
