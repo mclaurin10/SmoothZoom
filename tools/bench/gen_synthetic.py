@@ -6,6 +6,9 @@ taken from what tools/observe-wheel.ps1 recorded on TEMPLAPTOP
 precision-touchpad WM_MOUSEWHEEL at ~7 ms spacing with small deltas, a large
 first event and an inertia tail.
 
+Every wheel event holds Shift (the default scroll-gesture modifier, AC-2.1.04),
+and the header names VK_LSHIFT, so --bench replays with Shift as the modifier.
+
 Round-trip MARKs (delta 1 = begin, 2 = end) bracket segments that stay inside
 the zoom band where ZoomController's soft bounds do not attenuate
 ([1.41x, 7.08x] for min 1, max 10; ZoomController.cpp:35). So any round-trip
@@ -31,8 +34,8 @@ class Trace:
     def wait_ms(self, ms):
         self.t_us += int(round(ms * 1000))
 
-    def wheel(self, delta, win=1):
-        self.rows.append((self.t_us, "WHEEL", int(delta), 0, 0, 0, win, self.x, self.y))
+    def wheel(self, delta, shift=1):
+        self.rows.append((self.t_us, "WHEEL", int(delta), shift, 0, 0, 0, self.x, self.y))
 
     def mark(self, kind):
         self.rows.append((self.t_us, "MARK", kind, 0, 0, 0, 0, self.x, self.y))
@@ -42,7 +45,7 @@ class Trace:
         with open(path, "w", newline="\n") as f:
             f.write("# smoothzoom-trace: 1\n# kind: synthetic\n")
             f.write(f"# description: {self.desc}\n")
-            f.write(f"# screen: {width}x{height} origin 0,0\n# modifier_vk: 0x5B\n")
+            f.write(f"# screen: {width}x{height} origin 0,0\n# modifier_vk: 0xA0\n")
             f.write("# generator: tools/bench/gen_synthetic.py\n")
             f.write(COLS + "\n")
             for r in self.rows:
