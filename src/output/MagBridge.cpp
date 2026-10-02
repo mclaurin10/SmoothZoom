@@ -79,6 +79,21 @@ void MagBridge::shutdown()
     initialized_ = false;
 }
 
+bool MagBridge::warmUp()
+{
+    if (!initialized_)
+        return false;
+
+    // The first MagSetFullscreenTransform away from 1.0x after MagInitialize
+    // blocks ~160 ms on TEMPLAPTOP while DWM builds the magnifier; later ones
+    // are fast. 1.0001x moves the screen edge by 0.2 px and is reset at once.
+    BOOL ok = MagSetFullscreenTransform(1.0001f, 0, 0);
+    MagSetFullscreenTransform(1.0f, 0, 0);
+    if (!ok)
+        lastError_ = GetLastError();
+    return ok != FALSE;
+}
+
 bool MagBridge::setTransform(float magnification, float xOffset, float yOffset)
 {
     if (!initialized_)

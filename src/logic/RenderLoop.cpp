@@ -242,6 +242,21 @@ void RenderLoop::threadMain()
     running_.store(true, std::memory_order_release);
     initComplete_.store(true, std::memory_order_release);
 
+    // R-24 cold start: take DWM's one-time magnifier setup now, not on the
+    // user's first zoom. After initComplete_ so startup on the main thread is
+    // not held; scroll input arriving meanwhile accumulates as usual. Skipped
+    // while another magnifier owns the transform (AC-ERR.01).
+    if (!magnifierConflictDetected_.load(std::memory_order_relaxed))
+    {
+        LARGE_INTEGER t0, t1, f;
+        QueryPerformanceFrequency(&f);
+        QueryPerformanceCounter(&t0);
+        bool warmed = s_magBridge.warmUp();
+        QueryPerformanceCounter(&t1);
+        SZ_LOG_INFO("RenderLoop", L"Magnifier warm-up %s in %.1f ms", warmed ? L"done" : L"FAILED",
+                    double(t1.QuadPart - t0.QuadPart) * 1000.0 / double(f.QuadPart));
+    }
+
     // Frame pacing loop (Doc 3 §3.7):
     //   frameTick() → pump messages → DwmFlush() → repeat
     // The PeekMessage pump is required for MagSetFullscreenTransform offsets
