@@ -1,0 +1,1734 @@
+﻿{
+    "created":  "2026-10-01T22:33:55.8630589-07:00",
+    "criteria":  "C:\\src\\SmoothZoom\\bench\\criteria.json",
+    "runs":  5,
+    "power":  [
+                  "AC"
+              ],
+    "status":  "fail",
+    "stalls":  [
+
+               ],
+    "results":  [
+                    {
+                        "Trace":  "shift-touchpad-edge",
+                        "Id":  "C-01",
+                        "Metric":  "completed",
+                        "Op":  "==",
+                        "Threshold":  true,
+                        "Value":  true,
+                        "Runs":  "True / True / True / True / True",
+                        "Pass":  true
+                    },
+                    {
+                        "Trace":  "shift-touchpad-edge",
+                        "Id":  "C-02",
+                        "Metric":  "uiaccess",
+                        "Op":  "==",
+                        "Threshold":  true,
+                        "Value":  true,
+                        "Runs":  "True / True / True / True / True",
+                        "Pass":  true
+                    },
+                    {
+                        "Trace":  "shift-touchpad-edge",
+                        "Id":  "C-03",
+                        "Metric":  "counts.updates_failed",
+                        "Op":  "==",
+                        "Threshold":  0,
+                        "Value":  0,
+                        "Runs":  "0 / 0 / 0 / 0 / 0",
+                        "Pass":  true
+                    },
+                    {
+                        "Trace":  "shift-touchpad-edge",
+                        "Id":  "C-04",
+                        "Metric":  "counts.frames_dropped",
+                        "Op":  "==",
+                        "Threshold":  0,
+                        "Value":  0,
+                        "Runs":  "0 / 0 / 0 / 0 / 0",
+                        "Pass":  true
+                    },
+                    {
+                        "Trace":  "shift-touchpad-edge",
+                        "Id":  "C-05",
+                        "Metric":  "derived.gesture.refreshes.missed_pct",
+                        "Op":  "\u003c=",
+                        "Threshold":  1.0,
+                        "Value":  0.5305039787798409,
+                        "Runs":  "0.5305039787798409 / 0.5263157894736842 / 0.5305039787798409 / 0.5305039787798409 / 0.7772020725388601",
+                        "Pass":  true
+                    },
+                    {
+                        "Trace":  "shift-touchpad-edge",
+                        "Id":  "C-06",
+                        "Metric":  "derived.gesture.refreshes.multi_update",
+                        "Op":  "==",
+                        "Threshold":  0,
+                        "Value":  0,
+                        "Runs":  "0 / 0 / 0 / 0 / 0",
+                        "Pass":  true
+                    },
+                    {
+                        "Trace":  "shift-touchpad-edge",
+                        "Id":  "C-07",
+                        "Metric":  "derived.gesture.update_interval_periods.p95",
+                        "Op":  "\u003c=",
+                        "Threshold":  1.10,
+                        "Value":  1.0758326483347149,
+                        "Runs":  "1.0716110567778498 / 1.0753822015288295 / 1.076101447797092 / 1.075832648334715 / 1.0771502456995004",
+                        "Pass":  true
+                    },
+                    {
+                        "Trace":  "shift-touchpad-edge",
+                        "Id":  "C-08",
+                        "Metric":  "derived.gesture.update_interval_periods.max",
+                        "Op":  "\u003c=",
+                        "Threshold":  1.5,
+                        "Value":  2.0455999088001673,
+                        "Runs":  "2.034877930244101 / 2.066618266473085 / 2.04301991396015 / 2.0455999088001673 / 2.9902740194519457",
+                        "Pass":  false
+                    },
+                    {
+                        "Trace":  "shift-touchpad-edge",
+                        "Id":  "C-09",
+                        "Metric":  "late_ticks",
+                        "Op":  "==",
+                        "Threshold":  0,
+                        "Value":  0,
+                        "Runs":  "0 / 0 / 0 / 0 / 0",
+                        "Pass":  true
+                    },
+                    {
+                        "Trace":  "shift-touchpad-edge",
+                        "Id":  "C-10",
+                        "Metric":  "set_call_ms.max",
+                        "Op":  "\u003c=",
+                        "Threshold":  2.0,
+                        "Value":  0.4567,
+                        "Runs":  "0.3562 / 0.4455 / 0.4798 / 0.5069 / 0.4567",
+                        "Pass":  true
+                    },
+                    {
+                        "Trace":  "shift-touchpad-edge",
+                        "Id":  "C-11",
+                        "Metric":  "cold_start.max_set_call_ms",
+                        "Op":  "\u003c=",
+                        "Threshold":  16.667,
+                        "Value":  0.0729,
+                        "Runs":  "0.1144 / 0.1024 / 0.0729 / 0.072 / 0.0562",
+                        "Pass":  true
+                    },
+                    {
+                        "Trace":  "shift-touchpad-edge",
+                        "Id":  "C-12",
+                        "Metric":  "derived.gesture.latency_ms.input_to_update.p95",
+                        "Op":  "\u003c=",
+                        "Threshold":  17.0,
+                        "Value":  15.7473200000004,
+                        "Runs":  "15.7473200000004 / 15.734995000000344 / 15.728019999999834 / 15.799715000002651 / 16.002359999998408",
+                        "Pass":  true
+                    },
+                    {
+                        "Trace":  "shift-touchpad-edge",
+                        "Id":  "C-13",
+                        "Metric":  "derived.gesture.latency_ms.input_to_next_vblank.p95",
+                        "Op":  "\u003c=",
+                        "Threshold":  33.4,
+                        "Value":  30.878809999999795,
+                        "Runs":  "30.878809999999795 / 30.676334999998833 / 30.897809999999843 / 30.797674999999252 / 31.07616000000089",
+                        "Pass":  true
+                    },
+                    {
+                        "Trace":  "shift-touchpad-edge",
+                        "Id":  "C-14",
+                        "Metric":  "derived.gesture.settle_ms.max",
+                        "Op":  "\u003c=",
+                        "Threshold":  100.0,
+                        "Value":  45.522500000000946,
+                        "Runs":  "44.69760000000133 / 45.522500000000946 / 45.365499999999884 / 46.55040000000008 / 48.765300000000934",
+                        "Pass":  true
+                    },
+                    {
+                        "Trace":  "shift-touchpad-edge",
+                        "Id":  "C-15",
+                        "Metric":  "derived.anchor_rel.p95",
+                        "Op":  "\u003c=",
+                        "Threshold":  1.0,
+                        "Value":  0.97351920482915755,
+                        "Runs":  "0.9735192048291577 / 0.9747381217734017 / 0.9647734949458702 / 0.9632500685614643 / 0.9759014096099008",
+                        "Pass":  true
+                    },
+                    {
+                        "Trace":  "shift-touchpad-edge",
+                        "Id":  "C-16",
+                        "Metric":  "derived.anchor_rel.max",
+                        "Op":  "\u003c=",
+                        "Threshold":  1.01,
+                        "Value":  0.998737015660936,
+                        "Runs":  "0.9986867215693565 / 0.9981199953162729 / 0.9987370156609359 / 0.9998338022601061 / 0.9998674816732773",
+                        "Pass":  true
+                    },
+                    {
+                        "Trace":  "shift-touchpad-edge",
+                        "Id":  "C-17",
+                        "Metric":  "roundtrip_error_pct_max",
+                        "Op":  "\u003c=",
+                        "Threshold":  0.1,
+                        "Value":  null,
+                        "Runs":  "null / null / null / null / null",
+                        "Pass":  null
+                    },
+                    {
+                        "Trace":  "shift-touchpad-edge",
+                        "Id":  "C-18",
+                        "Metric":  "derived.anchor_snapback.pct",
+                        "Op":  "\u003c=",
+                        "Threshold":  15.0,
+                        "Value":  0.8928571428571429,
+                        "Runs":  "0.8928571428571429 / 1.7699115044247788 / 0.8928571428571429 / 2.0833333333333335 / 0.5813953488372093",
+                        "Pass":  true
+                    },
+                    {
+                        "Trace":  "shift-touchpad-edge",
+                        "Id":  "C-19",
+                        "Metric":  "derived.gesture.zoom_wobble.pct",
+                        "Op":  "\u003c=",
+                        "Threshold":  0.5,
+                        "Value":  0,
+                        "Runs":  "0.0 / 0.0 / 0.0 / 0.0 / 0.0",
+                        "Pass":  true
+                    },
+                    {
+                        "Trace":  "shift-touchpad-edge",
+                        "Id":  "C-20",
+                        "Metric":  "derived.gesture.half_response_ms.p95",
+                        "Op":  "\u003c=",
+                        "Threshold":  40.0,
+                        "Value":  11.639274999999316,
+                        "Runs":  "11.639274999999316 / 11.24405999999943 / 12.389420000000971 / 9.54644000000016 / 13.555049999999937",
+                        "Pass":  true
+                    },
+                    {
+                        "Trace":  "shift-touchpad-edge",
+                        "Id":  "C-21",
+                        "Metric":  "derived.gesture.latency_ms.input_to_update.p95",
+                        "Op":  "\u003c=",
+                        "Threshold":  16.5,
+                        "Value":  15.7473200000004,
+                        "Runs":  "15.7473200000004 / 15.734995000000344 / 15.728019999999834 / 15.799715000002651 / 16.002359999998408",
+                        "Pass":  true
+                    },
+                    {
+                        "Trace":  "shift-touchpad-edge",
+                        "Id":  "C-22",
+                        "Metric":  "derived.gesture.latency_ms.input_to_next_vblank.p95",
+                        "Op":  "\u003c=",
+                        "Threshold":  31.7,
+                        "Value":  30.878809999999795,
+                        "Runs":  "30.878809999999795 / 30.676334999998833 / 30.897809999999843 / 30.797674999999252 / 31.07616000000089",
+                        "Pass":  true
+                    },
+                    {
+                        "Trace":  "shift-touchpad-edge",
+                        "Id":  "C-23",
+                        "Metric":  "derived.gesture.half_response_ms.p95",
+                        "Op":  "\u003c=",
+                        "Threshold":  16.7,
+                        "Value":  11.639274999999316,
+                        "Runs":  "11.639274999999316 / 11.24405999999943 / 12.389420000000971 / 9.54644000000016 / 13.555049999999937",
+                        "Pass":  true
+                    },
+                    {
+                        "Trace":  "shift-touchpad-flick",
+                        "Id":  "C-01",
+                        "Metric":  "completed",
+                        "Op":  "==",
+                        "Threshold":  true,
+                        "Value":  true,
+                        "Runs":  "True / True / True / True / True",
+                        "Pass":  true
+                    },
+                    {
+                        "Trace":  "shift-touchpad-flick",
+                        "Id":  "C-02",
+                        "Metric":  "uiaccess",
+                        "Op":  "==",
+                        "Threshold":  true,
+                        "Value":  true,
+                        "Runs":  "True / True / True / True / True",
+                        "Pass":  true
+                    },
+                    {
+                        "Trace":  "shift-touchpad-flick",
+                        "Id":  "C-03",
+                        "Metric":  "counts.updates_failed",
+                        "Op":  "==",
+                        "Threshold":  0,
+                        "Value":  0,
+                        "Runs":  "0 / 0 / 0 / 0 / 0",
+                        "Pass":  true
+                    },
+                    {
+                        "Trace":  "shift-touchpad-flick",
+                        "Id":  "C-04",
+                        "Metric":  "counts.frames_dropped",
+                        "Op":  "==",
+                        "Threshold":  0,
+                        "Value":  0,
+                        "Runs":  "0 / 0 / 0 / 0 / 0",
+                        "Pass":  true
+                    },
+                    {
+                        "Trace":  "shift-touchpad-flick",
+                        "Id":  "C-05",
+                        "Metric":  "derived.gesture.refreshes.missed_pct",
+                        "Op":  "\u003c=",
+                        "Threshold":  1.0,
+                        "Value":  6.6985645933014357,
+                        "Runs":  "6.698564593301436 / 6.6350710900473935 / 6.807511737089202 / 6.888361045130641 / 6.619385342789598",
+                        "Pass":  false
+                    },
+                    {
+                        "Trace":  "shift-touchpad-flick",
+                        "Id":  "C-06",
+                        "Metric":  "derived.gesture.refreshes.multi_update",
+                        "Op":  "==",
+                        "Threshold":  0,
+                        "Value":  0,
+                        "Runs":  "0 / 0 / 0 / 0 / 0",
+                        "Pass":  true
+                    },
+                    {
+                        "Trace":  "shift-touchpad-flick",
+                        "Id":  "C-07",
+                        "Metric":  "derived.gesture.update_interval_periods.p95",
+                        "Op":  "\u003c=",
+                        "Threshold":  1.10,
+                        "Value":  1.1007937984124023,
+                        "Runs":  "1.1053237893524077 / 1.099926799707202 / 1.0927138708555189 / 1.1007937984124023 / 1.115232769534477",
+                        "Pass":  false
+                    },
+                    {
+                        "Trace":  "shift-touchpad-flick",
+                        "Id":  "C-08",
+                        "Metric":  "derived.gesture.update_interval_periods.max",
+                        "Op":  "\u003c=",
+                        "Threshold":  1.5,
+                        "Value":  4.9005381989236563,
+                        "Runs":  "4.873382253235406 / 4.8789015156061115 / 4.906777627110517 / 4.919042161915724 / 4.900538198923656",
+                        "Pass":  false
+                    },
+                    {
+                        "Trace":  "shift-touchpad-flick",
+                        "Id":  "C-09",
+                        "Metric":  "late_ticks",
+                        "Op":  "==",
+                        "Threshold":  0,
+                        "Value":  0,
+                        "Runs":  "0 / 0 / 0 / 0 / 0",
+                        "Pass":  true
+                    },
+                    {
+                        "Trace":  "shift-touchpad-flick",
+                        "Id":  "C-10",
+                        "Metric":  "set_call_ms.max",
+                        "Op":  "\u003c=",
+                        "Threshold":  2.0,
+                        "Value":  0.344,
+                        "Runs":  "0.565 / 0.3413 / 0.344 / 0.3186 / 0.4524",
+                        "Pass":  true
+                    },
+                    {
+                        "Trace":  "shift-touchpad-flick",
+                        "Id":  "C-11",
+                        "Metric":  "cold_start.max_set_call_ms",
+                        "Op":  "\u003c=",
+                        "Threshold":  16.667,
+                        "Value":  0.0687,
+                        "Runs":  "0.1427 / 0.0687 / 0.0618 / 0.1127 / 0.0583",
+                        "Pass":  true
+                    },
+                    {
+                        "Trace":  "shift-touchpad-flick",
+                        "Id":  "C-12",
+                        "Metric":  "derived.gesture.latency_ms.input_to_update.p95",
+                        "Op":  "\u003c=",
+                        "Threshold":  17.0,
+                        "Value":  15.846350000000257,
+                        "Runs":  "15.768600000000424 / 15.937144999999964 / 15.721330000000489 / 16.077150000000074 / 15.846350000000257",
+                        "Pass":  true
+                    },
+                    {
+                        "Trace":  "shift-touchpad-flick",
+                        "Id":  "C-13",
+                        "Metric":  "derived.gesture.latency_ms.input_to_next_vblank.p95",
+                        "Op":  "\u003c=",
+                        "Threshold":  33.4,
+                        "Value":  31.1963750000009,
+                        "Runs":  "31.08603499999972 / 31.203449999999975 / 31.11521499999926 / 31.317150000000765 / 31.1963750000009",
+                        "Pass":  true
+                    },
+                    {
+                        "Trace":  "shift-touchpad-flick",
+                        "Id":  "C-14",
+                        "Metric":  "derived.gesture.settle_ms.max",
+                        "Op":  "\u003c=",
+                        "Threshold":  100.0,
+                        "Value":  48.455699999999517,
+                        "Runs":  "48.455699999999524 / 48.34339999999975 / 48.554700000000594 / 47.24579999999969 / 50.303099999999176",
+                        "Pass":  true
+                    },
+                    {
+                        "Trace":  "shift-touchpad-flick",
+                        "Id":  "C-15",
+                        "Metric":  "derived.anchor_rel.p95",
+                        "Op":  "\u003c=",
+                        "Threshold":  1.0,
+                        "Value":  0.97251080818787716,
+                        "Runs":  "0.9725108081878773 / 0.969736300948426 / 0.9805936681612365 / 0.9754110332534253 / 0.9690590460277235",
+                        "Pass":  true
+                    },
+                    {
+                        "Trace":  "shift-touchpad-flick",
+                        "Id":  "C-16",
+                        "Metric":  "derived.anchor_rel.max",
+                        "Op":  "\u003c=",
+                        "Threshold":  1.01,
+                        "Value":  0.99885643736075025,
+                        "Runs":  "0.9988564373607502 / 0.9987766260926492 / 0.9990316654510139 / 0.9990088970984914 / 0.9988564373607502",
+                        "Pass":  true
+                    },
+                    {
+                        "Trace":  "shift-touchpad-flick",
+                        "Id":  "C-17",
+                        "Metric":  "roundtrip_error_pct_max",
+                        "Op":  "\u003c=",
+                        "Threshold":  0.1,
+                        "Value":  null,
+                        "Runs":  "null / null / null / null / null",
+                        "Pass":  null
+                    },
+                    {
+                        "Trace":  "shift-touchpad-flick",
+                        "Id":  "C-18",
+                        "Metric":  "derived.anchor_snapback.pct",
+                        "Op":  "\u003c=",
+                        "Threshold":  15.0,
+                        "Value":  14.835164835164836,
+                        "Runs":  "14.484679665738161 / 15.702479338842975 / 15.027322404371585 / 14.404432132963988 / 14.835164835164836",
+                        "Pass":  true
+                    },
+                    {
+                        "Trace":  "shift-touchpad-flick",
+                        "Id":  "C-19",
+                        "Metric":  "derived.gesture.zoom_wobble.pct",
+                        "Op":  "\u003c=",
+                        "Threshold":  0.5,
+                        "Value":  0,
+                        "Runs":  "0.0 / 0.0 / 0.0 / 0.0 / 0.0",
+                        "Pass":  true
+                    },
+                    {
+                        "Trace":  "shift-touchpad-flick",
+                        "Id":  "C-20",
+                        "Metric":  "derived.gesture.half_response_ms.p95",
+                        "Op":  "\u003c=",
+                        "Threshold":  40.0,
+                        "Value":  13.056820000000153,
+                        "Runs":  "13.420179999999709 / 13.633410000000412 / 12.504444999999397 / 12.709550000000263 / 13.056820000000151",
+                        "Pass":  true
+                    },
+                    {
+                        "Trace":  "shift-touchpad-flick",
+                        "Id":  "C-21",
+                        "Metric":  "derived.gesture.latency_ms.input_to_update.p95",
+                        "Op":  "\u003c=",
+                        "Threshold":  16.5,
+                        "Value":  15.846350000000257,
+                        "Runs":  "15.768600000000424 / 15.937144999999964 / 15.721330000000489 / 16.077150000000074 / 15.846350000000257",
+                        "Pass":  true
+                    },
+                    {
+                        "Trace":  "shift-touchpad-flick",
+                        "Id":  "C-22",
+                        "Metric":  "derived.gesture.latency_ms.input_to_next_vblank.p95",
+                        "Op":  "\u003c=",
+                        "Threshold":  31.7,
+                        "Value":  31.1963750000009,
+                        "Runs":  "31.08603499999972 / 31.203449999999975 / 31.11521499999926 / 31.317150000000765 / 31.1963750000009",
+                        "Pass":  true
+                    },
+                    {
+                        "Trace":  "shift-touchpad-flick",
+                        "Id":  "C-23",
+                        "Metric":  "derived.gesture.half_response_ms.p95",
+                        "Op":  "\u003c=",
+                        "Threshold":  16.7,
+                        "Value":  13.056820000000153,
+                        "Runs":  "13.420179999999709 / 13.633410000000412 / 12.504444999999397 / 12.709550000000263 / 13.056820000000151",
+                        "Pass":  true
+                    },
+                    {
+                        "Trace":  "shift-touchpad-terminal",
+                        "Id":  "C-01",
+                        "Metric":  "completed",
+                        "Op":  "==",
+                        "Threshold":  true,
+                        "Value":  true,
+                        "Runs":  "True / True / True / True / True",
+                        "Pass":  true
+                    },
+                    {
+                        "Trace":  "shift-touchpad-terminal",
+                        "Id":  "C-02",
+                        "Metric":  "uiaccess",
+                        "Op":  "==",
+                        "Threshold":  true,
+                        "Value":  true,
+                        "Runs":  "True / True / True / True / True",
+                        "Pass":  true
+                    },
+                    {
+                        "Trace":  "shift-touchpad-terminal",
+                        "Id":  "C-03",
+                        "Metric":  "counts.updates_failed",
+                        "Op":  "==",
+                        "Threshold":  0,
+                        "Value":  0,
+                        "Runs":  "0 / 0 / 0 / 0 / 0",
+                        "Pass":  true
+                    },
+                    {
+                        "Trace":  "shift-touchpad-terminal",
+                        "Id":  "C-04",
+                        "Metric":  "counts.frames_dropped",
+                        "Op":  "==",
+                        "Threshold":  0,
+                        "Value":  0,
+                        "Runs":  "0 / 0 / 0 / 0 / 0",
+                        "Pass":  true
+                    },
+                    {
+                        "Trace":  "shift-touchpad-terminal",
+                        "Id":  "C-05",
+                        "Metric":  "derived.gesture.refreshes.missed_pct",
+                        "Op":  "\u003c=",
+                        "Threshold":  1.0,
+                        "Value":  2.3679417122040074,
+                        "Runs":  "2.3679417122040074 / 2.3679417122040074 / 2.3636363636363638 / 2.952029520295203 / 2.372262773722628",
+                        "Pass":  false
+                    },
+                    {
+                        "Trace":  "shift-touchpad-terminal",
+                        "Id":  "C-06",
+                        "Metric":  "derived.gesture.refreshes.multi_update",
+                        "Op":  "==",
+                        "Threshold":  0,
+                        "Value":  0,
+                        "Runs":  "0 / 0 / 0 / 0 / 0",
+                        "Pass":  true
+                    },
+                    {
+                        "Trace":  "shift-touchpad-terminal",
+                        "Id":  "C-07",
+                        "Metric":  "derived.gesture.update_interval_periods.p95",
+                        "Op":  "\u003c=",
+                        "Threshold":  1.10,
+                        "Value":  1.0623698752602817,
+                        "Runs":  "1.0598948802102588 / 1.0623698752602817 / 1.0631862527450335 / 1.0704522818090147 / 1.0617209765579863",
+                        "Pass":  true
+                    },
+                    {
+                        "Trace":  "shift-touchpad-terminal",
+                        "Id":  "C-08",
+                        "Metric":  "derived.gesture.update_interval_periods.max",
+                        "Op":  "\u003c=",
+                        "Threshold":  1.5,
+                        "Value":  4.0004079991840067,
+                        "Runs":  "3.996604006792046 / 4.000407999184007 / 3.949959799839159 / 4.9050136200544685 / 4.000659998680026",
+                        "Pass":  false
+                    },
+                    {
+                        "Trace":  "shift-touchpad-terminal",
+                        "Id":  "C-09",
+                        "Metric":  "late_ticks",
+                        "Op":  "==",
+                        "Threshold":  0,
+                        "Value":  0,
+                        "Runs":  "0 / 0 / 0 / 0 / 0",
+                        "Pass":  true
+                    },
+                    {
+                        "Trace":  "shift-touchpad-terminal",
+                        "Id":  "C-10",
+                        "Metric":  "set_call_ms.max",
+                        "Op":  "\u003c=",
+                        "Threshold":  2.0,
+                        "Value":  0.504,
+                        "Runs":  "0.5129 / 0.434 / 0.533 / 0.4713 / 0.504",
+                        "Pass":  true
+                    },
+                    {
+                        "Trace":  "shift-touchpad-terminal",
+                        "Id":  "C-11",
+                        "Metric":  "cold_start.max_set_call_ms",
+                        "Op":  "\u003c=",
+                        "Threshold":  16.667,
+                        "Value":  0.0978,
+                        "Runs":  "0.2626 / 0.0978 / 0.0681 / 0.4067 / 0.0964",
+                        "Pass":  true
+                    },
+                    {
+                        "Trace":  "shift-touchpad-terminal",
+                        "Id":  "C-12",
+                        "Metric":  "derived.gesture.latency_ms.input_to_update.p95",
+                        "Op":  "\u003c=",
+                        "Threshold":  17.0,
+                        "Value":  15.810420000000612,
+                        "Runs":  "15.909975000000486 / 15.86929999999893 / 15.712960000000749 / 15.733065000000533 / 15.810420000000612",
+                        "Pass":  true
+                    },
+                    {
+                        "Trace":  "shift-touchpad-terminal",
+                        "Id":  "C-13",
+                        "Metric":  "derived.gesture.latency_ms.input_to_next_vblank.p95",
+                        "Op":  "\u003c=",
+                        "Threshold":  33.4,
+                        "Value":  31.134849999999005,
+                        "Runs":  "31.155549999999494 / 31.134849999999005 / 31.071240000000397 / 31.044225000000004 / 31.15112500000105",
+                        "Pass":  true
+                    },
+                    {
+                        "Trace":  "shift-touchpad-terminal",
+                        "Id":  "C-14",
+                        "Metric":  "derived.gesture.settle_ms.max",
+                        "Op":  "\u003c=",
+                        "Threshold":  100.0,
+                        "Value":  50.496299999998882,
+                        "Runs":  "50.49629999999888 / 51.07340000000113 / 52.12910000000193 / 38.42870000000039 / 49.667099999998754",
+                        "Pass":  true
+                    },
+                    {
+                        "Trace":  "shift-touchpad-terminal",
+                        "Id":  "C-15",
+                        "Metric":  "derived.anchor_rel.p95",
+                        "Op":  "\u003c=",
+                        "Threshold":  1.0,
+                        "Value":  0.97752200964291636,
+                        "Runs":  "0.9827590123939984 / 0.9773216560402161 / 0.9815813692180626 / 0.9775220096429165 / 0.9772646340187766",
+                        "Pass":  true
+                    },
+                    {
+                        "Trace":  "shift-touchpad-terminal",
+                        "Id":  "C-16",
+                        "Metric":  "derived.anchor_rel.max",
+                        "Op":  "\u003c=",
+                        "Threshold":  1.01,
+                        "Value":  0.99958388517029562,
+                        "Runs":  "0.9989345658981392 / 0.9989936673576949 / 0.9995838851702956 / 0.9997255300655752 / 0.9997625105453949",
+                        "Pass":  true
+                    },
+                    {
+                        "Trace":  "shift-touchpad-terminal",
+                        "Id":  "C-17",
+                        "Metric":  "roundtrip_error_pct_max",
+                        "Op":  "\u003c=",
+                        "Threshold":  0.1,
+                        "Value":  null,
+                        "Runs":  "null / null / null / null / null",
+                        "Pass":  null
+                    },
+                    {
+                        "Trace":  "shift-touchpad-terminal",
+                        "Id":  "C-18",
+                        "Metric":  "derived.anchor_snapback.pct",
+                        "Op":  "\u003c=",
+                        "Threshold":  15.0,
+                        "Value":  23.968565815324165,
+                        "Runs":  "25.098039215686274 / 25.49019607843137 / 22.89628180039139 / 22.4 / 23.968565815324165",
+                        "Pass":  false
+                    },
+                    {
+                        "Trace":  "shift-touchpad-terminal",
+                        "Id":  "C-19",
+                        "Metric":  "derived.gesture.zoom_wobble.pct",
+                        "Op":  "\u003c=",
+                        "Threshold":  0.5,
+                        "Value":  0,
+                        "Runs":  "0.0 / 0.0 / 0.0 / 0.0 / 0.0",
+                        "Pass":  true
+                    },
+                    {
+                        "Trace":  "shift-touchpad-terminal",
+                        "Id":  "C-20",
+                        "Metric":  "derived.gesture.half_response_ms.p95",
+                        "Op":  "\u003c=",
+                        "Threshold":  40.0,
+                        "Value":  11.035225000000082,
+                        "Runs":  "11.035225000000082 / 11.791380000001663 / 11.61324999999906 / 10.341599999999744 / 10.230774999999994",
+                        "Pass":  true
+                    },
+                    {
+                        "Trace":  "shift-touchpad-terminal",
+                        "Id":  "C-21",
+                        "Metric":  "derived.gesture.latency_ms.input_to_update.p95",
+                        "Op":  "\u003c=",
+                        "Threshold":  16.5,
+                        "Value":  15.810420000000612,
+                        "Runs":  "15.909975000000486 / 15.86929999999893 / 15.712960000000749 / 15.733065000000533 / 15.810420000000612",
+                        "Pass":  true
+                    },
+                    {
+                        "Trace":  "shift-touchpad-terminal",
+                        "Id":  "C-22",
+                        "Metric":  "derived.gesture.latency_ms.input_to_next_vblank.p95",
+                        "Op":  "\u003c=",
+                        "Threshold":  31.7,
+                        "Value":  31.134849999999005,
+                        "Runs":  "31.155549999999494 / 31.134849999999005 / 31.071240000000397 / 31.044225000000004 / 31.15112500000105",
+                        "Pass":  true
+                    },
+                    {
+                        "Trace":  "shift-touchpad-terminal",
+                        "Id":  "C-23",
+                        "Metric":  "derived.gesture.half_response_ms.p95",
+                        "Op":  "\u003c=",
+                        "Threshold":  16.7,
+                        "Value":  11.035225000000082,
+                        "Runs":  "11.035225000000082 / 11.791380000001663 / 11.61324999999906 / 10.341599999999744 / 10.230774999999994",
+                        "Pass":  true
+                    },
+                    {
+                        "Trace":  "shift-wheel-flick",
+                        "Id":  "C-01",
+                        "Metric":  "completed",
+                        "Op":  "==",
+                        "Threshold":  true,
+                        "Value":  true,
+                        "Runs":  "True / True / True / True / True",
+                        "Pass":  true
+                    },
+                    {
+                        "Trace":  "shift-wheel-flick",
+                        "Id":  "C-02",
+                        "Metric":  "uiaccess",
+                        "Op":  "==",
+                        "Threshold":  true,
+                        "Value":  true,
+                        "Runs":  "True / True / True / True / True",
+                        "Pass":  true
+                    },
+                    {
+                        "Trace":  "shift-wheel-flick",
+                        "Id":  "C-03",
+                        "Metric":  "counts.updates_failed",
+                        "Op":  "==",
+                        "Threshold":  0,
+                        "Value":  0,
+                        "Runs":  "0 / 0 / 0 / 0 / 0",
+                        "Pass":  true
+                    },
+                    {
+                        "Trace":  "shift-wheel-flick",
+                        "Id":  "C-04",
+                        "Metric":  "counts.frames_dropped",
+                        "Op":  "==",
+                        "Threshold":  0,
+                        "Value":  0,
+                        "Runs":  "0 / 0 / 0 / 0 / 0",
+                        "Pass":  true
+                    },
+                    {
+                        "Trace":  "shift-wheel-flick",
+                        "Id":  "C-05",
+                        "Metric":  "derived.gesture.refreshes.missed_pct",
+                        "Op":  "\u003c=",
+                        "Threshold":  1.0,
+                        "Value":  0,
+                        "Runs":  "0.0 / 0.0 / 0.0 / 0.0 / 0.0",
+                        "Pass":  true
+                    },
+                    {
+                        "Trace":  "shift-wheel-flick",
+                        "Id":  "C-06",
+                        "Metric":  "derived.gesture.refreshes.multi_update",
+                        "Op":  "==",
+                        "Threshold":  0,
+                        "Value":  0,
+                        "Runs":  "0 / 0 / 0 / 0 / 0",
+                        "Pass":  true
+                    },
+                    {
+                        "Trace":  "shift-wheel-flick",
+                        "Id":  "C-07",
+                        "Metric":  "derived.gesture.update_interval_periods.p95",
+                        "Op":  "\u003c=",
+                        "Threshold":  1.10,
+                        "Value":  1.066589066821868,
+                        "Runs":  "1.0745648508703156 / 1.0606568786862374 / 1.0698890602218634 / 1.066589066821868 / 1.065997468005056",
+                        "Pass":  true
+                    },
+                    {
+                        "Trace":  "shift-wheel-flick",
+                        "Id":  "C-08",
+                        "Metric":  "derived.gesture.update_interval_periods.max",
+                        "Op":  "\u003c=",
+                        "Threshold":  1.5,
+                        "Value":  1.1331997336005339,
+                        "Runs":  "1.133199733600534 / 1.1308477383045283 / 1.1120737758524593 / 1.1523756952485993 / 1.1333077333845347",
+                        "Pass":  true
+                    },
+                    {
+                        "Trace":  "shift-wheel-flick",
+                        "Id":  "C-09",
+                        "Metric":  "late_ticks",
+                        "Op":  "==",
+                        "Threshold":  0,
+                        "Value":  0,
+                        "Runs":  "0 / 0 / 0 / 0 / 0",
+                        "Pass":  true
+                    },
+                    {
+                        "Trace":  "shift-wheel-flick",
+                        "Id":  "C-10",
+                        "Metric":  "set_call_ms.max",
+                        "Op":  "\u003c=",
+                        "Threshold":  2.0,
+                        "Value":  0.4461,
+                        "Runs":  "0.1957 / 0.4461 / 0.4073 / 0.4621 / 0.5329",
+                        "Pass":  true
+                    },
+                    {
+                        "Trace":  "shift-wheel-flick",
+                        "Id":  "C-11",
+                        "Metric":  "cold_start.max_set_call_ms",
+                        "Op":  "\u003c=",
+                        "Threshold":  16.667,
+                        "Value":  0.1014,
+                        "Runs":  "0.1112 / 0.0731 / 0.179 / 0.0431 / 0.1014",
+                        "Pass":  true
+                    },
+                    {
+                        "Trace":  "shift-wheel-flick",
+                        "Id":  "C-12",
+                        "Metric":  "derived.gesture.latency_ms.input_to_update.p95",
+                        "Op":  "\u003c=",
+                        "Threshold":  17.0,
+                        "Value":  15.820074999999861,
+                        "Runs":  "15.281150000000707 / 15.81670000000031 / 16.238074999999753 / 15.888074999999844 / 15.82007499999986",
+                        "Pass":  true
+                    },
+                    {
+                        "Trace":  "shift-wheel-flick",
+                        "Id":  "C-13",
+                        "Metric":  "derived.gesture.latency_ms.input_to_next_vblank.p95",
+                        "Op":  "\u003c=",
+                        "Threshold":  33.4,
+                        "Value":  31.021375000000035,
+                        "Runs":  "30.687675000000354 / 31.021375000000035 / 31.15430000000015 / 31.54417499999977 / 30.835425000000214",
+                        "Pass":  true
+                    },
+                    {
+                        "Trace":  "shift-wheel-flick",
+                        "Id":  "C-14",
+                        "Metric":  "derived.gesture.settle_ms.max",
+                        "Op":  "\u003c=",
+                        "Threshold":  100.0,
+                        "Value":  97.355000000000018,
+                        "Runs":  "96.86120000000028 / 97.35500000000002 / 97.5671999999995 / 109.3909000000001 / 97.15090000000009",
+                        "Pass":  true
+                    },
+                    {
+                        "Trace":  "shift-wheel-flick",
+                        "Id":  "C-15",
+                        "Metric":  "derived.anchor_rel.p95",
+                        "Op":  "\u003c=",
+                        "Threshold":  1.0,
+                        "Value":  0.97221633471337721,
+                        "Runs":  "0.9731845128431189 / 0.9712481565836355 / 0.9696973789200342 / null / 0.9748892295505405",
+                        "Pass":  true
+                    },
+                    {
+                        "Trace":  "shift-wheel-flick",
+                        "Id":  "C-16",
+                        "Metric":  "derived.anchor_rel.max",
+                        "Op":  "\u003c=",
+                        "Threshold":  1.01,
+                        "Value":  0.99781040733688542,
+                        "Runs":  "0.998093381431886 / 0.9975274332418849 / 0.9956534443856526 / null / 0.9997854953535352",
+                        "Pass":  true
+                    },
+                    {
+                        "Trace":  "shift-wheel-flick",
+                        "Id":  "C-17",
+                        "Metric":  "roundtrip_error_pct_max",
+                        "Op":  "\u003c=",
+                        "Threshold":  0.1,
+                        "Value":  null,
+                        "Runs":  "null / null / null / null / null",
+                        "Pass":  null
+                    },
+                    {
+                        "Trace":  "shift-wheel-flick",
+                        "Id":  "C-18",
+                        "Metric":  "derived.anchor_snapback.pct",
+                        "Op":  "\u003c=",
+                        "Threshold":  15.0,
+                        "Value":  10.929789854801985,
+                        "Runs":  "11.232876712328768 / 10.626702997275205 / 13.079019073569482 / null / 9.836065573770492",
+                        "Pass":  true
+                    },
+                    {
+                        "Trace":  "shift-wheel-flick",
+                        "Id":  "C-19",
+                        "Metric":  "derived.gesture.zoom_wobble.pct",
+                        "Op":  "\u003c=",
+                        "Threshold":  0.5,
+                        "Value":  0,
+                        "Runs":  "0.0 / 0.0 / 0.0 / 0.0 / 0.0",
+                        "Pass":  true
+                    },
+                    {
+                        "Trace":  "shift-wheel-flick",
+                        "Id":  "C-20",
+                        "Metric":  "derived.gesture.half_response_ms.p95",
+                        "Op":  "\u003c=",
+                        "Threshold":  40.0,
+                        "Value":  32.552019999999267,
+                        "Runs":  "32.73006999999915 / 32.55201999999927 / 32.456870000000166 / 32.36372999999994 / 33.139900000000125",
+                        "Pass":  true
+                    },
+                    {
+                        "Trace":  "shift-wheel-sweep",
+                        "Id":  "C-01",
+                        "Metric":  "completed",
+                        "Op":  "==",
+                        "Threshold":  true,
+                        "Value":  true,
+                        "Runs":  "True / True / True / True / True",
+                        "Pass":  true
+                    },
+                    {
+                        "Trace":  "shift-wheel-sweep",
+                        "Id":  "C-02",
+                        "Metric":  "uiaccess",
+                        "Op":  "==",
+                        "Threshold":  true,
+                        "Value":  true,
+                        "Runs":  "True / True / True / True / True",
+                        "Pass":  true
+                    },
+                    {
+                        "Trace":  "shift-wheel-sweep",
+                        "Id":  "C-03",
+                        "Metric":  "counts.updates_failed",
+                        "Op":  "==",
+                        "Threshold":  0,
+                        "Value":  0,
+                        "Runs":  "0 / 0 / 0 / 0 / 0",
+                        "Pass":  true
+                    },
+                    {
+                        "Trace":  "shift-wheel-sweep",
+                        "Id":  "C-04",
+                        "Metric":  "counts.frames_dropped",
+                        "Op":  "==",
+                        "Threshold":  0,
+                        "Value":  0,
+                        "Runs":  "0 / 0 / 0 / 0 / 0",
+                        "Pass":  true
+                    },
+                    {
+                        "Trace":  "shift-wheel-sweep",
+                        "Id":  "C-05",
+                        "Metric":  "derived.gesture.refreshes.missed_pct",
+                        "Op":  "\u003c=",
+                        "Threshold":  1.0,
+                        "Value":  0,
+                        "Runs":  "0.0 / 0.0 / 0.0 / 0.0 / 0.0",
+                        "Pass":  true
+                    },
+                    {
+                        "Trace":  "shift-wheel-sweep",
+                        "Id":  "C-06",
+                        "Metric":  "derived.gesture.refreshes.multi_update",
+                        "Op":  "==",
+                        "Threshold":  0,
+                        "Value":  0,
+                        "Runs":  "0 / 0 / 0 / 0 / 0",
+                        "Pass":  true
+                    },
+                    {
+                        "Trace":  "shift-wheel-sweep",
+                        "Id":  "C-07",
+                        "Metric":  "derived.gesture.update_interval_periods.p95",
+                        "Op":  "\u003c=",
+                        "Threshold":  1.10,
+                        "Value":  1.0838162323676082,
+                        "Runs":  "1.0832864334271657 / 1.0804688390622923 / 1.0932146135708003 / 1.0838162323676082 / 1.0857806284387403",
+                        "Pass":  true
+                    },
+                    {
+                        "Trace":  "shift-wheel-sweep",
+                        "Id":  "C-08",
+                        "Metric":  "derived.gesture.update_interval_periods.max",
+                        "Op":  "\u003c=",
+                        "Threshold":  1.5,
+                        "Value":  1.1572536854926361,
+                        "Runs":  "1.1377237245525897 / 1.1572536854926359 / 1.1654976690046184 / 1.1629356741285009 / 1.1471857056286126",
+                        "Pass":  true
+                    },
+                    {
+                        "Trace":  "shift-wheel-sweep",
+                        "Id":  "C-09",
+                        "Metric":  "late_ticks",
+                        "Op":  "==",
+                        "Threshold":  0,
+                        "Value":  0,
+                        "Runs":  "0 / 0 / 0 / 0 / 0",
+                        "Pass":  true
+                    },
+                    {
+                        "Trace":  "shift-wheel-sweep",
+                        "Id":  "C-10",
+                        "Metric":  "set_call_ms.max",
+                        "Op":  "\u003c=",
+                        "Threshold":  2.0,
+                        "Value":  0.4633,
+                        "Runs":  "0.4651 / 0.3849 / 0.2304 / 0.4633 / 0.5129",
+                        "Pass":  true
+                    },
+                    {
+                        "Trace":  "shift-wheel-sweep",
+                        "Id":  "C-11",
+                        "Metric":  "cold_start.max_set_call_ms",
+                        "Op":  "\u003c=",
+                        "Threshold":  16.667,
+                        "Value":  0.0463,
+                        "Runs":  "0.0391 / 0.1062 / 0.1012 / 0.045 / 0.0463",
+                        "Pass":  true
+                    },
+                    {
+                        "Trace":  "shift-wheel-sweep",
+                        "Id":  "C-12",
+                        "Metric":  "derived.gesture.latency_ms.input_to_update.p95",
+                        "Op":  "\u003c=",
+                        "Threshold":  17.0,
+                        "Value":  15.22762000000075,
+                        "Runs":  "15.57537999999913 / 15.189419999999881 / 16.162259999998785 / 14.910580000000843 / 15.22762000000075",
+                        "Pass":  true
+                    },
+                    {
+                        "Trace":  "shift-wheel-sweep",
+                        "Id":  "C-13",
+                        "Metric":  "derived.gesture.latency_ms.input_to_next_vblank.p95",
+                        "Op":  "\u003c=",
+                        "Threshold":  33.4,
+                        "Value":  31.246019999999771,
+                        "Runs":  "31.40805999999829 / 31.24601999999977 / 32.28261999999995 / 30.403439999999677 / 31.03650000000016",
+                        "Pass":  true
+                    },
+                    {
+                        "Trace":  "shift-wheel-sweep",
+                        "Id":  "C-14",
+                        "Metric":  "derived.gesture.settle_ms.max",
+                        "Op":  "\u003c=",
+                        "Threshold":  100.0,
+                        "Value":  97.333899999999645,
+                        "Runs":  "98.15729999999894 / 96.62610000000132 / 97.33389999999963 / 96.44769999999971 / 97.7473000000009",
+                        "Pass":  true
+                    },
+                    {
+                        "Trace":  "shift-wheel-sweep",
+                        "Id":  "C-15",
+                        "Metric":  "derived.anchor_rel.p95",
+                        "Op":  "\u003c=",
+                        "Threshold":  1.0,
+                        "Value":  0.97314429168557115,
+                        "Runs":  "0.9679578557076468 / 0.9761012531897677 / 0.9668976780605021 / 0.9801075829465873 / 0.9731442916855713",
+                        "Pass":  true
+                    },
+                    {
+                        "Trace":  "shift-wheel-sweep",
+                        "Id":  "C-16",
+                        "Metric":  "derived.anchor_rel.max",
+                        "Op":  "\u003c=",
+                        "Threshold":  1.01,
+                        "Value":  0.99982092967286462,
+                        "Runs":  "0.9998686276953777 / 0.9998209296728646 / 0.9998469606662184 / 0.9998209296728646 / 0.9998209296728646",
+                        "Pass":  true
+                    },
+                    {
+                        "Trace":  "shift-wheel-sweep",
+                        "Id":  "C-17",
+                        "Metric":  "roundtrip_error_pct_max",
+                        "Op":  "\u003c=",
+                        "Threshold":  0.1,
+                        "Value":  null,
+                        "Runs":  "null / null / null / null / null",
+                        "Pass":  null
+                    },
+                    {
+                        "Trace":  "shift-wheel-sweep",
+                        "Id":  "C-18",
+                        "Metric":  "derived.anchor_snapback.pct",
+                        "Op":  "\u003c=",
+                        "Threshold":  15.0,
+                        "Value":  9.7014925373134329,
+                        "Runs":  "9.090909090909092 / 9.737827715355806 / 8.333333333333334 / 10.984848484848484 / 9.701492537313433",
+                        "Pass":  true
+                    },
+                    {
+                        "Trace":  "shift-wheel-sweep",
+                        "Id":  "C-19",
+                        "Metric":  "derived.gesture.zoom_wobble.pct",
+                        "Op":  "\u003c=",
+                        "Threshold":  0.5,
+                        "Value":  0,
+                        "Runs":  "0.0 / 0.0 / 0.0 / 0.0 / 0.0",
+                        "Pass":  true
+                    },
+                    {
+                        "Trace":  "shift-wheel-sweep",
+                        "Id":  "C-20",
+                        "Metric":  "derived.gesture.half_response_ms.p95",
+                        "Op":  "\u003c=",
+                        "Threshold":  40.0,
+                        "Value":  32.930674999998473,
+                        "Runs":  "33.11317500000041 / 32.93067499999847 / 34.05579999999918 / 31.889940000000024 / 32.60829999999942",
+                        "Pass":  true
+                    },
+                    {
+                        "Trace":  "detented-sweep",
+                        "Id":  "C-01",
+                        "Metric":  "completed",
+                        "Op":  "==",
+                        "Threshold":  true,
+                        "Value":  true,
+                        "Runs":  "True / True / True / True / True",
+                        "Pass":  true
+                    },
+                    {
+                        "Trace":  "detented-sweep",
+                        "Id":  "C-02",
+                        "Metric":  "uiaccess",
+                        "Op":  "==",
+                        "Threshold":  true,
+                        "Value":  true,
+                        "Runs":  "True / True / True / True / True",
+                        "Pass":  true
+                    },
+                    {
+                        "Trace":  "detented-sweep",
+                        "Id":  "C-03",
+                        "Metric":  "counts.updates_failed",
+                        "Op":  "==",
+                        "Threshold":  0,
+                        "Value":  0,
+                        "Runs":  "0 / 0 / 0 / 0 / 0",
+                        "Pass":  true
+                    },
+                    {
+                        "Trace":  "detented-sweep",
+                        "Id":  "C-04",
+                        "Metric":  "counts.frames_dropped",
+                        "Op":  "==",
+                        "Threshold":  0,
+                        "Value":  0,
+                        "Runs":  "0 / 0 / 0 / 0 / 0",
+                        "Pass":  true
+                    },
+                    {
+                        "Trace":  "detented-sweep",
+                        "Id":  "C-05",
+                        "Metric":  "derived.gesture.refreshes.missed_pct",
+                        "Op":  "\u003c=",
+                        "Threshold":  1.0,
+                        "Value":  0,
+                        "Runs":  "0.0 / 0.0 / 0.0 / 0.0 / 0.0",
+                        "Pass":  true
+                    },
+                    {
+                        "Trace":  "detented-sweep",
+                        "Id":  "C-06",
+                        "Metric":  "derived.gesture.refreshes.multi_update",
+                        "Op":  "==",
+                        "Threshold":  0,
+                        "Value":  0,
+                        "Runs":  "0 / 0 / 0 / 0 / 0",
+                        "Pass":  true
+                    },
+                    {
+                        "Trace":  "detented-sweep",
+                        "Id":  "C-07",
+                        "Metric":  "derived.gesture.update_interval_periods.p95",
+                        "Op":  "\u003c=",
+                        "Threshold":  1.10,
+                        "Value":  1.0546778906442229,
+                        "Runs":  "1.056465887068227 / 1.0555157558739565 / 1.0470189238486052 / 1.0503836946282727 / 1.054677890644223",
+                        "Pass":  true
+                    },
+                    {
+                        "Trace":  "detented-sweep",
+                        "Id":  "C-08",
+                        "Metric":  "derived.gesture.update_interval_periods.max",
+                        "Op":  "\u003c=",
+                        "Threshold":  1.5,
+                        "Value":  1.1449237101525811,
+                        "Runs":  "1.1449237101525813 / 1.1946924424604601 / 1.1288669690642483 / 1.1489239150651893 / 1.1316757366485284",
+                        "Pass":  true
+                    },
+                    {
+                        "Trace":  "detented-sweep",
+                        "Id":  "C-09",
+                        "Metric":  "late_ticks",
+                        "Op":  "==",
+                        "Threshold":  0,
+                        "Value":  0,
+                        "Runs":  "0 / 0 / 0 / 0 / 0",
+                        "Pass":  true
+                    },
+                    {
+                        "Trace":  "detented-sweep",
+                        "Id":  "C-10",
+                        "Metric":  "set_call_ms.max",
+                        "Op":  "\u003c=",
+                        "Threshold":  2.0,
+                        "Value":  0.2277,
+                        "Runs":  "0.3411 / 0.5169 / 0.1732 / 0.1153 / 0.2277",
+                        "Pass":  true
+                    },
+                    {
+                        "Trace":  "detented-sweep",
+                        "Id":  "C-11",
+                        "Metric":  "cold_start.max_set_call_ms",
+                        "Op":  "\u003c=",
+                        "Threshold":  16.667,
+                        "Value":  0.1367,
+                        "Runs":  "0.422 / 0.2956 / 0.0696 / 0.1367 / 0.0709",
+                        "Pass":  true
+                    },
+                    {
+                        "Trace":  "detented-sweep",
+                        "Id":  "C-12",
+                        "Metric":  "derived.gesture.latency_ms.input_to_update.p95",
+                        "Op":  "\u003c=",
+                        "Threshold":  17.0,
+                        "Value":  15.708479999999955,
+                        "Runs":  "14.817404999999997 / 14.729570000000148 / 15.775809999999916 / 15.88379999999999 / 15.708479999999957",
+                        "Pass":  true
+                    },
+                    {
+                        "Trace":  "detented-sweep",
+                        "Id":  "C-13",
+                        "Metric":  "derived.gesture.latency_ms.input_to_next_vblank.p95",
+                        "Op":  "\u003c=",
+                        "Threshold":  33.4,
+                        "Value":  30.46662500000004,
+                        "Runs":  "29.982934999999962 / 29.52759000000024 / 30.46662500000004 / 30.905599999999918 / 30.843159999999973",
+                        "Pass":  true
+                    },
+                    {
+                        "Trace":  "detented-sweep",
+                        "Id":  "C-14",
+                        "Metric":  "derived.gesture.settle_ms.max",
+                        "Op":  "\u003c=",
+                        "Threshold":  100.0,
+                        "Value":  86.299600000000282,
+                        "Runs":  "88.58039999999983 / 84.98300000000017 / 86.29960000000028 / 86.1302999999998 / 87.1002999999996",
+                        "Pass":  true
+                    },
+                    {
+                        "Trace":  "detented-sweep",
+                        "Id":  "C-15",
+                        "Metric":  "derived.anchor_rel.p95",
+                        "Op":  "\u003c=",
+                        "Threshold":  1.0,
+                        "Value":  0.96313968462931143,
+                        "Runs":  "0.931377667906844 / 0.9657182855190385 / 0.9631396846293114 / 0.9632996190460403 / 0.952784060591199",
+                        "Pass":  true
+                    },
+                    {
+                        "Trace":  "detented-sweep",
+                        "Id":  "C-16",
+                        "Metric":  "derived.anchor_rel.max",
+                        "Op":  "\u003c=",
+                        "Threshold":  1.01,
+                        "Value":  0.99667494746734064,
+                        "Runs":  "0.9983623397988595 / 0.9991133885210246 / 0.9940848287861854 / 0.9896471880643958 / 0.9966749474673406",
+                        "Pass":  true
+                    },
+                    {
+                        "Trace":  "detented-sweep",
+                        "Id":  "C-17",
+                        "Metric":  "roundtrip_error_pct_max",
+                        "Op":  "\u003c=",
+                        "Threshold":  0.1,
+                        "Value":  0,
+                        "Runs":  "0.0 / 0.0 / 0.0 / 0.0 / 0.0",
+                        "Pass":  true
+                    },
+                    {
+                        "Trace":  "detented-sweep",
+                        "Id":  "C-18",
+                        "Metric":  "derived.anchor_snapback.pct",
+                        "Op":  "\u003c=",
+                        "Threshold":  15.0,
+                        "Value":  14.035087719298245,
+                        "Runs":  "13.157894736842104 / 15.789473684210526 / 14.035087719298245 / 13.157894736842104 / 16.666666666666668",
+                        "Pass":  true
+                    },
+                    {
+                        "Trace":  "detented-sweep",
+                        "Id":  "C-19",
+                        "Metric":  "derived.gesture.zoom_wobble.pct",
+                        "Op":  "\u003c=",
+                        "Threshold":  0.5,
+                        "Value":  0,
+                        "Runs":  "0.0 / 0.0 / 0.0 / 0.0 / 0.0",
+                        "Pass":  true
+                    },
+                    {
+                        "Trace":  "detented-sweep",
+                        "Id":  "C-20",
+                        "Metric":  "derived.gesture.half_response_ms.p95",
+                        "Op":  "\u003c=",
+                        "Threshold":  40.0,
+                        "Value":  22.917660000000023,
+                        "Runs":  "25.764040000000012 / 22.48493000000002 / 22.917660000000023 / 23.71791000000001 / 22.477169999999955",
+                        "Pass":  true
+                    },
+                    {
+                        "Trace":  "freespin-burst",
+                        "Id":  "C-01",
+                        "Metric":  "completed",
+                        "Op":  "==",
+                        "Threshold":  true,
+                        "Value":  true,
+                        "Runs":  "True / True / True / True / True",
+                        "Pass":  true
+                    },
+                    {
+                        "Trace":  "freespin-burst",
+                        "Id":  "C-02",
+                        "Metric":  "uiaccess",
+                        "Op":  "==",
+                        "Threshold":  true,
+                        "Value":  true,
+                        "Runs":  "True / True / True / True / True",
+                        "Pass":  true
+                    },
+                    {
+                        "Trace":  "freespin-burst",
+                        "Id":  "C-03",
+                        "Metric":  "counts.updates_failed",
+                        "Op":  "==",
+                        "Threshold":  0,
+                        "Value":  0,
+                        "Runs":  "0 / 0 / 0 / 0 / 0",
+                        "Pass":  true
+                    },
+                    {
+                        "Trace":  "freespin-burst",
+                        "Id":  "C-04",
+                        "Metric":  "counts.frames_dropped",
+                        "Op":  "==",
+                        "Threshold":  0,
+                        "Value":  0,
+                        "Runs":  "0 / 0 / 0 / 0 / 0",
+                        "Pass":  true
+                    },
+                    {
+                        "Trace":  "freespin-burst",
+                        "Id":  "C-05",
+                        "Metric":  "derived.gesture.refreshes.missed_pct",
+                        "Op":  "\u003c=",
+                        "Threshold":  1.0,
+                        "Value":  0,
+                        "Runs":  "0.0 / 0.0 / 0.0 / 0.0 / 0.0",
+                        "Pass":  true
+                    },
+                    {
+                        "Trace":  "freespin-burst",
+                        "Id":  "C-06",
+                        "Metric":  "derived.gesture.refreshes.multi_update",
+                        "Op":  "==",
+                        "Threshold":  0,
+                        "Value":  0,
+                        "Runs":  "0 / 0 / 0 / 0 / 0",
+                        "Pass":  true
+                    },
+                    {
+                        "Trace":  "freespin-burst",
+                        "Id":  "C-07",
+                        "Metric":  "derived.gesture.update_interval_periods.p95",
+                        "Op":  "\u003c=",
+                        "Threshold":  1.10,
+                        "Value":  1.0657196685606709,
+                        "Runs":  "1.0657196685606707 / 1.0718824249405932 / 1.0639436721126567 / 1.0854267165862674 / 1.060152518779847",
+                        "Pass":  true
+                    },
+                    {
+                        "Trace":  "freespin-burst",
+                        "Id":  "C-08",
+                        "Metric":  "derived.gesture.update_interval_periods.max",
+                        "Op":  "\u003c=",
+                        "Threshold":  1.5,
+                        "Value":  1.1419537160925672,
+                        "Runs":  "1.1419537160925672 / 1.1755945952432383 / 1.1360497279005446 / 1.1604747162022702 / 1.140518875848993",
+                        "Pass":  true
+                    },
+                    {
+                        "Trace":  "freespin-burst",
+                        "Id":  "C-09",
+                        "Metric":  "late_ticks",
+                        "Op":  "==",
+                        "Threshold":  0,
+                        "Value":  0,
+                        "Runs":  "0 / 0 / 0 / 0 / 0",
+                        "Pass":  true
+                    },
+                    {
+                        "Trace":  "freespin-burst",
+                        "Id":  "C-10",
+                        "Metric":  "set_call_ms.max",
+                        "Op":  "\u003c=",
+                        "Threshold":  2.0,
+                        "Value":  0.2039,
+                        "Runs":  "0.4748 / 0.3701 / 0.1559 / 0.2039 / 0.0739",
+                        "Pass":  true
+                    },
+                    {
+                        "Trace":  "freespin-burst",
+                        "Id":  "C-11",
+                        "Metric":  "cold_start.max_set_call_ms",
+                        "Op":  "\u003c=",
+                        "Threshold":  16.667,
+                        "Value":  0.0708,
+                        "Runs":  "0.0775 / 0.0692 / 0.0631 / 0.0708 / 0.1061",
+                        "Pass":  true
+                    },
+                    {
+                        "Trace":  "freespin-burst",
+                        "Id":  "C-12",
+                        "Metric":  "derived.gesture.latency_ms.input_to_update.p95",
+                        "Op":  "\u003c=",
+                        "Threshold":  17.0,
+                        "Value":  15.779460000000016,
+                        "Runs":  "16.600635000000057 / 15.779460000000016 / 15.590415000000057 / 14.979035000000021 / 16.74892500000002",
+                        "Pass":  true
+                    },
+                    {
+                        "Trace":  "freespin-burst",
+                        "Id":  "C-13",
+                        "Metric":  "derived.gesture.latency_ms.input_to_next_vblank.p95",
+                        "Op":  "\u003c=",
+                        "Threshold":  33.4,
+                        "Value":  31.32937500000012,
+                        "Runs":  "31.67314000000014 / 31.32937500000012 / 31.153260000000046 / 29.706310000000077 / 31.991120000000013",
+                        "Pass":  true
+                    },
+                    {
+                        "Trace":  "freespin-burst",
+                        "Id":  "C-14",
+                        "Metric":  "derived.gesture.settle_ms.max",
+                        "Op":  "\u003c=",
+                        "Threshold":  100.0,
+                        "Value":  93.9935999999998,
+                        "Runs":  "93.99359999999979 / 91.2156 / 94.07429999999977 / 95.48309999999992 / 93.14159999999993",
+                        "Pass":  true
+                    },
+                    {
+                        "Trace":  "freespin-burst",
+                        "Id":  "C-15",
+                        "Metric":  "derived.anchor_rel.p95",
+                        "Op":  "\u003c=",
+                        "Threshold":  1.0,
+                        "Value":  0.97557598232255038,
+                        "Runs":  "0.9747870208099982 / 0.9755759823225503 / 0.9774374040028846 / 0.9845902221552087 / 0.9726913606096758",
+                        "Pass":  true
+                    },
+                    {
+                        "Trace":  "freespin-burst",
+                        "Id":  "C-16",
+                        "Metric":  "derived.anchor_rel.max",
+                        "Op":  "\u003c=",
+                        "Threshold":  1.01,
+                        "Value":  0.99791943221346457,
+                        "Runs":  "0.9936683749627377 / 0.9998417834048041 / 0.9985633711006585 / 0.9979194322134646 / 0.9954067622923617",
+                        "Pass":  true
+                    },
+                    {
+                        "Trace":  "freespin-burst",
+                        "Id":  "C-17",
+                        "Metric":  "roundtrip_error_pct_max",
+                        "Op":  "\u003c=",
+                        "Threshold":  0.1,
+                        "Value":  1.6284308390623892E-05,
+                        "Runs":  "1.628E-05 / 1.628E-05 / 1.628E-05 / 8.142E-06 / 1.628E-05",
+                        "Pass":  true
+                    },
+                    {
+                        "Trace":  "freespin-burst",
+                        "Id":  "C-18",
+                        "Metric":  "derived.anchor_snapback.pct",
+                        "Op":  "\u003c=",
+                        "Threshold":  15.0,
+                        "Value":  1.96078431372549,
+                        "Runs":  "0.0 / 0.0 / 3.8461538461538463 / 5.769230769230769 / 1.9607843137254901",
+                        "Pass":  true
+                    },
+                    {
+                        "Trace":  "freespin-burst",
+                        "Id":  "C-19",
+                        "Metric":  "derived.gesture.zoom_wobble.pct",
+                        "Op":  "\u003c=",
+                        "Threshold":  0.5,
+                        "Value":  0,
+                        "Runs":  "0.0 / 0.0 / 0.0 / 0.0 / 0.0",
+                        "Pass":  true
+                    },
+                    {
+                        "Trace":  "freespin-burst",
+                        "Id":  "C-20",
+                        "Metric":  "derived.gesture.half_response_ms.p95",
+                        "Op":  "\u003c=",
+                        "Threshold":  40.0,
+                        "Value":  27.219640000000005,
+                        "Runs":  "23.917099999999973 / 27.219640000000005 / 28.73434 / 27.90153500000003 / 23.43296",
+                        "Pass":  true
+                    },
+                    {
+                        "Trace":  "touchpad-ptp",
+                        "Id":  "C-01",
+                        "Metric":  "completed",
+                        "Op":  "==",
+                        "Threshold":  true,
+                        "Value":  true,
+                        "Runs":  "True / True / True / True / True",
+                        "Pass":  true
+                    },
+                    {
+                        "Trace":  "touchpad-ptp",
+                        "Id":  "C-02",
+                        "Metric":  "uiaccess",
+                        "Op":  "==",
+                        "Threshold":  true,
+                        "Value":  true,
+                        "Runs":  "True / True / True / True / True",
+                        "Pass":  true
+                    },
+                    {
+                        "Trace":  "touchpad-ptp",
+                        "Id":  "C-03",
+                        "Metric":  "counts.updates_failed",
+                        "Op":  "==",
+                        "Threshold":  0,
+                        "Value":  0,
+                        "Runs":  "0 / 0 / 0 / 0 / 0",
+                        "Pass":  true
+                    },
+                    {
+                        "Trace":  "touchpad-ptp",
+                        "Id":  "C-04",
+                        "Metric":  "counts.frames_dropped",
+                        "Op":  "==",
+                        "Threshold":  0,
+                        "Value":  0,
+                        "Runs":  "0 / 0 / 0 / 0 / 0",
+                        "Pass":  true
+                    },
+                    {
+                        "Trace":  "touchpad-ptp",
+                        "Id":  "C-05",
+                        "Metric":  "derived.gesture.refreshes.missed_pct",
+                        "Op":  "\u003c=",
+                        "Threshold":  1.0,
+                        "Value":  0,
+                        "Runs":  "0.0 / 0.0 / 0.0 / 0.0 / 0.0",
+                        "Pass":  true
+                    },
+                    {
+                        "Trace":  "touchpad-ptp",
+                        "Id":  "C-06",
+                        "Metric":  "derived.gesture.refreshes.multi_update",
+                        "Op":  "==",
+                        "Threshold":  0,
+                        "Value":  0,
+                        "Runs":  "0 / 0 / 0 / 0 / 0",
+                        "Pass":  true
+                    },
+                    {
+                        "Trace":  "touchpad-ptp",
+                        "Id":  "C-07",
+                        "Metric":  "derived.gesture.update_interval_periods.p95",
+                        "Op":  "\u003c=",
+                        "Threshold":  1.10,
+                        "Value":  1.0499760001920009,
+                        "Runs":  "1.0528466943066057 / 1.0499760001920009 / 1.0527194945610086 / 1.0441968464252427 / 1.0482780137758807",
+                        "Pass":  true
+                    },
+                    {
+                        "Trace":  "touchpad-ptp",
+                        "Id":  "C-08",
+                        "Metric":  "derived.gesture.update_interval_periods.max",
+                        "Op":  "\u003c=",
+                        "Threshold":  1.5,
+                        "Value":  1.1250277499445005,
+                        "Runs":  "1.1106997786004422 / 1.119039047687618 / 1.1250277499445003 / 1.1464288285693713 / 1.1531667746658028",
+                        "Pass":  true
+                    },
+                    {
+                        "Trace":  "touchpad-ptp",
+                        "Id":  "C-09",
+                        "Metric":  "late_ticks",
+                        "Op":  "==",
+                        "Threshold":  0,
+                        "Value":  0,
+                        "Runs":  "0 / 0 / 0 / 0 / 0",
+                        "Pass":  true
+                    },
+                    {
+                        "Trace":  "touchpad-ptp",
+                        "Id":  "C-10",
+                        "Metric":  "set_call_ms.max",
+                        "Op":  "\u003c=",
+                        "Threshold":  2.0,
+                        "Value":  0.2183,
+                        "Runs":  "0.5448 / 0.1008 / 0.2074 / 0.2183 / 0.338",
+                        "Pass":  true
+                    },
+                    {
+                        "Trace":  "touchpad-ptp",
+                        "Id":  "C-11",
+                        "Metric":  "cold_start.max_set_call_ms",
+                        "Op":  "\u003c=",
+                        "Threshold":  16.667,
+                        "Value":  0.0963,
+                        "Runs":  "0.0792 / 0.1161 / 0.1237 / 0.0836 / 0.0963",
+                        "Pass":  true
+                    },
+                    {
+                        "Trace":  "touchpad-ptp",
+                        "Id":  "C-12",
+                        "Metric":  "derived.gesture.latency_ms.input_to_update.p95",
+                        "Op":  "\u003c=",
+                        "Threshold":  17.0,
+                        "Value":  15.628759999999907,
+                        "Runs":  "15.574579999999877 / 15.866559999999936 / 15.398359999999911 / 15.628759999999907 / 15.919040000000004",
+                        "Pass":  true
+                    },
+                    {
+                        "Trace":  "touchpad-ptp",
+                        "Id":  "C-13",
+                        "Metric":  "derived.gesture.latency_ms.input_to_next_vblank.p95",
+                        "Op":  "\u003c=",
+                        "Threshold":  33.4,
+                        "Value":  31.013460000000254,
+                        "Runs":  "31.020460000000092 / 31.132539999999924 / 30.84743999999996 / 30.9073599999997 / 31.013460000000258",
+                        "Pass":  true
+                    },
+                    {
+                        "Trace":  "touchpad-ptp",
+                        "Id":  "C-14",
+                        "Metric":  "derived.gesture.settle_ms.max",
+                        "Op":  "\u003c=",
+                        "Threshold":  100.0,
+                        "Value":  30.228799999999978,
+                        "Runs":  "30.22879999999998 / 28.37729999999999 / 28.7029 / 30.723600000000033 / 31.03830000000005",
+                        "Pass":  true
+                    },
+                    {
+                        "Trace":  "touchpad-ptp",
+                        "Id":  "C-15",
+                        "Metric":  "derived.anchor_rel.p95",
+                        "Op":  "\u003c=",
+                        "Threshold":  1.0,
+                        "Value":  0.980233483812026,
+                        "Runs":  "0.9761787927753858 / 0.9802334838120259 / 0.9739456029387838 / 0.983481421481315 / 0.9807051634372556",
+                        "Pass":  true
+                    },
+                    {
+                        "Trace":  "touchpad-ptp",
+                        "Id":  "C-16",
+                        "Metric":  "derived.anchor_rel.max",
+                        "Op":  "\u003c=",
+                        "Threshold":  1.01,
+                        "Value":  0.99531054376041084,
+                        "Runs":  "0.9953105437604108 / 0.9999997172297483 / 0.9952641632958148 / 0.9953105437604108 / 0.9909916594431252",
+                        "Pass":  true
+                    },
+                    {
+                        "Trace":  "touchpad-ptp",
+                        "Id":  "C-17",
+                        "Metric":  "roundtrip_error_pct_max",
+                        "Op":  "\u003c=",
+                        "Threshold":  0.1,
+                        "Value":  4.3459286791502905E-05,
+                        "Runs":  "4.346E-05 / 2.897E-05 / 3.622E-05 / 2.897E-05 / 2.897E-05",
+                        "Pass":  true
+                    },
+                    {
+                        "Trace":  "touchpad-ptp",
+                        "Id":  "C-18",
+                        "Metric":  "derived.anchor_snapback.pct",
+                        "Op":  "\u003c=",
+                        "Threshold":  15.0,
+                        "Value":  9.5238095238095237,
+                        "Runs":  "11.428571428571429 / 6.666666666666667 / 9.523809523809524 / 9.523809523809524 / 10.476190476190476",
+                        "Pass":  true
+                    },
+                    {
+                        "Trace":  "touchpad-ptp",
+                        "Id":  "C-19",
+                        "Metric":  "derived.gesture.zoom_wobble.pct",
+                        "Op":  "\u003c=",
+                        "Threshold":  0.5,
+                        "Value":  0,
+                        "Runs":  "0.0 / 0.0 / 0.0 / 0.0 / 0.0",
+                        "Pass":  true
+                    },
+                    {
+                        "Trace":  "touchpad-ptp",
+                        "Id":  "C-20",
+                        "Metric":  "derived.gesture.half_response_ms.p95",
+                        "Op":  "\u003c=",
+                        "Threshold":  40.0,
+                        "Value":  5.9040499999999554,
+                        "Runs":  "5.53494500000005 / 5.812305000000002 / 6.1322349999999854 / 5.904049999999955 / 6.0713350000000155",
+                        "Pass":  true
+                    },
+                    {
+                        "Trace":  "touchpad-ptp",
+                        "Id":  "C-21",
+                        "Metric":  "derived.gesture.latency_ms.input_to_update.p95",
+                        "Op":  "\u003c=",
+                        "Threshold":  16.5,
+                        "Value":  15.628759999999907,
+                        "Runs":  "15.574579999999877 / 15.866559999999936 / 15.398359999999911 / 15.628759999999907 / 15.919040000000004",
+                        "Pass":  true
+                    },
+                    {
+                        "Trace":  "touchpad-ptp",
+                        "Id":  "C-22",
+                        "Metric":  "derived.gesture.latency_ms.input_to_next_vblank.p95",
+                        "Op":  "\u003c=",
+                        "Threshold":  31.7,
+                        "Value":  31.013460000000254,
+                        "Runs":  "31.020460000000092 / 31.132539999999924 / 30.84743999999996 / 30.9073599999997 / 31.013460000000258",
+                        "Pass":  true
+                    },
+                    {
+                        "Trace":  "touchpad-ptp",
+                        "Id":  "C-23",
+                        "Metric":  "derived.gesture.half_response_ms.p95",
+                        "Op":  "\u003c=",
+                        "Threshold":  16.7,
+                        "Value":  5.9040499999999554,
+                        "Runs":  "5.53494500000005 / 5.812305000000002 / 6.1322349999999854 / 5.904049999999955 / 6.0713350000000155",
+                        "Pass":  true
+                    }
+                ]
+}
