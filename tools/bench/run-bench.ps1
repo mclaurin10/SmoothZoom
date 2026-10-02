@@ -8,7 +8,8 @@
 # Each run:   SmoothZoom.exe --bench <trace> --out <dir>\<trace>\run<N> --timeout <s>
 #                            --config <dir>\<trace>\run<N>\config.json
 # The --config file does not exist, so the run uses built-in defaults (as
-# before), and smoothzoom.log + the .running sentinel land in the run folder:
+# before; -ConfigTemplate <file> copies that file there first, e.g. to bench
+# with the touchpad coast off), and smoothzoom.log + the .running sentinel land in the run folder:
 # a bench never reads or writes %APPDATA%\SmoothZoom\.
 # After an abnormal exit (non-zero, timeout, kill) it runs `SmoothZoom.exe --reset`
 # so the screen is never left magnified (R-14). Writes <dir>\aggregate.json:
@@ -39,7 +40,8 @@ param(
     [string]$Label = "",
     [switch]$NoCursor,
     [int]$StallRetries = 2,
-    [int]$MaxStalls = 3
+    [int]$MaxStalls = 3,
+    [string]$ConfigTemplate = ""   # copied to each run's config.json (default: none = built-in defaults)
 )
 
 . "$PSScriptRoot\..\_dev-common.ps1"
@@ -72,6 +74,7 @@ function Invoke-SzDev([string[]]$ArgList, [int]$Timeout) {
 # One bench process, then derive.py on its outputs.
 function Invoke-SzRun([string]$tPath, [string]$dir) {
     New-Item -ItemType Directory -Force $dir | Out-Null
+    if ($ConfigTemplate) { Copy-Item -Force $ConfigTemplate (Join-Path $dir 'config.json') }
     $a = @('--bench', "`"$tPath`"", '--out', "`"$dir`"", '--timeout', "$TimeoutSec",
            '--config', "`"$(Join-Path $dir 'config.json')`"")
     if ($Label) { $a += @('--label', "`"$Label`"") }

@@ -1,0 +1,26 @@
+# smoothzoom-trace: 1
+# kind: synthetic
+# description: mouse wheel: Shift+spin, Shift released after 4 notches, spin continues; pause; page scroll
+# screen: 1920x1200 origin 0,0
+# modifier_vk: 0xA0
+# touchpad_natural: 0
+# generator: tools/bench/gen_gesture_traces.py
+t_us,source,delta,shift,ctrl,alt,win,x,y
+100000,WHEEL,120,1,0,0,0,960,600
+145000,WHEEL,120,1,0,0,0,960,600
+190000,WHEEL,120,1,0,0,0,960,600
+235000,WHEEL,120,1,0,0,0,960,600
+280000,WHEEL,120,0,0,0,0,960,600
+325000,WHEEL,120,0,0,0,0,960,600
+370000,WHEEL,120,0,0,0,0,960,600
+415000,WHEEL,120,0,0,0,0,960,600
+460000,WHEEL,120,0,0,0,0,960,600
+505000,WHEEL,120,0,0,0,0,960,600
+550000,WHEEL,120,0,0,0,0,960,600
+595000,WHEEL,120,0,0,0,0,960,600
+640000,WHEEL,120,0,0,0,0,960,600
+685000,WHEEL,120,0,0,0,0,960,600
+1130000,WHEEL,120,0,0,0,0,960,600
+1170000,WHEEL,120,0,0,0,0,960,600
+1210000,WHEEL,120,0,0,0,0,960,600
+1250000,WHEEL,120,0,0,0,0,960,600
