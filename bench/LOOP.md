@@ -47,3 +47,7 @@ A fresh reviewer (no session context) read the diff from `loop-start`, the desig
 Not changed: Raw Input replay timing (frozen `DevTools.cpp`; no recorded trace has RAW events); rounding can overshoot a monitor edge by < 0.5 desktop px (fix touches per-monitor clamping, out of scope); warm-up side effects (need PresentMon/power measurement — hand check).
 
 | 5 | Review fixes | as above | quick gate, post-reboot env: 14 → 20 (vs same-env control) | C-18: detented 11 → 30, wheel-flick 9 → 18, wheel-sweep 10 → 16, freespin 2 → 4, touchpad 1–23 → 16–49 % (rounding level). Still below rounding-only on wheel traces (40 / 35 / 19 / 10 %). C-21/23 unchanged. The earlier C-18 passes were partly bought with edge judder and touchpad lag | **Keep** (honest version) |
+
+| Final | 2026-10-02 11:31–11:44 | f83c248 | **Environment stop** after 3 of 8 traces | The display turned off mid-gate: the AC display timeout is now 20 min (it was "never" before the reboot) and the keep-awake holder had expired; the system entered Modern Standby at 11:44. Completed traces (5 runs each): tp-edge, tp-flick, tp-terminal, with the same failures as the quick gate (touchpad holes, C-07 timing, C-18 at rounding level 16–49 %). The stall detector fired once (tp-terminal run 5) and the rerun was clean. |
+
+Stop hook removed from `.claude/settings.local.json` after the loop (marker already deleted with the user's OK). `bench/loop-gate.log` holds every hook gate result.
