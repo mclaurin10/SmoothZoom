@@ -19,7 +19,7 @@ driver or power source changes, because every bench number below depends on them
 | Panel | Internal eDP, AU Optronics `AUOC9B9`, 30 × 19 cm |
 | Resolution | **1920 × 1200** physical, single monitor, virtual desktop = primary (origin 0,0) |
 | DPI scale | **150 %** (system DPI 144). SmoothZoom is PerMonitorV2, so all bench coordinates are physical px. |
-| Refresh | **60 Hz** nominal. DWM reports `rateRefresh = 10000000/166974` = **59.890 Hz**, a period of **16.697 ms**. QPC frequency is 10 MHz. |
+| Refresh | **60 Hz** nominal. DWM measured **16.667 ms (60.00 Hz) on AC** and **16.697 ms (59.89 Hz) on battery** (`rateRefresh 10000000/166974`). QPC frequency is 10 MHz. |
 | VRR | Panel EDID range **40–60 Hz** (`Win32_VideoController` Min/MaxRefreshRate). Windows' VRR toggle is not set explicitly (`DirectXUserGlobalSettings` absent, so the OS default applies). VRR only affects game swap-chains: **DWM desktop composition, and so `DwmFlush` and `MagSetFullscreenTransform`, runs at the fixed 59.89 Hz.** Dynamic Refresh Rate does not apply (max 60 Hz). Panel Self Refresh may idle the link when nothing changes; this is invisible to DWM timing. |
 | HDR / color | HDR not supported; Advanced Color supported (SDR). |
 | MPO | 3 planes (MPO3), with stretch and bilinear capability. |

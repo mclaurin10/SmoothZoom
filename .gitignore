@@ -39,3 +39,6 @@ desktop.ini
 *.pfx
 *.pvk
 *.cer
+
+# Bench scratch runs (baselines are committed under bench/baseline/)
+bench/results/

@@ -1,0 +1,1310 @@
+﻿{
+    "created":  "2026-10-01T17:53:02.4571421-07:00",
+    "git":  "4ab91ca+dirty",
+    "label":  "baseline 4ab91ca AC",
+    "runs":  3,
+    "traces":  {
+                   "detented-sweep":  {
+                                          "path":  "C:\\src\\SmoothZoom\\bench\\traces\\synthetic\\detented-sweep.csv",
+                                          "runs":  [
+                                                       {
+                                                           "schema":  1,
+                                                           "trace":  "detented-sweep.csv",
+                                                           "label":  "baseline 4ab91ca AC",
+                                                           "completed":  true,
+                                                           "computer":  "TEMPLAPTOP",
+                                                           "power":  "AC",
+                                                           "uiaccess":  true,
+                                                           "build":  "Oct  1 2026 17:49:14",
+                                                           "refresh_period_ms":  16.6667,
+                                                           "refresh_hz":  59.999880000240005,
+                                                           "trace_meta":  {
+                                                                              "description":  "detented mouse wheel 1x-\u003e10x-\u003e1x, 30+30 notches at 26-38 ms",
+                                                                              "generator":  "tools/bench/gen_synthetic.py",
+                                                                              "kind":  "synthetic",
+                                                                              "modifier_vk":  "0x5B",
+                                                                              "screen":  "1920x1200 origin 0,0",
+                                                                              "smoothzoom-trace":  "1"
+                                                                          },
+                                                           "counts":  {
+                                                                          "trace_events":  62,
+                                                                          "injected":  62,
+                                                                          "consumed_inputs":  60,
+                                                                          "bursts":  2,
+                                                                          "frames_logged":  243,
+                                                                          "frames_dropped":  0,
+                                                                          "updates":  58,
+                                                                          "updates_failed":  0
+                                                                      },
+                                                           "update_interval_ms":  {
+                                                                                      "n":  56,
+                                                                                      "p50":  33.2695,
+                                                                                      "p95":  48.933350000000004,
+                                                                                      "p99":  49.35584,
+                                                                                      "max":  49.3631
+                                                                                  },
+                                                           "update_interval_periods":  {
+                                                                                           "n":  56,
+                                                                                           "p50":  1.996166007667985,
+                                                                                           "p95":  2.9359951280097443,
+                                                                                           "p99":  2.9613444773110458,
+                                                                                           "max":  2.9617800764398474
+                                                                                       },
+                                                           "refreshes":  {
+                                                                             "active":  108,
+                                                                             "missed":  50,
+                                                                             "missed_pct":  46.2962962962963,
+                                                                             "multi_update":  0
+                                                                         },
+                                                           "vblank_phase_ms":  {
+                                                                                   "n":  58,
+                                                                                   "p50":  1.2305,
+                                                                                   "p95":  1.8099549999999998,
+                                                                                   "p99":  2.243073,
+                                                                                   "max":  2.4147
+                                                                               },
+                                                           "tick_interval_ms":  {
+                                                                                    "n":  242,
+                                                                                    "p50":  16.68455,
+                                                                                    "p95":  17.510910000000003,
+                                                                                    "p99":  18.005222000000003,
+                                                                                    "max":  18.5407
+                                                                                },
+                                                           "late_ticks":  0,
+                                                           "set_call_ms":  {
+                                                                               "n":  58,
+                                                                               "p50":  0.01175,
+                                                                               "p95":  0.022465,
+                                                                               "p99":  0.058366999999999995,
+                                                                               "max":  0.0737
+                                                                           },
+                                                           "set_call_first_ms":  0.0077,
+                                                           "set_call_stalls":  0,
+                                                           "anchor_error_px":  {
+                                                                                   "n":  57,
+                                                                                   "p50":  2.1483664538734644,
+                                                                                   "p95":  9.485376972379477,
+                                                                                   "p99":  11.229319008494125,
+                                                                                   "max":  11.449250152084574
+                                                                               },
+                                                           "anchor_quantization_px":  {
+                                                                                          "n":  57,
+                                                                                          "p50":  2.1483664538734644,
+                                                                                          "p95":  9.485376972379477,
+                                                                                          "p99":  11.229319008494125,
+                                                                                          "max":  11.449250152084574
+                                                                                      },
+                                                           "anchor_deadzone_px":  {
+                                                                                      "n":  57,
+                                                                                      "p50":  0.0,
+                                                                                      "p95":  0.0,
+                                                                                      "p99":  0.0,
+                                                                                      "max":  0.0
+                                                                                  },
+                                                           "roundtrip":  [
+                                                                             {
+                                                                                 "begin_zoom":  1.0,
+                                                                                 "end_zoom":  1.0,
+                                                                                 "error_pct":  0.0
+                                                                             }
+                                                                         ],
+                                                           "roundtrip_error_pct_max":  0.0,
+                                                           "latency_ms":  {
+                                                                              "input_to_update":  {
+                                                                                                      "n":  58,
+                                                                                                      "p50":  8.134350000000001,
+                                                                                                      "p95":  15.279715,
+                                                                                                      "p99":  16.431335999999998,
+                                                                                                      "max":  16.554
+                                                                                                  },
+                                                                              "input_to_next_vblank":  {
+                                                                                                           "n":  58,
+                                                                                                           "p50":  23.699849999999998,
+                                                                                                           "p95":  30.629105,
+                                                                                                           "p99":  32.370705,
+                                                                                                           "max":  32.3727
+                                                                                                       },
+                                                                              "inputs_without_update":  2
+                                                                          },
+                                                           "settle_ms":  {
+                                                                             "n":  2,
+                                                                             "p50":  2.3593,
+                                                                             "p95":  4.48267,
+                                                                             "p99":  4.671414,
+                                                                             "max":  4.7186
+                                                                         },
+                                                           "zoom_step_log":  {
+                                                                                 "n":  56,
+                                                                                 "p50":  0.09531019281168288,
+                                                                                 "p95":  0.09531024580640461,
+                                                                                 "p99":  0.09531025067856484,
+                                                                                 "max":  0.09531025203413387
+                                                                             },
+                                                           "zoom":  {
+                                                                        "max":  9.992868423461914,
+                                                                        "end":  1.0
+                                                                    },
+                                                           "cold_start":  {
+                                                                              "warmup":  true,
+                                                                              "first_set_call_ms":  169.3683,
+                                                                              "max_set_call_ms":  169.3683
+                                                                          }
+                                                       },
+                                                       {
+                                                           "schema":  1,
+                                                           "trace":  "detented-sweep.csv",
+                                                           "label":  "baseline 4ab91ca AC",
+                                                           "completed":  true,
+                                                           "computer":  "TEMPLAPTOP",
+                                                           "power":  "AC",
+                                                           "uiaccess":  true,
+                                                           "build":  "Oct  1 2026 17:49:14",
+                                                           "refresh_period_ms":  16.6667,
+                                                           "refresh_hz":  59.999880000240005,
+                                                           "trace_meta":  {
+                                                                              "description":  "detented mouse wheel 1x-\u003e10x-\u003e1x, 30+30 notches at 26-38 ms",
+                                                                              "generator":  "tools/bench/gen_synthetic.py",
+                                                                              "kind":  "synthetic",
+                                                                              "modifier_vk":  "0x5B",
+                                                                              "screen":  "1920x1200 origin 0,0",
+                                                                              "smoothzoom-trace":  "1"
+                                                                          },
+                                                           "counts":  {
+                                                                          "trace_events":  62,
+                                                                          "injected":  62,
+                                                                          "consumed_inputs":  60,
+                                                                          "bursts":  2,
+                                                                          "frames_logged":  243,
+                                                                          "frames_dropped":  0,
+                                                                          "updates":  58,
+                                                                          "updates_failed":  0
+                                                                      },
+                                                           "update_interval_ms":  {
+                                                                                      "n":  56,
+                                                                                      "p50":  33.21235,
+                                                                                      "p95":  49.341350000000006,
+                                                                                      "p99":  49.857305000000004,
+                                                                                      "max":  49.8721
+                                                                                  },
+                                                           "update_interval_periods":  {
+                                                                                           "n":  56,
+                                                                                           "p50":  1.992737014525971,
+                                                                                           "p95":  2.960475079049842,
+                                                                                           "p99":  2.991432317135366,
+                                                                                           "max":  2.9923200153599696
+                                                                                       },
+                                                           "refreshes":  {
+                                                                             "active":  108,
+                                                                             "missed":  50,
+                                                                             "missed_pct":  46.2962962962963,
+                                                                             "multi_update":  0
+                                                                         },
+                                                           "vblank_phase_ms":  {
+                                                                                   "n":  58,
+                                                                                   "p50":  1.07125,
+                                                                                   "p95":  1.7226299999999999,
+                                                                                   "p99":  2.3459299999999996,
+                                                                                   "max":  2.888
+                                                                               },
+                                                           "tick_interval_ms":  {
+                                                                                    "n":  242,
+                                                                                    "p50":  16.67165,
+                                                                                    "p95":  17.57434,
+                                                                                    "p99":  18.067303,
+                                                                                    "max":  18.2844
+                                                                                },
+                                                           "late_ticks":  0,
+                                                           "set_call_ms":  {
+                                                                               "n":  58,
+                                                                               "p50":  0.01285,
+                                                                               "p95":  0.02004,
+                                                                               "p99":  0.022459,
+                                                                               "max":  0.0232
+                                                                           },
+                                                           "set_call_first_ms":  0.0098,
+                                                           "set_call_stalls":  0,
+                                                           "anchor_error_px":  {
+                                                                                   "n":  57,
+                                                                                   "p50":  2.1483664538734644,
+                                                                                   "p95":  9.485376972379477,
+                                                                                   "p99":  11.229319008494125,
+                                                                                   "max":  11.449250152084574
+                                                                               },
+                                                           "anchor_quantization_px":  {
+                                                                                          "n":  57,
+                                                                                          "p50":  2.1483664538734644,
+                                                                                          "p95":  9.485376972379477,
+                                                                                          "p99":  11.229319008494125,
+                                                                                          "max":  11.449250152084574
+                                                                                      },
+                                                           "anchor_deadzone_px":  {
+                                                                                      "n":  57,
+                                                                                      "p50":  0.0,
+                                                                                      "p95":  0.0,
+                                                                                      "p99":  0.0,
+                                                                                      "max":  0.0
+                                                                                  },
+                                                           "roundtrip":  [
+                                                                             {
+                                                                                 "begin_zoom":  1.0,
+                                                                                 "end_zoom":  1.0,
+                                                                                 "error_pct":  0.0
+                                                                             }
+                                                                         ],
+                                                           "roundtrip_error_pct_max":  0.0,
+                                                           "latency_ms":  {
+                                                                              "input_to_update":  {
+                                                                                                      "n":  58,
+                                                                                                      "p50":  7.6049500000000005,
+                                                                                                      "p95":  15.745429999999999,
+                                                                                                      "p99":  16.560743,
+                                                                                                      "max":  16.6976
+                                                                                                  },
+                                                                              "input_to_next_vblank":  {
+                                                                                                           "n":  58,
+                                                                                                           "p50":  23.042749999999998,
+                                                                                                           "p95":  31.697869999999998,
+                                                                                                           "p99":  32.666942,
+                                                                                                           "max":  32.7008
+                                                                                                       },
+                                                                              "inputs_without_update":  2
+                                                                          },
+                                                           "settle_ms":  {
+                                                                             "n":  2,
+                                                                             "p50":  2.04305,
+                                                                             "p95":  3.881795,
+                                                                             "p99":  4.045239,
+                                                                             "max":  4.0861
+                                                                         },
+                                                           "zoom_step_log":  {
+                                                                                 "n":  56,
+                                                                                 "p50":  0.09531019281168288,
+                                                                                 "p95":  0.09531024580640461,
+                                                                                 "p99":  0.09531025067856484,
+                                                                                 "max":  0.09531025203413387
+                                                                             },
+                                                           "zoom":  {
+                                                                        "max":  9.992868423461914,
+                                                                        "end":  1.0
+                                                                    },
+                                                           "cold_start":  {
+                                                                              "warmup":  true,
+                                                                              "first_set_call_ms":  167.9705,
+                                                                              "max_set_call_ms":  167.9705
+                                                                          }
+                                                       },
+                                                       {
+                                                           "schema":  1,
+                                                           "trace":  "detented-sweep.csv",
+                                                           "label":  "baseline 4ab91ca AC",
+                                                           "completed":  true,
+                                                           "computer":  "TEMPLAPTOP",
+                                                           "power":  "AC",
+                                                           "uiaccess":  true,
+                                                           "build":  "Oct  1 2026 17:49:14",
+                                                           "refresh_period_ms":  16.6668,
+                                                           "refresh_hz":  59.999520003839976,
+                                                           "trace_meta":  {
+                                                                              "description":  "detented mouse wheel 1x-\u003e10x-\u003e1x, 30+30 notches at 26-38 ms",
+                                                                              "generator":  "tools/bench/gen_synthetic.py",
+                                                                              "kind":  "synthetic",
+                                                                              "modifier_vk":  "0x5B",
+                                                                              "screen":  "1920x1200 origin 0,0",
+                                                                              "smoothzoom-trace":  "1"
+                                                                          },
+                                                           "counts":  {
+                                                                          "trace_events":  62,
+                                                                          "injected":  62,
+                                                                          "consumed_inputs":  60,
+                                                                          "bursts":  2,
+                                                                          "frames_logged":  243,
+                                                                          "frames_dropped":  0,
+                                                                          "updates":  58,
+                                                                          "updates_failed":  0
+                                                                      },
+                                                           "update_interval_ms":  {
+                                                                                      "n":  56,
+                                                                                      "p50":  33.31595,
+                                                                                      "p95":  47.9192,
+                                                                                      "p99":  49.454675,
+                                                                                      "max":  49.8999
+                                                                                  },
+                                                           "update_interval_periods":  {
+                                                                                           "n":  56,
+                                                                                           "p50":  1.9989410084719323,
+                                                                                           "p95":  2.8751289989680084,
+                                                                                           "p99":  2.967256761945905,
+                                                                                           "max":  2.9939700482396145
+                                                                                       },
+                                                           "refreshes":  {
+                                                                             "active":  108,
+                                                                             "missed":  50,
+                                                                             "missed_pct":  46.2962962962963,
+                                                                             "multi_update":  0
+                                                                         },
+                                                           "vblank_phase_ms":  {
+                                                                                   "n":  58,
+                                                                                   "p50":  1.1170499999999999,
+                                                                                   "p95":  1.7571049999999997,
+                                                                                   "p99":  2.8112389999999996,
+                                                                                   "max":  3.1346
+                                                                               },
+                                                           "tick_interval_ms":  {
+                                                                                    "n":  242,
+                                                                                    "p50":  16.652050000000003,
+                                                                                    "p95":  17.620459999999998,
+                                                                                    "p99":  18.31454,
+                                                                                    "max":  18.7142
+                                                                                },
+                                                           "late_ticks":  0,
+                                                           "set_call_ms":  {
+                                                                               "n":  58,
+                                                                               "p50":  0.0117,
+                                                                               "p95":  0.017459999999999996,
+                                                                               "p99":  0.023538999999999997,
+                                                                               "max":  0.0277
+                                                                           },
+                                                           "set_call_first_ms":  0.0075,
+                                                           "set_call_stalls":  0,
+                                                           "anchor_error_px":  {
+                                                                                   "n":  57,
+                                                                                   "p50":  2.1483664538734644,
+                                                                                   "p95":  9.485376972379477,
+                                                                                   "p99":  11.229319008494125,
+                                                                                   "max":  11.449250152084574
+                                                                               },
+                                                           "anchor_quantization_px":  {
+                                                                                          "n":  57,
+                                                                                          "p50":  2.1483664538734644,
+                                                                                          "p95":  9.485376972379477,
+                                                                                          "p99":  11.229319008494125,
+                                                                                          "max":  11.449250152084574
+                                                                                      },
+                                                           "anchor_deadzone_px":  {
+                                                                                      "n":  57,
+                                                                                      "p50":  0.0,
+                                                                                      "p95":  0.0,
+                                                                                      "p99":  0.0,
+                                                                                      "max":  0.0
+                                                                                  },
+                                                           "roundtrip":  [
+                                                                             {
+                                                                                 "begin_zoom":  1.0,
+                                                                                 "end_zoom":  1.0,
+                                                                                 "error_pct":  0.0
+                                                                             }
+                                                                         ],
+                                                           "roundtrip_error_pct_max":  0.0,
+                                                           "latency_ms":  {
+                                                                              "input_to_update":  {
+                                                                                                      "n":  58,
+                                                                                                      "p50":  7.4821,
+                                                                                                      "p95":  15.52076,
+                                                                                                      "p99":  16.313299,
+                                                                                                      "max":  16.8202
+                                                                                                  },
+                                                                              "input_to_next_vblank":  {
+                                                                                                           "n":  58,
+                                                                                                           "p50":  22.83565,
+                                                                                                           "p95":  31.48809,
+                                                                                                           "p99":  31.844304,
+                                                                                                           "max":  32.1366
+                                                                                                       },
+                                                                              "inputs_without_update":  2
+                                                                          },
+                                                           "settle_ms":  {
+                                                                             "n":  2,
+                                                                             "p50":  1.72825,
+                                                                             "p95":  3.283675,
+                                                                             "p99":  3.421935,
+                                                                             "max":  3.4565
+                                                                         },
+                                                           "zoom_step_log":  {
+                                                                                 "n":  56,
+                                                                                 "p50":  0.09531019281168288,
+                                                                                 "p95":  0.09531024580640461,
+                                                                                 "p99":  0.09531025067856484,
+                                                                                 "max":  0.09531025203413387
+                                                                             },
+                                                           "zoom":  {
+                                                                        "max":  9.992868423461914,
+                                                                        "end":  1.0
+                                                                    },
+                                                           "cold_start":  {
+                                                                              "warmup":  true,
+                                                                              "first_set_call_ms":  167.3009,
+                                                                              "max_set_call_ms":  167.3009
+                                                                          }
+                                                       }
+                                                   ]
+                                      },
+                   "freespin-burst":  {
+                                          "path":  "C:\\src\\SmoothZoom\\bench\\traces\\synthetic\\freespin-burst.csv",
+                                          "runs":  [
+                                                       {
+                                                           "schema":  1,
+                                                           "trace":  "freespin-burst.csv",
+                                                           "label":  "baseline 4ab91ca AC",
+                                                           "completed":  true,
+                                                           "computer":  "TEMPLAPTOP",
+                                                           "power":  "AC",
+                                                           "uiaccess":  true,
+                                                           "build":  "Oct  1 2026 17:49:14",
+                                                           "refresh_period_ms":  16.6667,
+                                                           "refresh_hz":  59.999880000240005,
+                                                           "trace_meta":  {
+                                                                              "description":  "free-spin wheel bursts: 14 events up / 14 down at 2-18 ms (decelerating)",
+                                                                              "generator":  "tools/bench/gen_synthetic.py",
+                                                                              "kind":  "synthetic",
+                                                                              "modifier_vk":  "0x5B",
+                                                                              "screen":  "1920x1200 origin 0,0",
+                                                                              "smoothzoom-trace":  "1"
+                                                                          },
+                                                           "counts":  {
+                                                                          "trace_events":  40,
+                                                                          "injected":  40,
+                                                                          "consumed_inputs":  38,
+                                                                          "bursts":  4,
+                                                                          "frames_logged":  182,
+                                                                          "frames_dropped":  0,
+                                                                          "updates":  22,
+                                                                          "updates_failed":  0
+                                                                      },
+                                                           "update_interval_ms":  {
+                                                                                      "n":  18,
+                                                                                      "p50":  25.43595,
+                                                                                      "p95":  50.03201,
+                                                                                      "p99":  50.385202,
+                                                                                      "max":  50.4735
+                                                                                  },
+                                                           "update_interval_periods":  {
+                                                                                           "n":  18,
+                                                                                           "p50":  1.5261539476921047,
+                                                                                           "p95":  3.0019145961708076,
+                                                                                           "p99":  3.023106073787853,
+                                                                                           "max":  3.028403943192114
+                                                                                       },
+                                                           "refreshes":  {
+                                                                             "active":  36,
+                                                                             "missed":  14,
+                                                                             "missed_pct":  38.888888888888886,
+                                                                             "multi_update":  0
+                                                                         },
+                                                           "vblank_phase_ms":  {
+                                                                                   "n":  22,
+                                                                                   "p50":  0.8925,
+                                                                                   "p95":  1.5466599999999997,
+                                                                                   "p99":  1.57915,
+                                                                                   "max":  1.5844
+                                                                               },
+                                                           "tick_interval_ms":  {
+                                                                                    "n":  181,
+                                                                                    "p50":  16.6621,
+                                                                                    "p95":  17.2346,
+                                                                                    "p99":  18.282,
+                                                                                    "max":  18.5765
+                                                                                },
+                                                           "late_ticks":  0,
+                                                           "set_call_ms":  {
+                                                                               "n":  22,
+                                                                               "p50":  0.0074,
+                                                                               "p95":  0.015529999999999999,
+                                                                               "p99":  0.020576999999999995,
+                                                                               "max":  0.0219
+                                                                           },
+                                                           "set_call_first_ms":  0.0114,
+                                                           "set_call_stalls":  0,
+                                                           "anchor_error_px":  {
+                                                                                   "n":  22,
+                                                                                   "p50":  1.090013043970984,
+                                                                                   "p95":  2.804462782180508,
+                                                                                   "p99":  2.9082801230084763,
+                                                                                   "max":  2.9358771376589488
+                                                                               },
+                                                           "anchor_quantization_px":  {
+                                                                                          "n":  22,
+                                                                                          "p50":  1.090013043970984,
+                                                                                          "p95":  2.804462782180508,
+                                                                                          "p99":  2.9082801230084763,
+                                                                                          "max":  2.9358771376589488
+                                                                                      },
+                                                           "anchor_deadzone_px":  {
+                                                                                      "n":  22,
+                                                                                      "p50":  0.0,
+                                                                                      "p95":  0.0,
+                                                                                      "p99":  0.0,
+                                                                                      "max":  0.0
+                                                                                  },
+                                                           "roundtrip":  [
+                                                                             {
+                                                                                 "begin_zoom":  1.4641001224517822,
+                                                                                 "end_zoom":  1.4640998840332031,
+                                                                                 "error_pct":  1.6284308390623892E-05
+                                                                             }
+                                                                         ],
+                                                           "roundtrip_error_pct_max":  1.6284308390623892E-05,
+                                                           "latency_ms":  {
+                                                                              "input_to_update":  {
+                                                                                                      "n":  38,
+                                                                                                      "p50":  7.57775,
+                                                                                                      "p95":  15.79851,
+                                                                                                      "p99":  17.006180000000004,
+                                                                                                      "max":  17.556
+                                                                                                  },
+                                                                              "input_to_next_vblank":  {
+                                                                                                           "n":  38,
+                                                                                                           "p50":  23.518,
+                                                                                                           "p95":  32.009150000000005,
+                                                                                                           "p99":  32.408345000000004,
+                                                                                                           "max":  32.6383
+                                                                                                       },
+                                                                              "inputs_without_update":  0
+                                                                          },
+                                                           "settle_ms":  {
+                                                                             "n":  4,
+                                                                             "p50":  5.84825,
+                                                                             "p95":  14.498789999999998,
+                                                                             "p99":  15.500238,
+                                                                             "max":  15.7506
+                                                                         },
+                                                           "zoom_step_log":  {
+                                                                                 "n":  18,
+                                                                                 "p50":  0.09531021085999185,
+                                                                                 "p95":  0.3955373690803631,
+                                                                                 "p99":  0.4603483134560302,
+                                                                                 "max":  0.47655104954994715
+                                                                             },
+                                                           "zoom":  {
+                                                                        "max":  5.559919357299805,
+                                                                        "end":  1.0149966478347778
+                                                                    },
+                                                           "cold_start":  {
+                                                                              "warmup":  true,
+                                                                              "first_set_call_ms":  169.093,
+                                                                              "max_set_call_ms":  169.093
+                                                                          }
+                                                       },
+                                                       {
+                                                           "schema":  1,
+                                                           "trace":  "freespin-burst.csv",
+                                                           "label":  "baseline 4ab91ca AC",
+                                                           "completed":  true,
+                                                           "computer":  "TEMPLAPTOP",
+                                                           "power":  "AC",
+                                                           "uiaccess":  true,
+                                                           "build":  "Oct  1 2026 17:49:14",
+                                                           "refresh_period_ms":  16.6666,
+                                                           "refresh_hz":  60.000240000960005,
+                                                           "trace_meta":  {
+                                                                              "description":  "free-spin wheel bursts: 14 events up / 14 down at 2-18 ms (decelerating)",
+                                                                              "generator":  "tools/bench/gen_synthetic.py",
+                                                                              "kind":  "synthetic",
+                                                                              "modifier_vk":  "0x5B",
+                                                                              "screen":  "1920x1200 origin 0,0",
+                                                                              "smoothzoom-trace":  "1"
+                                                                          },
+                                                           "counts":  {
+                                                                          "trace_events":  40,
+                                                                          "injected":  40,
+                                                                          "consumed_inputs":  38,
+                                                                          "bursts":  4,
+                                                                          "frames_logged":  182,
+                                                                          "frames_dropped":  0,
+                                                                          "updates":  22,
+                                                                          "updates_failed":  0
+                                                                      },
+                                                           "update_interval_ms":  {
+                                                                                      "n":  18,
+                                                                                      "p50":  25.2767,
+                                                                                      "p95":  50.22305,
+                                                                                      "p99":  50.40733,
+                                                                                      "max":  50.4534
+                                                                                  },
+                                                           "update_interval_periods":  {
+                                                                                           "n":  18,
+                                                                                           "p50":  1.516608066432266,
+                                                                                           "p95":  3.0133950535802145,
+                                                                                           "p99":  3.0244518978075914,
+                                                                                           "max":  3.027216108864436
+                                                                                       },
+                                                           "refreshes":  {
+                                                                             "active":  36,
+                                                                             "missed":  14,
+                                                                             "missed_pct":  38.888888888888886,
+                                                                             "multi_update":  0
+                                                                         },
+                                                           "vblank_phase_ms":  {
+                                                                                   "n":  22,
+                                                                                   "p50":  0.9621,
+                                                                                   "p95":  1.215815,
+                                                                                   "p99":  1.334004,
+                                                                                   "max":  1.365
+                                                                               },
+                                                           "tick_interval_ms":  {
+                                                                                    "n":  181,
+                                                                                    "p50":  16.6598,
+                                                                                    "p95":  17.4365,
+                                                                                    "p99":  18.182599999999997,
+                                                                                    "max":  18.5795
+                                                                                },
+                                                           "late_ticks":  0,
+                                                           "set_call_ms":  {
+                                                                               "n":  22,
+                                                                               "p50":  0.00745,
+                                                                               "p95":  0.03306999999999999,
+                                                                               "p99":  0.036406999999999995,
+                                                                               "max":  0.0371
+                                                                           },
+                                                           "set_call_first_ms":  0.007,
+                                                           "set_call_stalls":  0,
+                                                           "anchor_error_px":  {
+                                                                                   "n":  22,
+                                                                                   "p50":  1.090013043970984,
+                                                                                   "p95":  2.804462782180508,
+                                                                                   "p99":  2.9082801230084763,
+                                                                                   "max":  2.9358771376589488
+                                                                               },
+                                                           "anchor_quantization_px":  {
+                                                                                          "n":  22,
+                                                                                          "p50":  1.090013043970984,
+                                                                                          "p95":  2.804462782180508,
+                                                                                          "p99":  2.9082801230084763,
+                                                                                          "max":  2.9358771376589488
+                                                                                      },
+                                                           "anchor_deadzone_px":  {
+                                                                                      "n":  22,
+                                                                                      "p50":  0.0,
+                                                                                      "p95":  0.0,
+                                                                                      "p99":  0.0,
+                                                                                      "max":  0.0
+                                                                                  },
+                                                           "roundtrip":  [
+                                                                             {
+                                                                                 "begin_zoom":  1.4641001224517822,
+                                                                                 "end_zoom":  1.4640998840332031,
+                                                                                 "error_pct":  1.6284308390623892E-05
+                                                                             }
+                                                                         ],
+                                                           "roundtrip_error_pct_max":  1.6284308390623892E-05,
+                                                           "latency_ms":  {
+                                                                              "input_to_update":  {
+                                                                                                      "n":  38,
+                                                                                                      "p50":  6.8601,
+                                                                                                      "p95":  14.994565,
+                                                                                                      "p99":  15.870612000000001,
+                                                                                                      "max":  16.3007
+                                                                                                  },
+                                                                              "input_to_next_vblank":  {
+                                                                                                           "n":  38,
+                                                                                                           "p50":  22.63875,
+                                                                                                           "p95":  31.119699999999998,
+                                                                                                           "p99":  31.543247,
+                                                                                                           "max":  31.79
+                                                                                                       },
+                                                                              "inputs_without_update":  0
+                                                                          },
+                                                           "settle_ms":  {
+                                                                             "n":  4,
+                                                                             "p50":  5.284000000000001,
+                                                                             "p95":  13.880204999999997,
+                                                                             "p99":  14.886681,
+                                                                             "max":  15.1383
+                                                                         },
+                                                           "zoom_step_log":  {
+                                                                                 "n":  18,
+                                                                                 "p50":  0.09531021085999185,
+                                                                                 "p95":  0.3955373690803631,
+                                                                                 "p99":  0.4603483134560302,
+                                                                                 "max":  0.47655104954994715
+                                                                             },
+                                                           "zoom":  {
+                                                                        "max":  5.559919357299805,
+                                                                        "end":  1.0149966478347778
+                                                                    },
+                                                           "cold_start":  {
+                                                                              "warmup":  true,
+                                                                              "first_set_call_ms":  165.2625,
+                                                                              "max_set_call_ms":  165.2625
+                                                                          }
+                                                       },
+                                                       {
+                                                           "schema":  1,
+                                                           "trace":  "freespin-burst.csv",
+                                                           "label":  "baseline 4ab91ca AC",
+                                                           "completed":  true,
+                                                           "computer":  "TEMPLAPTOP",
+                                                           "power":  "AC",
+                                                           "uiaccess":  true,
+                                                           "build":  "Oct  1 2026 17:49:14",
+                                                           "refresh_period_ms":  16.6668,
+                                                           "refresh_hz":  59.999520003839976,
+                                                           "trace_meta":  {
+                                                                              "description":  "free-spin wheel bursts: 14 events up / 14 down at 2-18 ms (decelerating)",
+                                                                              "generator":  "tools/bench/gen_synthetic.py",
+                                                                              "kind":  "synthetic",
+                                                                              "modifier_vk":  "0x5B",
+                                                                              "screen":  "1920x1200 origin 0,0",
+                                                                              "smoothzoom-trace":  "1"
+                                                                          },
+                                                           "counts":  {
+                                                                          "trace_events":  40,
+                                                                          "injected":  40,
+                                                                          "consumed_inputs":  38,
+                                                                          "bursts":  4,
+                                                                          "frames_logged":  182,
+                                                                          "frames_dropped":  0,
+                                                                          "updates":  23,
+                                                                          "updates_failed":  0
+                                                                      },
+                                                           "update_interval_ms":  {
+                                                                                      "n":  19,
+                                                                                      "p50":  17.3214,
+                                                                                      "p95":  50.12362,
+                                                                                      "p99":  50.244724,
+                                                                                      "max":  50.275
+                                                                                  },
+                                                           "update_interval_periods":  {
+                                                                                           "n":  19,
+                                                                                           "p50":  1.0392756857945138,
+                                                                                           "p95":  3.0073931408548735,
+                                                                                           "p99":  3.0146593227254184,
+                                                                                           "max":  3.0164758681930546
+                                                                                       },
+                                                           "refreshes":  {
+                                                                             "active":  36,
+                                                                             "missed":  13,
+                                                                             "missed_pct":  36.111111111111114,
+                                                                             "multi_update":  0
+                                                                         },
+                                                           "vblank_phase_ms":  {
+                                                                                   "n":  23,
+                                                                                   "p50":  0.9296,
+                                                                                   "p95":  1.29345,
+                                                                                   "p99":  1.2979859999999999,
+                                                                                   "max":  1.2988
+                                                                               },
+                                                           "tick_interval_ms":  {
+                                                                                    "n":  181,
+                                                                                    "p50":  16.67,
+                                                                                    "p95":  17.4102,
+                                                                                    "p99":  18.173779999999997,
+                                                                                    "max":  18.959
+                                                                                },
+                                                           "late_ticks":  0,
+                                                           "set_call_ms":  {
+                                                                               "n":  23,
+                                                                               "p50":  0.0076,
+                                                                               "p95":  0.02288999999999999,
+                                                                               "p99":  0.023968,
+                                                                               "max":  0.0241
+                                                                           },
+                                                           "set_call_first_ms":  0.0077,
+                                                           "set_call_stalls":  0,
+                                                           "anchor_error_px":  {
+                                                                                   "n":  23,
+                                                                                   "p50":  1.0899629947709855,
+                                                                                   "p95":  2.803569522089538,
+                                                                                   "p99":  2.906965805489361,
+                                                                                   "max":  2.9358769146277552
+                                                                               },
+                                                           "anchor_quantization_px":  {
+                                                                                          "n":  23,
+                                                                                          "p50":  1.0899629947709855,
+                                                                                          "p95":  2.803569522089538,
+                                                                                          "p99":  2.906965805489361,
+                                                                                          "max":  2.9358769146277552
+                                                                                      },
+                                                           "anchor_deadzone_px":  {
+                                                                                      "n":  23,
+                                                                                      "p50":  0.0,
+                                                                                      "p95":  0.0,
+                                                                                      "p99":  0.0,
+                                                                                      "max":  0.0
+                                                                                  },
+                                                           "roundtrip":  [
+                                                                             {
+                                                                                 "begin_zoom":  1.4641001224517822,
+                                                                                 "end_zoom":  1.4640998840332031,
+                                                                                 "error_pct":  1.6284308390623892E-05
+                                                                             }
+                                                                         ],
+                                                           "roundtrip_error_pct_max":  1.6284308390623892E-05,
+                                                           "latency_ms":  {
+                                                                              "input_to_update":  {
+                                                                                                      "n":  38,
+                                                                                                      "p50":  7.26805,
+                                                                                                      "p95":  16.178369999999997,
+                                                                                                      "p99":  17.230704000000003,
+                                                                                                      "max":  17.3716
+                                                                                                  },
+                                                                              "input_to_next_vblank":  {
+                                                                                                           "n":  38,
+                                                                                                           "p50":  23.1527,
+                                                                                                           "p95":  31.813034999999996,
+                                                                                                           "p99":  32.786033,
+                                                                                                           "max":  32.8708
+                                                                                                       },
+                                                                              "inputs_without_update":  0
+                                                                          },
+                                                           "settle_ms":  {
+                                                                             "n":  4,
+                                                                             "p50":  4.4101,
+                                                                             "p95":  13.640679999999998,
+                                                                             "p99":  14.684776,
+                                                                             "max":  14.9458
+                                                                         },
+                                                           "zoom_step_log":  {
+                                                                                 "n":  19,
+                                                                                 "p50":  0.09531020761032925,
+                                                                                 "p95":  0.48608203996921856,
+                                                                                 "p99":  0.5547053914772614,
+                                                                                 "max":  0.571861229354272
+                                                                             },
+                                                           "zoom":  {
+                                                                        "max":  5.559919357299805,
+                                                                        "end":  1.0149966478347778
+                                                                    },
+                                                           "cold_start":  {
+                                                                              "warmup":  true,
+                                                                              "first_set_call_ms":  162.2937,
+                                                                              "max_set_call_ms":  162.2937
+                                                                          }
+                                                       }
+                                                   ]
+                                      },
+                   "touchpad-ptp":  {
+                                        "path":  "C:\\src\\SmoothZoom\\bench\\traces\\synthetic\\touchpad-ptp.csv",
+                                        "runs":  [
+                                                     {
+                                                         "schema":  1,
+                                                         "trace":  "touchpad-ptp.csv",
+                                                         "label":  "baseline 4ab91ca AC",
+                                                         "completed":  true,
+                                                         "computer":  "TEMPLAPTOP",
+                                                         "power":  "AC",
+                                                         "uiaccess":  true,
+                                                         "build":  "Oct  1 2026 17:49:14",
+                                                         "refresh_period_ms":  16.6668,
+                                                         "refresh_hz":  59.999520003839976,
+                                                         "trace_meta":  {
+                                                                            "description":  "precision-touchpad style: small deltas ~7 ms apart with inertia tails",
+                                                                            "generator":  "tools/bench/gen_synthetic.py",
+                                                                            "kind":  "synthetic",
+                                                                            "modifier_vk":  "0x5B",
+                                                                            "screen":  "1920x1200 origin 0,0",
+                                                                            "smoothzoom-trace":  "1"
+                                                                        },
+                                                         "counts":  {
+                                                                        "trace_events":  247,
+                                                                        "injected":  247,
+                                                                        "consumed_inputs":  245,
+                                                                        "bursts":  4,
+                                                                        "frames_logged":  241,
+                                                                        "frames_dropped":  0,
+                                                                        "updates":  106,
+                                                                        "updates_failed":  0
+                                                                    },
+                                                         "update_interval_ms":  {
+                                                                                    "n":  102,
+                                                                                    "p50":  16.68355,
+                                                                                    "p95":  17.619075,
+                                                                                    "p99":  17.762218,
+                                                                                    "max":  18.6231
+                                                                                },
+                                                         "update_interval_periods":  {
+                                                                                         "n":  102,
+                                                                                         "p50":  1.0010049919600645,
+                                                                                         "p95":  1.0571360429116567,
+                                                                                         "p99":  1.0657245542035665,
+                                                                                         "max":  1.1173770609835123
+                                                                                     },
+                                                         "refreshes":  {
+                                                                           "active":  106,
+                                                                           "missed":  0,
+                                                                           "missed_pct":  0.0,
+                                                                           "multi_update":  0
+                                                                       },
+                                                         "vblank_phase_ms":  {
+                                                                                 "n":  106,
+                                                                                 "p50":  1.6021,
+                                                                                 "p95":  2.683625,
+                                                                                 "p99":  2.730925,
+                                                                                 "max":  2.7471
+                                                                             },
+                                                         "tick_interval_ms":  {
+                                                                                  "n":  240,
+                                                                                  "p50":  16.7025,
+                                                                                  "p95":  17.60667,
+                                                                                  "p99":  17.764943,
+                                                                                  "max":  18.6137
+                                                                              },
+                                                         "late_ticks":  0,
+                                                         "set_call_ms":  {
+                                                                             "n":  106,
+                                                                             "p50":  0.00945,
+                                                                             "p95":  0.060025,
+                                                                             "p99":  0.08056,
+                                                                             "max":  0.0828
+                                                                         },
+                                                         "set_call_first_ms":  0.0142,
+                                                         "set_call_stalls":  0,
+                                                         "anchor_error_px":  {
+                                                                                 "n":  106,
+                                                                                 "p50":  2.3678511505981987,
+                                                                                 "p95":  6.0689267855803735,
+                                                                                 "p99":  7.549304800760702,
+                                                                                 "max":  8.025405261941671
+                                                                             },
+                                                         "anchor_quantization_px":  {
+                                                                                        "n":  106,
+                                                                                        "p50":  2.3678511505981987,
+                                                                                        "p95":  6.0689267855803735,
+                                                                                        "p99":  7.549304800760702,
+                                                                                        "max":  8.025405261941671
+                                                                                    },
+                                                         "anchor_deadzone_px":  {
+                                                                                    "n":  106,
+                                                                                    "p50":  0.0,
+                                                                                    "p95":  0.0,
+                                                                                    "p99":  0.0,
+                                                                                    "max":  0.0
+                                                                                },
+                                                         "roundtrip":  [
+                                                                           {
+                                                                               "begin_zoom":  3.291612148284912,
+                                                                               "end_zoom":  3.291611671447754,
+                                                                               "error_pct":  1.4486432076132871E-05
+                                                                           }
+                                                                       ],
+                                                         "roundtrip_error_pct_max":  1.4486432076132871E-05,
+                                                         "latency_ms":  {
+                                                                            "input_to_update":  {
+                                                                                                    "n":  245,
+                                                                                                    "p50":  8.5301,
+                                                                                                    "p95":  16.205640000000002,
+                                                                                                    "p99":  17.016248,
+                                                                                                    "max":  17.2811
+                                                                                                },
+                                                                            "input_to_next_vblank":  {
+                                                                                                         "n":  245,
+                                                                                                         "p50":  23.634,
+                                                                                                         "p95":  31.133580000000002,
+                                                                                                         "p99":  31.939968,
+                                                                                                         "max":  32.512
+                                                                                                     },
+                                                                            "inputs_without_update":  0
+                                                                        },
+                                                         "settle_ms":  {
+                                                                           "n":  4,
+                                                                           "p50":  10.1887,
+                                                                           "p95":  14.667379999999998,
+                                                                           "p99":  15.235316,
+                                                                           "max":  15.3773
+                                                                       },
+                                                         "zoom_step_log":  {
+                                                                               "n":  102,
+                                                                               "p50":  0.022391131057460077,
+                                                                               "p95":  0.08816200148605503,
+                                                                               "p99":  0.11198152468333784,
+                                                                               "max":  0.11993194033757051
+                                                                           },
+                                                         "zoom":  {
+                                                                      "max":  6.72750186920166,
+                                                                      "end":  1.0495706796646118
+                                                                  },
+                                                         "cold_start":  {
+                                                                            "warmup":  true,
+                                                                            "first_set_call_ms":  168.2764,
+                                                                            "max_set_call_ms":  168.2764
+                                                                        }
+                                                     },
+                                                     {
+                                                         "schema":  1,
+                                                         "trace":  "touchpad-ptp.csv",
+                                                         "label":  "baseline 4ab91ca AC",
+                                                         "completed":  true,
+                                                         "computer":  "TEMPLAPTOP",
+                                                         "power":  "AC",
+                                                         "uiaccess":  true,
+                                                         "build":  "Oct  1 2026 17:49:14",
+                                                         "refresh_period_ms":  16.6667,
+                                                         "refresh_hz":  59.999880000240005,
+                                                         "trace_meta":  {
+                                                                            "description":  "precision-touchpad style: small deltas ~7 ms apart with inertia tails",
+                                                                            "generator":  "tools/bench/gen_synthetic.py",
+                                                                            "kind":  "synthetic",
+                                                                            "modifier_vk":  "0x5B",
+                                                                            "screen":  "1920x1200 origin 0,0",
+                                                                            "smoothzoom-trace":  "1"
+                                                                        },
+                                                         "counts":  {
+                                                                        "trace_events":  247,
+                                                                        "injected":  247,
+                                                                        "consumed_inputs":  245,
+                                                                        "bursts":  4,
+                                                                        "frames_logged":  241,
+                                                                        "frames_dropped":  0,
+                                                                        "updates":  106,
+                                                                        "updates_failed":  0
+                                                                    },
+                                                         "update_interval_ms":  {
+                                                                                    "n":  102,
+                                                                                    "p50":  16.71855,
+                                                                                    "p95":  17.609935,
+                                                                                    "p99":  17.85247,
+                                                                                    "max":  18.9717
+                                                                                },
+                                                         "update_interval_periods":  {
+                                                                                         "n":  102,
+                                                                                         "p50":  1.0031109937780127,
+                                                                                         "p95":  1.0565939868120264,
+                                                                                         "p99":  1.0711460577078846,
+                                                                                         "max":  1.1382997234005532
+                                                                                     },
+                                                         "refreshes":  {
+                                                                           "active":  106,
+                                                                           "missed":  0,
+                                                                           "missed_pct":  0.0,
+                                                                           "multi_update":  0
+                                                                       },
+                                                         "vblank_phase_ms":  {
+                                                                                 "n":  106,
+                                                                                 "p50":  1.2206000000000001,
+                                                                                 "p95":  2.47565,
+                                                                                 "p99":  2.8485650000000007,
+                                                                                 "max":  2.9344
+                                                                             },
+                                                         "tick_interval_ms":  {
+                                                                                  "n":  240,
+                                                                                  "p50":  16.6613,
+                                                                                  "p95":  17.508095,
+                                                                                  "p99":  18.016454999999997,
+                                                                                  "max":  18.9378
+                                                                              },
+                                                         "late_ticks":  0,
+                                                         "set_call_ms":  {
+                                                                             "n":  106,
+                                                                             "p50":  0.0077,
+                                                                             "p95":  0.03695,
+                                                                             "p99":  0.042640000000000004,
+                                                                             "max":  0.0439
+                                                                         },
+                                                         "set_call_first_ms":  0.0066,
+                                                         "set_call_stalls":  0,
+                                                         "anchor_error_px":  {
+                                                                                 "n":  106,
+                                                                                 "p50":  2.367851055337681,
+                                                                                 "p95":  6.146180471924133,
+                                                                                 "p99":  7.549286877277413,
+                                                                                 "max":  8.025404657716763
+                                                                             },
+                                                         "anchor_quantization_px":  {
+                                                                                        "n":  106,
+                                                                                        "p50":  2.367851055337681,
+                                                                                        "p95":  6.146180471924133,
+                                                                                        "p99":  7.549286877277413,
+                                                                                        "max":  8.025404657716763
+                                                                                    },
+                                                         "anchor_deadzone_px":  {
+                                                                                    "n":  106,
+                                                                                    "p50":  0.0,
+                                                                                    "p95":  0.0,
+                                                                                    "p99":  0.0,
+                                                                                    "max":  0.0
+                                                                                },
+                                                         "roundtrip":  [
+                                                                           {
+                                                                               "begin_zoom":  3.291612148284912,
+                                                                               "end_zoom":  3.291611433029175,
+                                                                               "error_pct":  2.1729648125301537E-05
+                                                                           }
+                                                                       ],
+                                                         "roundtrip_error_pct_max":  2.1729648125301537E-05,
+                                                         "latency_ms":  {
+                                                                            "input_to_update":  {
+                                                                                                    "n":  245,
+                                                                                                    "p50":  8.7594,
+                                                                                                    "p95":  16.180039999999998,
+                                                                                                    "p99":  17.157624000000002,
+                                                                                                    "max":  17.4142
+                                                                                                },
+                                                                            "input_to_next_vblank":  {
+                                                                                                         "n":  245,
+                                                                                                         "p50":  23.8752,
+                                                                                                         "p95":  31.24228,
+                                                                                                         "p99":  32.092596,
+                                                                                                         "max":  32.5851
+                                                                                                     },
+                                                                            "inputs_without_update":  0
+                                                                        },
+                                                         "settle_ms":  {
+                                                                           "n":  4,
+                                                                           "p50":  9.916,
+                                                                           "p95":  15.435284999999999,
+                                                                           "p99":  16.073456999999998,
+                                                                           "max":  16.233
+                                                                       },
+                                                         "zoom_step_log":  {
+                                                                               "n":  102,
+                                                                               "p50":  0.022391131057460077,
+                                                                               "p95":  0.08816200186900502,
+                                                                               "p99":  0.11198152479753874,
+                                                                               "max":  0.11993194033757051
+                                                                           },
+                                                         "zoom":  {
+                                                                      "max":  6.727501392364502,
+                                                                      "end":  1.0495706796646118
+                                                                  },
+                                                         "cold_start":  {
+                                                                            "warmup":  true,
+                                                                            "first_set_call_ms":  168.1937,
+                                                                            "max_set_call_ms":  168.1937
+                                                                        }
+                                                     },
+                                                     {
+                                                         "schema":  1,
+                                                         "trace":  "touchpad-ptp.csv",
+                                                         "label":  "baseline 4ab91ca AC",
+                                                         "completed":  true,
+                                                         "computer":  "TEMPLAPTOP",
+                                                         "power":  "AC",
+                                                         "uiaccess":  true,
+                                                         "build":  "Oct  1 2026 17:49:14",
+                                                         "refresh_period_ms":  16.6668,
+                                                         "refresh_hz":  59.999520003839976,
+                                                         "trace_meta":  {
+                                                                            "description":  "precision-touchpad style: small deltas ~7 ms apart with inertia tails",
+                                                                            "generator":  "tools/bench/gen_synthetic.py",
+                                                                            "kind":  "synthetic",
+                                                                            "modifier_vk":  "0x5B",
+                                                                            "screen":  "1920x1200 origin 0,0",
+                                                                            "smoothzoom-trace":  "1"
+                                                                        },
+                                                         "counts":  {
+                                                                        "trace_events":  247,
+                                                                        "injected":  247,
+                                                                        "consumed_inputs":  245,
+                                                                        "bursts":  4,
+                                                                        "frames_logged":  241,
+                                                                        "frames_dropped":  0,
+                                                                        "updates":  106,
+                                                                        "updates_failed":  0
+                                                                    },
+                                                         "update_interval_ms":  {
+                                                                                    "n":  102,
+                                                                                    "p50":  16.659,
+                                                                                    "p95":  17.54779,
+                                                                                    "p99":  17.872328999999997,
+                                                                                    "max":  18.1919
+                                                                                },
+                                                         "update_interval_periods":  {
+                                                                                         "n":  102,
+                                                                                         "p50":  0.9995320037439701,
+                                                                                         "p95":  1.052858977128183,
+                                                                                         "p99":  1.0723311613507092,
+                                                                                         "max":  1.0915052679578565
+                                                                                     },
+                                                         "refreshes":  {
+                                                                           "active":  106,
+                                                                           "missed":  0,
+                                                                           "missed_pct":  0.0,
+                                                                           "multi_update":  0
+                                                                       },
+                                                         "vblank_phase_ms":  {
+                                                                                 "n":  106,
+                                                                                 "p50":  1.24505,
+                                                                                 "p95":  2.0128000000000004,
+                                                                                 "p99":  2.456080000000001,
+                                                                                 "max":  2.8384
+                                                                             },
+                                                         "tick_interval_ms":  {
+                                                                                  "n":  240,
+                                                                                  "p50":  16.67455,
+                                                                                  "p95":  17.417605000000002,
+                                                                                  "p99":  17.597517,
+                                                                                  "max":  18.1966
+                                                                              },
+                                                         "late_ticks":  0,
+                                                         "set_call_ms":  {
+                                                                             "n":  106,
+                                                                             "p50":  0.0083,
+                                                                             "p95":  0.037625000000000006,
+                                                                             "p99":  0.06457500000000006,
+                                                                             "max":  0.0676
+                                                                         },
+                                                         "set_call_first_ms":  0.0124,
+                                                         "set_call_stalls":  0,
+                                                         "anchor_error_px":  {
+                                                                                 "n":  106,
+                                                                                 "p50":  2.3455485497134916,
+                                                                                 "p95":  6.047586234648094,
+                                                                                 "p99":  7.5381548020887665,
+                                                                                 "max":  8.02540586616658
+                                                                             },
+                                                         "anchor_quantization_px":  {
+                                                                                        "n":  106,
+                                                                                        "p50":  2.3455485497134916,
+                                                                                        "p95":  6.047586234648094,
+                                                                                        "p99":  7.5381548020887665,
+                                                                                        "max":  8.02540586616658
+                                                                                    },
+                                                         "anchor_deadzone_px":  {
+                                                                                    "n":  106,
+                                                                                    "p50":  0.0,
+                                                                                    "p95":  0.0,
+                                                                                    "p99":  0.0,
+                                                                                    "max":  0.0
+                                                                                },
+                                                         "roundtrip":  [
+                                                                           {
+                                                                               "begin_zoom":  3.2916128635406494,
+                                                                               "end_zoom":  3.2916126251220703,
+                                                                               "error_pct":  7.2432144615497407E-06
+                                                                           }
+                                                                       ],
+                                                         "roundtrip_error_pct_max":  7.2432144615497407E-06,
+                                                         "latency_ms":  {
+                                                                            "input_to_update":  {
+                                                                                                    "n":  245,
+                                                                                                    "p50":  8.4978,
+                                                                                                    "p95":  15.861099999999997,
+                                                                                                    "p99":  16.594904,
+                                                                                                    "max":  16.7788
+                                                                                                },
+                                                                            "input_to_next_vblank":  {
+                                                                                                         "n":  245,
+                                                                                                         "p50":  23.8237,
+                                                                                                         "p95":  31.264,
+                                                                                                         "p99":  31.937008,
+                                                                                                         "max":  32.1602
+                                                                                                     },
+                                                                            "inputs_without_update":  0
+                                                                        },
+                                                         "settle_ms":  {
+                                                                           "n":  4,
+                                                                           "p50":  8.831900000000001,
+                                                                           "p95":  13.595319999999997,
+                                                                           "p99":  14.120583999999997,
+                                                                           "max":  14.2519
+                                                                       },
+                                                         "zoom_step_log":  {
+                                                                               "n":  102,
+                                                                               "p50":  0.021444850257641472,
+                                                                               "p95":  0.09721640972650986,
+                                                                               "p99":  0.11670734754767173,
+                                                                               "max":  0.11754927038866982
+                                                                           },
+                                                         "zoom":  {
+                                                                      "max":  6.727502346038818,
+                                                                      "end":  1.0497634410858154
+                                                                  },
+                                                         "cold_start":  {
+                                                                            "warmup":  true,
+                                                                            "first_set_call_ms":  165.9366,
+                                                                            "max_set_call_ms":  165.9366
+                                                                        }
+                                                     }
+                                                 ]
+                                    }
+               }
+}

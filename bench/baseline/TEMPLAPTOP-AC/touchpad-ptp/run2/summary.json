@@ -1,0 +1,143 @@
+{
+  "schema": 1,
+  "trace": "touchpad-ptp.csv",
+  "label": "baseline 4ab91ca AC",
+  "completed": true,
+  "computer": "TEMPLAPTOP",
+  "power": "AC",
+  "uiaccess": true,
+  "build": "Oct  1 2026 17:49:14",
+  "refresh_period_ms": 16.6667,
+  "refresh_hz": 59.999880000240005,
+  "trace_meta": {
+    "description": "precision-touchpad style: small deltas ~7 ms apart with inertia tails",
+    "generator": "tools/bench/gen_synthetic.py",
+    "kind": "synthetic",
+    "modifier_vk": "0x5B",
+    "screen": "1920x1200 origin 0,0",
+    "smoothzoom-trace": "1"
+  },
+  "counts": {
+    "trace_events": 247,
+    "injected": 247,
+    "consumed_inputs": 245,
+    "bursts": 4,
+    "frames_logged": 241,
+    "frames_dropped": 0,
+    "updates": 106,
+    "updates_failed": 0
+  },
+  "update_interval_ms": {
+    "n": 102,
+    "p50": 16.71855,
+    "p95": 17.609935,
+    "p99": 17.85247,
+    "max": 18.9717
+  },
+  "update_interval_periods": {
+    "n": 102,
+    "p50": 1.0031109937780127,
+    "p95": 1.0565939868120264,
+    "p99": 1.0711460577078846,
+    "max": 1.1382997234005532
+  },
+  "refreshes": {
+    "active": 106,
+    "missed": 0,
+    "missed_pct": 0.0,
+    "multi_update": 0
+  },
+  "vblank_phase_ms": {
+    "n": 106,
+    "p50": 1.2206000000000001,
+    "p95": 2.47565,
+    "p99": 2.8485650000000007,
+    "max": 2.9344
+  },
+  "tick_interval_ms": {
+    "n": 240,
+    "p50": 16.6613,
+    "p95": 17.508095,
+    "p99": 18.016454999999997,
+    "max": 18.9378
+  },
+  "late_ticks": 0,
+  "set_call_ms": {
+    "n": 106,
+    "p50": 0.0077,
+    "p95": 0.03695,
+    "p99": 0.042640000000000004,
+    "max": 0.0439
+  },
+  "set_call_first_ms": 0.0066,
+  "set_call_stalls": 0,
+  "anchor_error_px": {
+    "n": 106,
+    "p50": 2.367851055337681,
+    "p95": 6.146180471924133,
+    "p99": 7.549286877277413,
+    "max": 8.025404657716763
+  },
+  "anchor_quantization_px": {
+    "n": 106,
+    "p50": 2.367851055337681,
+    "p95": 6.146180471924133,
+    "p99": 7.549286877277413,
+    "max": 8.025404657716763
+  },
+  "anchor_deadzone_px": {
+    "n": 106,
+    "p50": 0.0,
+    "p95": 0.0,
+    "p99": 0.0,
+    "max": 0.0
+  },
+  "roundtrip": [
+    {
+      "begin_zoom": 3.291612148284912,
+      "end_zoom": 3.291611433029175,
+      "error_pct": 2.1729648125301537e-05
+    }
+  ],
+  "roundtrip_error_pct_max": 2.1729648125301537e-05,
+  "latency_ms": {
+    "input_to_update": {
+      "n": 245,
+      "p50": 8.7594,
+      "p95": 16.180039999999998,
+      "p99": 17.157624000000002,
+      "max": 17.4142
+    },
+    "input_to_next_vblank": {
+      "n": 245,
+      "p50": 23.8752,
+      "p95": 31.24228,
+      "p99": 32.092596,
+      "max": 32.5851
+    },
+    "inputs_without_update": 0
+  },
+  "settle_ms": {
+    "n": 4,
+    "p50": 9.916,
+    "p95": 15.435284999999999,
+    "p99": 16.073456999999998,
+    "max": 16.233
+  },
+  "zoom_step_log": {
+    "n": 102,
+    "p50": 0.022391131057460077,
+    "p95": 0.08816200186900502,
+    "p99": 0.11198152479753874,
+    "max": 0.11993194033757051
+  },
+  "zoom": {
+    "max": 6.727501392364502,
+    "end": 1.0495706796646118
+  },
+  "cold_start": {
+    "warmup": true,
+    "first_set_call_ms": 168.1937,
+    "max_set_call_ms": 168.1937
+  }
+}

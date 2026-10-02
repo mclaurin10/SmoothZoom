@@ -1,0 +1,143 @@
+{
+  "schema": 1,
+  "trace": "detented-sweep.csv",
+  "label": "baseline 4ab91ca AC",
+  "completed": true,
+  "computer": "TEMPLAPTOP",
+  "power": "AC",
+  "uiaccess": true,
+  "build": "Oct  1 2026 17:49:14",
+  "refresh_period_ms": 16.6667,
+  "refresh_hz": 59.999880000240005,
+  "trace_meta": {
+    "description": "detented mouse wheel 1x->10x->1x, 30+30 notches at 26-38 ms",
+    "generator": "tools/bench/gen_synthetic.py",
+    "kind": "synthetic",
+    "modifier_vk": "0x5B",
+    "screen": "1920x1200 origin 0,0",
+    "smoothzoom-trace": "1"
+  },
+  "counts": {
+    "trace_events": 62,
+    "injected": 62,
+    "consumed_inputs": 60,
+    "bursts": 2,
+    "frames_logged": 243,
+    "frames_dropped": 0,
+    "updates": 58,
+    "updates_failed": 0
+  },
+  "update_interval_ms": {
+    "n": 56,
+    "p50": 33.2695,
+    "p95": 48.933350000000004,
+    "p99": 49.35584,
+    "max": 49.3631
+  },
+  "update_interval_periods": {
+    "n": 56,
+    "p50": 1.996166007667985,
+    "p95": 2.9359951280097443,
+    "p99": 2.9613444773110458,
+    "max": 2.9617800764398474
+  },
+  "refreshes": {
+    "active": 108,
+    "missed": 50,
+    "missed_pct": 46.2962962962963,
+    "multi_update": 0
+  },
+  "vblank_phase_ms": {
+    "n": 58,
+    "p50": 1.2305,
+    "p95": 1.8099549999999998,
+    "p99": 2.243073,
+    "max": 2.4147
+  },
+  "tick_interval_ms": {
+    "n": 242,
+    "p50": 16.68455,
+    "p95": 17.510910000000003,
+    "p99": 18.005222000000003,
+    "max": 18.5407
+  },
+  "late_ticks": 0,
+  "set_call_ms": {
+    "n": 58,
+    "p50": 0.01175,
+    "p95": 0.022465,
+    "p99": 0.058366999999999995,
+    "max": 0.0737
+  },
+  "set_call_first_ms": 0.0077,
+  "set_call_stalls": 0,
+  "anchor_error_px": {
+    "n": 57,
+    "p50": 2.1483664538734644,
+    "p95": 9.485376972379477,
+    "p99": 11.229319008494125,
+    "max": 11.449250152084574
+  },
+  "anchor_quantization_px": {
+    "n": 57,
+    "p50": 2.1483664538734644,
+    "p95": 9.485376972379477,
+    "p99": 11.229319008494125,
+    "max": 11.449250152084574
+  },
+  "anchor_deadzone_px": {
+    "n": 57,
+    "p50": 0.0,
+    "p95": 0.0,
+    "p99": 0.0,
+    "max": 0.0
+  },
+  "roundtrip": [
+    {
+      "begin_zoom": 1.0,
+      "end_zoom": 1.0,
+      "error_pct": 0.0
+    }
+  ],
+  "roundtrip_error_pct_max": 0.0,
+  "latency_ms": {
+    "input_to_update": {
+      "n": 58,
+      "p50": 8.134350000000001,
+      "p95": 15.279715,
+      "p99": 16.431335999999998,
+      "max": 16.554
+    },
+    "input_to_next_vblank": {
+      "n": 58,
+      "p50": 23.699849999999998,
+      "p95": 30.629105,
+      "p99": 32.370705,
+      "max": 32.3727
+    },
+    "inputs_without_update": 2
+  },
+  "settle_ms": {
+    "n": 2,
+    "p50": 2.3593,
+    "p95": 4.48267,
+    "p99": 4.671414,
+    "max": 4.7186
+  },
+  "zoom_step_log": {
+    "n": 56,
+    "p50": 0.09531019281168288,
+    "p95": 0.09531024580640461,
+    "p99": 0.09531025067856484,
+    "max": 0.09531025203413387
+  },
+  "zoom": {
+    "max": 9.992868423461914,
+    "end": 1.0
+  },
+  "cold_start": {
+    "warmup": true,
+    "first_set_call_ms": 169.3683,
+    "max_set_call_ms": 169.3683
+  }
+}
