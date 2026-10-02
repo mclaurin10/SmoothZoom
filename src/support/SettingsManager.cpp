@@ -138,6 +138,12 @@ bool SettingsManager::loadFromFile(const char* path)
     readBool("colorInversionEnabled", settings.colorInversionEnabled);
     readBool("reverseScrollDirection", settings.reverseScrollDirection);
     readBool("momentumZoom", settings.momentumZoom);
+
+    // Upgrade rule (AC-2.8.13): a config.json written before this setting
+    // existed has no key, and those users always had working shortcuts — keep
+    // them on. Only a fresh install (no config.json, so loadFromFile is never
+    // reached or fails) gets the SettingsSnapshot default, off.
+    settings.keyboardShortcutsEnabled = true;
     readBool("keyboardShortcutsEnabled", settings.keyboardShortcutsEnabled);
 
     // ── Log level (diagnostics) ──

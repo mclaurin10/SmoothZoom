@@ -183,7 +183,7 @@ TEST_CASE("Load JSON with missing fields → defaults fill in (AC-2.9.02)", "[Se
     REQUIRE(snap->minZoom == Approx(1.0f));           // Default
     REQUIRE(snap->keyboardZoomStep == Approx(0.25f)); // Default
     REQUIRE(snap->modifierKeyVK == 0xA0);             // Default (Shift)
-    REQUIRE(snap->keyboardShortcutsEnabled == false); // Default (off)
+    REQUIRE(snap->keyboardShortcutsEnabled == true);  // Existing file, no key ⇒ upgrade ⇒ on
     REQUIRE(snap->defaultZoomLevel == Approx(2.0f));  // Default (within [1.0, 5.0])
 }
 
@@ -467,8 +467,8 @@ TEST_CASE("Existing config keeps its saved modifier (Win stays Win)", "[Settings
     SettingsManager mgr;
     REQUIRE(mgr.loadFromFile(path.c_str()));
     REQUIRE(mgr.snapshot()->modifierKeyVK == 0x5B);
-    // Absent key ⇒ the default (off), whatever the modifier.
-    REQUIRE(mgr.snapshot()->keyboardShortcutsEnabled == false);
+    // Absent key in an existing file ⇒ upgrade ⇒ shortcuts stay on.
+    REQUIRE(mgr.snapshot()->keyboardShortcutsEnabled == true);
 
     for (int vk : { 0x5C, 0xA0, 0xA1, 0xA4, 0xA5, 0x10, 0x12 })
     {
@@ -512,8 +512,49 @@ TEST_CASE("keyboardShortcutsEnabled persists both ways; non-boolean keeps defaul
         CHECK(mgr2.snapshot()->keyboardShortcutsEnabled == on);
     }
 
+    // Non-boolean value: ignored, so the existing-file rule (on) applies.
     auto p = writeTempFile(R"({"keyboardShortcutsEnabled": 1})", "kb_nonbool.json");
     SettingsManager m;
     REQUIRE(m.loadFromFile(p.c_str()));
+    CHECK(m.snapshot()->keyboardShortcutsEnabled == true);
+}
+
+TEST_CASE("Fresh install (no config.json) ⇒ shortcuts off; upgrade (config.json, no key) ⇒ on",
+          "[SettingsManager][ShiftScroll]")
+{
+    // Fresh install: the file does not exist, load fails, defaults stay.
+    std::string missing = (std::filesystem::temp_directory_path() / "smoothzoom_test_no_such_config.json").string();
+    std::filesystem::remove(missing);
+    SettingsManager fresh;
+    REQUIRE_FALSE(fresh.loadFromFile(missing.c_str()));
+    CHECK(fresh.snapshot()->keyboardShortcutsEnabled == false);
+    CHECK(fresh.snapshot()->modifierKeyVK == kDefaultModifierVK);
+
+    // Upgrade: a pre-change config.json (exactly the shape the old build wrote).
+    auto legacy = writeTempFile(R"({
+        "animationSpeed": 1, "colorInversionEnabled": false, "defaultZoomLevel": 2.0,
+        "followKeyboardFocus": true, "followTextCursor": true, "imageSmoothingEnabled": true,
+        "keyboardZoomStep": 0.25, "logLevel": "info", "maxZoom": 10.0, "minZoom": 1.0,
+        "modifierKeyVK": 91, "momentumZoom": true, "reverseScrollDirection": false,
+        "schemaVersion": 1, "scrollSensitivity": 1.0, "startWithWindows": false,
+        "startZoomed": false, "toggleKey1VK": 162, "toggleKey2VK": 164
+    })", "legacy_full.json");
+    SettingsManager upgraded;
+    REQUIRE(upgraded.loadFromFile(legacy.c_str()));
+    CHECK(upgraded.snapshot()->keyboardShortcutsEnabled == true);
+    CHECK(upgraded.snapshot()->modifierKeyVK == 0x5B);
+
+    // An explicit false in an existing file is respected (user turned it off).
+    auto off = writeTempFile(R"({"modifierKeyVK": 160, "keyboardShortcutsEnabled": false})", "kb_off.json");
+    SettingsManager m;
+    REQUIRE(m.loadFromFile(off.c_str()));
     CHECK(m.snapshot()->keyboardShortcutsEnabled == false);
+
+    // The first save writes the key, so the rule only ever applies once.
+    std::string rt = (std::filesystem::temp_directory_path() / "smoothzoom_test_upgrade_rt.json").string();
+    REQUIRE(upgraded.saveToFile(rt.c_str()));
+    std::ifstream f(rt);
+    std::stringstream text;
+    text << f.rdbuf();
+    CHECK(text.str().find("\"keyboardShortcutsEnabled\": true") != std::string::npos);
 }

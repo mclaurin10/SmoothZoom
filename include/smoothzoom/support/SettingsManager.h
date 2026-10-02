@@ -48,10 +48,12 @@ struct SettingsSnapshot
     bool    colorInversionEnabled = false;
     bool    reverseScrollDirection = false;
 
-    // Modifier + Plus/Minus/Esc zoom shortcuts (AC-2.8.13–15). Off by default:
-    // with Shift as the modifier, Shift+= / Shift+- are how '+' and '_' are
-    // typed, so the shortcuts would eat those characters. Toggled from the tray
-    // menu ("Keyboard shortcuts"); takes effect immediately.
+    // Keyboard zoom shortcuts (AC-2.8.13–15): modifier + Plus/Minus/Esc, the
+    // Ctrl+Alt peek toggle and Ctrl+Alt+I. Win+Ctrl+M (settings) is not gated.
+    // Off for a fresh install: with Shift as the modifier, Shift+= / Shift+-
+    // are how '+' and '_' are typed. An existing config.json without the key
+    // loads as ON (upgrade rule, see loadFromFile). Toggled from the tray menu
+    // ("Keyboard shortcuts"); takes effect immediately.
     bool    keyboardShortcutsEnabled = false;
 
     // Input interoperability (A3, B3):
