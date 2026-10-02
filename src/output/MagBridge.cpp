@@ -16,6 +16,7 @@
 #include <windows.h>
 #include <magnification.h>
 #include <atomic>
+#include <cmath>
 
 #pragma comment(lib, "Magnification.lib")
 
@@ -99,9 +100,12 @@ bool MagBridge::setTransform(float magnification, float xOffset, float yOffset)
     if (!initialized_)
         return false;
 
+    // The API takes whole desktop pixels. Round to nearest (R-23): truncation
+    // put the point under the pointer up to 1 px (x zoom on screen) off and
+    // made it jitter while zooming; rounding halves that to the 0.5 px floor.
     BOOL ok = MagSetFullscreenTransform(magnification,
-                                        static_cast<int>(xOffset),
-                                        static_cast<int>(yOffset));
+                                        static_cast<int>(std::lround(xOffset)),
+                                        static_cast<int>(std::lround(yOffset)));
     if (!ok)
     {
         lastError_ = GetLastError();
