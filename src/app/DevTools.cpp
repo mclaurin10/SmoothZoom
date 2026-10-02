@@ -318,9 +318,17 @@ int runProbeMode()
 // â”€â”€ Trace format â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 // CSV, '#' lines are "key: value" metadata. Columns (by header name):
 //   t_us,qpc,source,delta,flags,injected,shift,ctrl,alt,win,x,y,mod_held,consumed
-// source: WHEEL | HWHEEL | RAW | PTP | MARK (MARK delta 1 = round-trip begin, 2 = end)
+// source: WHEEL | HWHEEL | RAW | PTP | MARK | CONTACT
+//   MARK delta 1 = round-trip begin, 2 = end.
+//   CONTACT delta = precision-touchpad fingers down after a change (0 = lifted).
+//   PTP / RAW rows: every event those paths decided (mod_held = the modifier
+//   at that event, consumed = zoomed). Older traces hold only the rows that
+//   reached the accumulator, all with the modifier held: they replay the same.
+// Metadata "touchpad_natural" (0/1, default 0) is the Windows touchpad
+// scrolling direction the trace was recorded under; replay uses it, not the
+// live setting.
 
-enum class TraceKind : uint8_t { Wheel, HWheel, Raw, Ptp, Mark };
+enum class TraceKind : uint8_t { Wheel, HWheel, Raw, Ptp, Mark, Contact };
 
 static const char* kindName(TraceKind k)
 {
@@ -330,6 +338,7 @@ static const char* kindName(TraceKind k)
     case TraceKind::HWheel: return "HWHEEL";
     case TraceKind::Raw: return "RAW";
     case TraceKind::Ptp: return "PTP";
+    case TraceKind::Contact: return "CONTACT";
     default: return "MARK";
     }
 }
@@ -341,6 +350,7 @@ static const char* sourceName(WheelSource s)
     case WheelSource::HookWheel: return "WHEEL";
     case WheelSource::HookHWheel: return "HWHEEL";
     case WheelSource::RawInput: return "RAW";
+    case WheelSource::Contact: return "CONTACT";
     default: return "PTP";
     }
 }
@@ -363,6 +373,9 @@ struct InjectRecord
     size_t  traceIndex = 0;
     bool    consumed = false;
     bool    modHeld = false;
+    bool    decided = false;                    // went through the gesture tracker
+    ScrollAction action = ScrollAction::Pass;
+    ScrollDevice device = ScrollDevice::Mouse;
 };
 
 static std::vector<TraceEvent>             s_trace;
@@ -430,6 +443,7 @@ static bool loadTrace(const std::wstring& path, std::wstring& err)
         else if (src == "RAW") e.kind = TraceKind::Raw;
         else if (src == "PTP") e.kind = TraceKind::Ptp;
         else if (src == "MARK") e.kind = TraceKind::Mark;
+        else if (src == "CONTACT") e.kind = TraceKind::Contact;
         else { err = L"unknown source in trace"; return false; }
         e.delta = static_cast<int16_t>(std::stoi(get("delta")));
         auto flag = [&](const char* n) { std::string v = get(n); return !v.empty() && v != "0"; };
@@ -522,6 +536,13 @@ void runBench(SharedState& state, bool (*pump)())
     GetCursorPos(&savedCursor);
     const int modVK = InputInterceptor::configuredModifierVK();
 
+    // Touchpad direction the trace was recorded under (absent = 0, which
+    // replays older traces exactly as before).
+    {
+        auto it = s_traceMeta.find("touchpad_natural");
+        InputInterceptor::setTouchpadNaturalScrolling(it != s_traceMeta.end() && it->second == "1");
+    }
+
     POINT lastPos = savedCursor;
     for (const auto& e : s_trace)
         if (e.hasPos) { lastPos = {e.x, e.y}; break; }
@@ -564,24 +585,34 @@ void runBench(SharedState& state, bool (*pump)())
         r.modHeld = modifierHeldFromState(modVK, (e.mods & kModShift) != 0, (e.mods & kModCtrl) != 0,
                                           (e.mods & kModAlt) != 0, (e.mods & kModWin) != 0);
         r.qpc = qpcNow();
+        ScrollVerdict v;
         switch (e.kind)
         {
         case TraceKind::Wheel:
-            r.consumed = InputInterceptor::devInjectWheel(WheelKind::Vertical, e.delta, r.modHeld);
-            break;
         case TraceKind::HWheel:
-            r.consumed = InputInterceptor::devInjectWheel(WheelKind::Horizontal, e.delta, r.modHeld);
+            // The hook consumes everything but Pass (Swallow included).
+            v = InputInterceptor::devInjectWheel(
+                e.kind == TraceKind::Wheel ? WheelKind::Vertical : WheelKind::Horizontal, e.delta, r.modHeld);
+            r.consumed = (v.action != ScrollAction::Pass);
+            r.decided = true;
             break;
         case TraceKind::Raw:
         case TraceKind::Ptp:
-            // Recorded only when those main.cpp paths actually reached the
-            // accumulator, so replay is the same fetch_add they perform.
-            state.scrollAccumulator.fetch_add(e.delta, std::memory_order_release);
-            r.consumed = true;
+            // The main.cpp paths' own decision (they observe, never consume:
+            // consumed = zoomed).
+            v = (e.kind == TraceKind::Ptp) ? InputInterceptor::onTouchpadScroll(e.delta, r.modHeld)
+                                           : InputInterceptor::onRawWheel(e.delta, r.modHeld);
+            r.consumed = (v.action == ScrollAction::Zoom);
+            r.decided = true;
+            break;
+        case TraceKind::Contact:
+            InputInterceptor::onTouchpadContacts(e.delta);
             break;
         case TraceKind::Mark:
             break;
         }
+        r.action = v.action;
+        r.device = v.device;
         s_injects.push_back(r);
     }
 
@@ -639,27 +670,6 @@ static void CALLBACK recordTimerProc(HWND, UINT, UINT_PTR, DWORD) { recordDrain(
 
 static void hookTap(const WheelTapEvent& e) { ringPush(e); }
 
-void tapAccumulator(WheelSource source, int16_t delta)
-{
-    if (s_mode != Mode::Record || !s_recordFile) return;
-    WheelTapEvent e;
-    e.qpc = qpcNow();
-    POINT p = {};
-    GetCursorPos(&p);
-    e.x = p.x;
-    e.y = p.y;
-    e.delta = delta;
-    e.source = source;
-    e.mods = static_cast<uint8_t>(
-        ((GetAsyncKeyState(VK_SHIFT) & 0x8000) ? kModShift : 0)
-        | ((GetAsyncKeyState(VK_CONTROL) & 0x8000) ? kModCtrl : 0)
-        | ((GetAsyncKeyState(VK_MENU) & 0x8000) ? kModAlt : 0)
-        | (((GetAsyncKeyState(VK_LWIN) | GetAsyncKeyState(VK_RWIN)) & 0x8000) ? kModWin : 0));
-    e.modifierHeld = true;
-    e.consumed = true;
-    ringPush(e);
-}
-
 bool startRecord(SharedState& state)
 {
     // Create the trace's folder (like --bench does for --out): a missing folder
@@ -682,12 +692,14 @@ bool startRecord(SharedState& state)
     int64_t period = dwmRefreshPeriodQpc();
     fprintf(s_recordFile, "# smoothzoom-trace: 1\n# kind: record\n# computer: %s\n# qpc_freq: %lld\n"
             "# qpc_start: %lld\n# screen: %dx%d origin %d,%d\n# refresh_period_ms: %.4f\n# power: %s\n"
-            "# modifier_vk: 0x%X\n# reverse_scroll: %d\n# scroll_sensitivity: %.3f\n",
+            "# modifier_vk: 0x%X\n# reverse_scroll: %d\n# scroll_sensitivity: %.3f\n"
+            "# touchpad_natural: %d\n# touchpad_coast: %d\n",
             computerName().c_str(), (long long)qpcFreq(), (long long)s_recordStartQpc,
             state.screenWidth.load(), state.screenHeight.load(), state.screenOriginX.load(), state.screenOriginY.load(),
             period > 0 ? double(period) * 1000.0 / double(qpcFreq()) : 0.0, powerSource(),
             InputInterceptor::configuredModifierVK(),
-            snap ? (snap->reverseScrollDirection ? 1 : 0) : 0, snap ? snap->scrollSensitivity : 1.0f);
+            snap ? (snap->reverseScrollDirection ? 1 : 0) : 0, snap ? snap->scrollSensitivity : 1.0f,
+            InputInterceptor::touchpadNaturalScrolling() ? 1 : 0, snap ? (snap->momentumZoom ? 1 : 0) : 1);
     fprintf(s_recordFile, "%s\n", kTraceColumns);
     fflush(s_recordFile);
     InputInterceptor::setWheelTap(hookTap);
@@ -964,14 +976,19 @@ static void writeBenchOutputs()
     }
     {
         std::ofstream o(dir / "events.csv");
-        o << "trace_index,trace_t_us,inject_ms,source,delta,mod_held,consumed\n";
+        // action/device (appended): the gesture tracker's verdict for decided
+        // events ("-" for MARK / CONTACT rows).
+        o << "trace_index,trace_t_us,inject_ms,source,delta,mod_held,consumed,action,device\n";
         for (const auto& r : s_injects)
         {
             const TraceEvent& e = s_trace[r.traceIndex];
             char injectMs[32];   // fixed 0.1 us resolution (default stream precision is 6 significant digits)
             snprintf(injectMs, sizeof(injectMs), "%.4f", rel(r.qpc));
             o << r.traceIndex << ',' << e.tUs << ',' << injectMs << ',' << kindName(e.kind) << ','
-              << e.delta << ',' << (r.modHeld ? 1 : 0) << ',' << (r.consumed ? 1 : 0) << '\n';
+              << e.delta << ',' << (r.modHeld ? 1 : 0) << ',' << (r.consumed ? 1 : 0) << ','
+              << (!r.decided ? "-" : r.action == ScrollAction::Zoom ? "zoom"
+                                   : r.action == ScrollAction::Swallow ? "swallow" : "pass") << ','
+              << (!r.decided ? "-" : r.device == ScrollDevice::Touchpad ? "touchpad" : "mouse") << '\n';
         }
     }
     // Split warm-up frames from the measured run.

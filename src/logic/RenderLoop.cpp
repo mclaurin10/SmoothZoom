@@ -367,8 +367,11 @@ void RenderLoop::frameTick()
     s_screenOriginX = s_state->screenOriginX.load(std::memory_order_relaxed);
     s_screenOriginY = s_state->screenOriginY.load(std::memory_order_relaxed);
 
-    // 1. Consume scroll delta (atomic exchange with 0)
-    int32_t scrollDelta = s_state->scrollAccumulator.exchange(0, std::memory_order_acquire);
+    // 1. Consume scroll deltas (atomic exchange with 0), one per device.
+    int32_t mouseDelta = s_state->scrollAccumulator.exchange(0, std::memory_order_acquire);
+    int32_t touchpadDelta = s_state->touchpadScrollAccumulator.exchange(0, std::memory_order_acquire);
+    int32_t scrollDelta = mouseDelta + touchpadDelta;
+    const bool scrollInput = (mouseDelta != 0 || touchpadDelta != 0);
 
     // 2. Drain keyboard commands (lock-free queue)
     while (auto cmd = s_state->commandQueue.pop())
@@ -409,10 +412,8 @@ void RenderLoop::frameTick()
 
     // 3. Apply scroll delta to zoom (if any). The input's age lets notch
     //    smoothing come to rest a fixed time after the input itself (AC-2.2.03).
-    if (scrollDelta != 0)
+    if (scrollInput)
     {
-        if (s_reverseScrollDirection)
-            scrollDelta = -scrollDelta;
         double inputAgeSeconds = 0.0;
         int64_t inputQpc = s_state->lastScrollInputQpc.load(std::memory_order_relaxed);
         LARGE_INTEGER qpcNow;
@@ -423,7 +424,8 @@ void RenderLoop::frameTick()
             if (inputAgeSeconds > 0.1)
                 inputAgeSeconds = 0.0;   // stale stamp (e.g. touchpad path): treat as fresh
         }
-        s_zoomController.applyScrollDelta(scrollDelta, inputAgeSeconds);
+        s_zoomController.applyScrollDelta(s_reverseScrollDirection ? -scrollDelta : scrollDelta,
+                                          inputAgeSeconds);
     }
 
     // 4. Compute dt and advance animation (Phase 2: ease-out interpolation)
@@ -446,7 +448,7 @@ void RenderLoop::frameTick()
     // controller settles from Scrolling to Idle. This arms the 1.0× idle
     // short-circuit below; a later scroll re-enters Scrolling via
     // applyScrollDelta(). (AC-2.3.13, R-18)
-    if (scrollDelta == 0)
+    if (!scrollInput)
         s_zoomController.endScroll();
 
     // Get current zoom level
@@ -547,7 +549,7 @@ void RenderLoop::frameTick()
     // focus change since the pointer last moved (e.g. clicking into a text
     // field, then Shift+scrolling without moving the mouse) must not pull the
     // zoom away from the pointer. Focus changes after the scroll still win.
-    if (scrollDelta != 0)
+    if (scrollInput)
         s_lastPointerMoveTimeMs = currentTimeMs();
 
     // Deadzone gates the committed position used for viewport offset calculation.

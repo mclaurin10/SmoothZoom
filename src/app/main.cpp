@@ -109,6 +109,7 @@ struct PtpDeviceInfo {
 
 struct PtpContactState {
     bool active = false;
+    bool confident = false;  // Confidence usage set: a finger, not a palm
     LONG y = 0;
     LONG prevY = 0;
     bool hasPrev = false;  // true if previous Y is valid (contact was active last frame)
@@ -121,6 +122,9 @@ static PtpContactState s_ptpContacts[5] = {};
 // reports so continuous touchpad motion produces continuous, sub-notch zoom.
 // Device-unit→wheel-equivalent normalization lives in ScrollNormalizer (A1).
 static float s_ptpWheelRemainder = 0.0f;
+// The device reports the PTP Confidence usage (palm rejection). Until a report
+// shows it set, every touching contact counts as a finger.
+static bool s_ptpSeenConfidence = false;
 
 // One-shot per-device PTP characterization. Logs the first few normalized
 // two-finger-scroll samples at INFO so a new touchpad can be fingerprinted from
@@ -134,7 +138,9 @@ static constexpr int kPtpCharSampleCount = 8;
 // Windows touchpad "natural scrolling" direction setting.
 // When true, the OS flips WM_MOUSEWHEEL deltas for touchpad gestures before
 // they reach the LL hook — but raw HID reports are unaffected. The PTP path
-// must compensate to match the LL hook's (already-flipped) convention.
+// converts finger motion to the hook's convention first; InputInterceptor then
+// undoes the flip for every touchpad event, so a touchpad gesture zooms the same
+// way in every app and under either Windows setting (AC-2.1.31).
 // Registry: HKCU\SOFTWARE\Microsoft\Windows\CurrentVersion\PrecisionTouchPad
 //   ScrollDirection = 0 → natural (reverse), 1 or absent → traditional.
 static bool s_ptpNaturalScrolling = false;
@@ -483,6 +489,17 @@ static bool devConfigExplicit()
 #endif
 }
 
+// Read Windows' touchpad scrolling direction and hand it to the scroll paths
+// (AC-2.1.31). --bench replays with the direction the trace was recorded under
+// (DevTools sets it), so the live setting must not overwrite it.
+static void refreshTouchpadNaturalScrolling()
+{
+    if (devUnattended())
+        return;
+    s_ptpNaturalScrolling = queryTouchpadNaturalScrolling();
+    SmoothZoom::InputInterceptor::setTouchpadNaturalScrolling(s_ptpNaturalScrolling);
+}
+
 // ── PTP HID Device Initialization ────────────────────────────────────────────
 // Called once per device when the first HID report arrives. Parses the device's
 // HID report descriptor to discover contact slot link collections.
@@ -649,6 +666,7 @@ static bool initPtpDevice(HANDLE hDevice)
     // Reset tracking state and diagnostics flag (allow logging for future device changes)
     for (auto& c : s_ptpContacts) c = {};
     s_ptpWheelRemainder = 0.0f;
+    s_ptpSeenConfidence = false;
     s_ptpCharSamplesLogged = 0;  // re-characterize whenever the active device changes
     s_ptpInitDiagLogged = false;
 
@@ -685,18 +703,23 @@ static void handlePtpHidReport(const BYTE* reportData, DWORD reportSize)
         HidP_GetUsageValue(HidP_Input, 0x0D, lc, 0x51, &contactId, ppd,
                            report, reportSize);
 
-        // Tip Switch (button usage 0x42 on digitizer page)
+        // Tip Switch (button usage 0x42 on digitizer page) and Confidence
+        // (0x47: cleared for a palm or other unintended contact)
         USAGE usages[8] = {};
         ULONG usageLen = 8;
         bool tipSwitch = false;
+        bool confidence = false;
         if (HidP_GetUsages(HidP_Input, 0x0D, lc, usages, &usageLen, ppd,
                            report, reportSize) == HIDP_STATUS_SUCCESS)
         {
             for (ULONG u = 0; u < usageLen; u++)
             {
-                if (usages[u] == 0x42) { tipSwitch = true; break; }
+                if (usages[u] == 0x42) tipSwitch = true;
+                else if (usages[u] == 0x47) confidence = true;
             }
         }
+        if (confidence)
+            s_ptpSeenConfidence = true;
 
         // Y position (Generic Desktop page 0x01, same link collection as contact)
         ULONG y = 0;
@@ -718,13 +741,27 @@ static void handlePtpHidReport(const BYTE* reportData, DWORD reportSize)
             cs.hasPrev = cs.active; // Valid prev only if was already active
             cs.y = static_cast<LONG>(y);
             cs.active = true;
+            cs.confident = confidence;
         }
         else
         {
             cs.active = false;
+            cs.confident = false;
             cs.hasPrev = false;
         }
     }
+
+    // Fingers touching (tip switch, and Confidence when the device reports it:
+    // a resting palm is not a contact). Every report goes to the gesture
+    // tracker: a new contact starts a new gesture and ends a coast; the lift
+    // marks the coast (AC-2.1.25, AC-2.1.28–30).
+    int fingersDown = 0;
+    for (int slot = 0; slot < s_ptpDevice.numSlots; slot++)
+        if (s_ptpContacts[slot].active && (s_ptpContacts[slot].confident || !s_ptpSeenConfidence))
+            fingersDown++;
+    SmoothZoom::InputInterceptor::onTouchpadContacts(fingersDown);
+    if (fingersDown == 0)
+        s_ptpWheelRemainder = 0.0f;   // no sub-notch carry-over into the next touch
 
     // Only process when we have a complete frame with 2+ contacts
     if (contactCount < 2)
@@ -790,7 +827,9 @@ static void handlePtpHidReport(const BYTE* reportData, DWORD reportSize)
         return;
     }
 
-    // Check modifier key
+    // Modifier state. Every two-finger step goes to the gesture tracker, held or
+    // not: the modifier at a gesture's first event decides whether the whole
+    // gesture zooms (AC-2.1.26–27), not the state at each step.
     auto snap = std::atomic_load(&g_sharedState.settingsSnapshot);
     int modVK = snap ? snap->modifierKeyVK : SmoothZoom::kDefaultModifierVK;
     int genericVK = SmoothZoom::toGenericVK(modVK);
@@ -798,28 +837,22 @@ static void handlePtpHidReport(const BYTE* reportData, DWORD reportSize)
     SZ_LOG_DEBUG("PTP", L"handlePtpHidReport: modVK=0x%X, genericVK=0x%X, modHeld=%d, asyncState=0x%04X",
                  modVK, genericVK, modHeld ? 1 : 0,
                  static_cast<unsigned>(GetAsyncKeyState(genericVK) & 0xFFFF));
-    if (!modHeld)
-        return;
 
-    // Convert PTP device-unit Y delta to WHEEL_DELTA (120) units.
-    // PTP Y increases downward. Fingers moving down = positive avgDeltaY = scroll down.
-    // WHEEL_DELTA positive = scroll up. Negate for traditional Windows scroll direction.
-    //
-    // Natural scrolling compensation: when the OS "natural scrolling" setting is ON,
-    // the LL hook's WM_MOUSEWHEEL delta is pre-flipped by Windows — but raw HID data
-    // is not. Without this check, the PTP path produces the opposite direction from
-    // the LL hook path when natural scrolling is enabled.
-    // Natural OFF: negate (traditional: fingers down → scroll up → positive WHEEL_DELTA)
-    // Natural ON:  don't negate (OS already flips LL hook; match that convention)
-    int32_t adjustedDeltaY = s_ptpNaturalScrolling ? avgDeltaY : -avgDeltaY;
+    // Convert PTP device-unit Y delta to WHEEL_DELTA (120) units, in the
+    // convention the LL hook sees for the same motion: PTP Y increases
+    // downward, and Windows flips the hook's touchpad deltas when natural
+    // scrolling is on, but not the raw HID data. Natural OFF: negate
+    // (fingers down = scroll down = negative). Natural ON: keep the sign.
+    // InputInterceptor turns this into the touchpad's own direction.
+    float adjustedDeltaY = SmoothZoom::ptpToHookConvention(static_cast<float>(avgDeltaY),
+                                                           s_ptpNaturalScrolling);
 
     // A1: normalize device-unit Y delta to wheel-equivalent units (120/notch)
     // using the device's own logical Y range, so a given fraction-of-pad swipe
     // produces the same zoom on any touchpad. Falls back to a fixed constant
     // when the descriptor lacked a usable Y range.
     SmoothZoom::PtpAxisScale yScale{ s_ptpDevice.logicalRangeY };
-    s_ptpWheelRemainder +=
-        SmoothZoom::ptpDeltaToWheelEquiv(static_cast<float>(adjustedDeltaY), yScale);
+    s_ptpWheelRemainder += SmoothZoom::ptpDeltaToWheelEquiv(adjustedDeltaY, yScale);
 
     int32_t whole = static_cast<int32_t>(s_ptpWheelRemainder); // truncate toward zero
     SZ_LOG_DEBUG("PTP", L"handlePtpHidReport: remainder=%.2f, whole=%d, unitsPerNotch=%.1f",
@@ -833,12 +866,10 @@ static void handlePtpHidReport(const BYTE* reportData, DWORD reportSize)
         else if (whole < -32768) whole = -32768;
         int16_t delta = static_cast<int16_t>(whole);
 
-        SZ_LOG_DEBUG("Main", L"PTP scroll: avgDY=%d wheelEquiv=%d",
-                     avgDeltaY, static_cast<int>(delta));
-        g_sharedState.scrollAccumulator.fetch_add(delta, std::memory_order_release);
-#ifdef SMOOTHZOOM_DEV_TOOLS
-        SmoothZoom::DevTools::tapAccumulator(SmoothZoom::WheelSource::Ptp, delta);
-#endif
+        const SmoothZoom::ScrollVerdict g =
+            SmoothZoom::InputInterceptor::onTouchpadScroll(delta, modHeld);
+        SZ_LOG_DEBUG("Main", L"PTP scroll: avgDY=%d wheelEquiv=%d action=%d",
+                     avgDeltaY, static_cast<int>(delta), static_cast<int>(g.action));
     }
 }
 
@@ -1050,7 +1081,7 @@ static LRESULT CALLBACK msgWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lP
     case WM_SETTINGCHANGE:
         // Refresh touchpad natural scrolling setting when user changes it in Windows Settings.
         // WM_SETTINGCHANGE is broadcast system-wide on control panel / Settings changes.
-        s_ptpNaturalScrolling = queryTouchpadNaturalScrolling();
+        refreshTouchpadNaturalScrolling();
         SZ_LOG_DEBUG("Main", L"WM_SETTINGCHANGE: touchpad natural scrolling now %s",
                      s_ptpNaturalScrolling ? L"ON" : L"OFF");
         return 0;
@@ -1157,25 +1188,19 @@ static LRESULT CALLBACK msgWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lP
         if (now - lastLL < 50)
             return DefWindowProcW(hWnd, msg, wParam, lParam);
 
-        // Check modifier via GetAsyncKeyState (can't access WinKeyManager from here)
+        // Check modifier via GetAsyncKeyState (can't access WinKeyManager from here).
+        // The gesture tracker decides: the modifier only counts at a gesture's
+        // first event (AC-2.1.26–27).
         auto snap = std::atomic_load(&g_sharedState.settingsSnapshot);
         int modVK = snap ? snap->modifierKeyVK : SmoothZoom::kDefaultModifierVK;
         int genericVK = SmoothZoom::toGenericVK(modVK);
         bool modHeld = (GetAsyncKeyState(genericVK) & 0x8000) != 0;
 
-        if (modHeld)
-        {
-            // Debug, not Info: this fires per qualifying scroll event on the
-            // main thread, and the logger flushes synchronously per line (R-05).
-            SZ_LOG_DEBUG("Main", L"Raw Input scroll fallback: delta=%d", delta);
-            LARGE_INTEGER qpc;
-            QueryPerformanceCounter(&qpc);
-            g_sharedState.lastScrollInputQpc.store(qpc.QuadPart, std::memory_order_relaxed);
-            g_sharedState.scrollAccumulator.fetch_add(delta, std::memory_order_release);
-#ifdef SMOOTHZOOM_DEV_TOOLS
-            SmoothZoom::DevTools::tapAccumulator(SmoothZoom::WheelSource::RawInput, delta);
-#endif
-        }
+        const SmoothZoom::ScrollVerdict g = SmoothZoom::InputInterceptor::onRawWheel(delta, modHeld);
+        // Debug, not Info: this fires per scroll event on the main thread,
+        // and the logger flushes synchronously per line (R-05).
+        SZ_LOG_DEBUG("Main", L"Raw Input scroll fallback: delta=%d action=%d",
+                     delta, static_cast<int>(g.action));
 
         return DefWindowProcW(hWnd, msg, wParam, lParam);
     }
@@ -1564,8 +1589,8 @@ int WINAPI wWinMain(
         // Phase 6: Register for session lock/unlock notifications (AC-ERR.04, E6.10)
         WTSRegisterSessionNotification(g_msgWindow, NOTIFY_FOR_THIS_SESSION);
 
-        // Query Windows touchpad scroll direction for PTP natural scrolling compensation
-        s_ptpNaturalScrolling = queryTouchpadNaturalScrolling();
+        // Query Windows touchpad scroll direction (AC-2.1.31)
+        refreshTouchpadNaturalScrolling();
         SZ_LOG_INFO("Main", L"Touchpad natural scrolling: %s",
                     s_ptpNaturalScrolling ? L"ON" : L"OFF");
 

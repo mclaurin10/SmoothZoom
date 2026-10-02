@@ -3,7 +3,8 @@
 // SmoothZoom — Dev tools (compiled only with SMOOTHZOOM_DEV_TOOLS=ON)
 //
 //   --record <file>             normal operation + log every wheel event the hook
-//                               sees (and RAW/PTP accumulator writes) to a trace CSV
+//                               sees, every RAW/PTP scroll decision and touchpad
+//                               contact changes to a trace CSV
 //   --bench <trace> --out <dir> replay a trace at its recorded timestamps from the
 //                               main thread through the hook's decision logic;
 //                               write frames.csv, events.csv, summary.json
@@ -83,9 +84,9 @@ TransformTelemetry* benchTelemetry();
 void runBench(SharedState& state, bool (*pump)());
 
 // --record: install the hook tap and start the periodic drain (main thread).
+// The same tap receives the PTP / Raw Input decisions and touchpad contact
+// changes (InputInterceptor).
 bool startRecord(SharedState& state);
-// RAW/PTP accumulator writers in main.cpp report here (main thread).
-void tapAccumulator(WheelSource source, int16_t delta);
 
 // After the message loop exits and the render thread has stopped: flush the
 // record file / write bench outputs. Returns the dev exit code to use.

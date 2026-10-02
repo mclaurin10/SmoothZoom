@@ -15,6 +15,7 @@
 #include "smoothzoom/input/WinKeyManager.h"
 #include "smoothzoom/input/ModifierUtils.h"
 #include "smoothzoom/input/WheelDecision.h"
+#include "smoothzoom/input/ScrollGesture.h"
 #include "smoothzoom/input/KeyDecision.h"
 #include "smoothzoom/input/StickyKeysPolicy.h"
 #include "smoothzoom/common/AppMessages.h"
@@ -58,6 +59,22 @@ static int64_t steadyNowMs()
     using namespace std::chrono;
     return duration_cast<milliseconds>(steady_clock::now().time_since_epoch()).count();
 }
+
+// Same clock in microseconds, for scroll-gesture timing (ScrollGesture.h).
+static int64_t steadyNowUs()
+{
+    using namespace std::chrono;
+    return duration_cast<microseconds>(steady_clock::now().time_since_epoch()).count();
+}
+
+// ─── Scroll gestures (AC-2.1.25–31, B3) ─────────────────────────────────────
+// One tracker for every scroll path: the mouse hook, the PTP and Raw Input
+// handlers in main.cpp and --bench replay all run on the main thread, so one
+// physical gesture keeps one mode even when it moves from the PTP path to the
+// hook mid-swipe. Plain statics, no synchronization.
+static ScrollGestureTracker s_gestures;
+static bool s_touchpadCoast = true;     // momentumZoom: zoom through the touchpad coast
+static bool s_touchpadNatural = false;  // Windows touchpad "natural" scrolling direction
 
 // Phase 5B: Configurable keys — updated by settings observer on main thread.
 // Safe to read from hook callbacks (same thread). (AC-2.1.19, AC-2.1.20)
@@ -166,6 +183,7 @@ static void onSettingsChanged(const SettingsSnapshot& s, void* /*userData*/)
     s_toggleKey1VK  = s.toggleKey1VK;
     s_toggleKey2VK  = s.toggleKey2VK;
     s_shortcutsEnabled = s.keyboardShortcutsEnabled;
+    s_touchpadCoast = s.momentumZoom;
     applyStickyShortcutPolicy(stickyShortcutSuppressionWanted(s.blockStickyKeysShortcut, s.modifierKeyVK));
     if (!s_shortcutsEnabled && s_toggleEngaged)
     {
@@ -210,22 +228,42 @@ static bool isWinModifier()
     return s_modifierKeyVK == VK_LWIN || s_modifierKeyVK == VK_RWIN;
 }
 
-// Side effects of a consumed wheel event (shared by the hook and --bench replay).
-// Hook-safe: three atomic writes, one QPC read and a WinKeyManager flag (no-op
-// unless Win is held).
-static void applyWheelDecision(const WheelDecision& d)
+// Add a zooming scroll delta to its device's accumulator (render thread will
+// exchange-with-0). delta is in the hook's convention. Touchpad deltas are
+// turned into the touchpad's own direction first (AC-2.1.31): fingers up =
+// positive whatever Windows' scrolling direction. Mouse deltas also stamp the
+// input time for notch smoothing (RenderLoop; QPC is a ~20 ns read), before
+// the release fetch_add so the frame that sees the delta sees the stamp.
+static void addScrollDelta(int32_t delta, ScrollDevice device)
 {
-    // Record LL hook scroll timestamp for Raw Input dedup
-    s_state->lastLLHookScrollTime.store(
-        static_cast<int64_t>(GetTickCount64()), std::memory_order_relaxed);
-
-    // Input time for notch smoothing (RenderLoop); QPC is a ~20 ns read.
+    if (device == ScrollDevice::Touchpad)
+    {
+        s_state->touchpadScrollAccumulator.fetch_add(
+            touchpadCanonicalDelta(delta, s_touchpadNatural), std::memory_order_release);
+        return;
+    }
     LARGE_INTEGER qpc;
     QueryPerformanceCounter(&qpc);
     s_state->lastScrollInputQpc.store(qpc.QuadPart, std::memory_order_relaxed);
+    s_state->scrollAccumulator.fetch_add(delta, std::memory_order_release);
+}
 
-    // Atomically accumulate delta (render thread will exchange-with-0)
-    s_state->scrollAccumulator.fetch_add(d.accumulatorDelta, std::memory_order_release);
+// The hook saw a zoom-candidate wheel event: the Raw Input / PTP fallbacks
+// stand down for 50 ms whatever its gesture's mode, so one physical gesture
+// is never counted by two paths (or started as a second gesture by them).
+static void stampHookScroll()
+{
+    s_state->lastLLHookScrollTime.store(
+        static_cast<int64_t>(GetTickCount64()), std::memory_order_relaxed);
+}
+
+// Side effects of a consumed wheel event (shared by the hook and --bench replay).
+// Hook-safe: a few atomic writes, one QPC read and a WinKeyManager flag (no-op
+// unless Win is held). A swallowed event (zero delta) only stays consumed.
+static void applyWheelDecision(const WheelDecision& d, ScrollDevice device)
+{
+    if (d.accumulatorDelta != 0)
+        addScrollDelta(d.accumulatorDelta, device);
 
     // Suppress Start Menu only when Win is the modifier (AC-2.1.16, AC-2.1.20)
     if (d.markWinUsedForZoom)
@@ -250,6 +288,30 @@ static void tapHookWheel(WheelKind kind, int16_t rawDelta, const MSLLHOOKSTRUCT*
     e.flags = info->flags;
     e.delta = rawDelta;
     e.source = (kind == WheelKind::Vertical) ? WheelSource::HookWheel : WheelSource::HookHWheel;
+    e.mods = static_cast<uint8_t>(
+        ((GetAsyncKeyState(VK_SHIFT) & 0x8000) ? kModShift : 0)
+        | ((GetAsyncKeyState(VK_CONTROL) & 0x8000) ? kModCtrl : 0)
+        | ((GetAsyncKeyState(VK_MENU) & 0x8000) ? kModAlt : 0)
+        | (((GetAsyncKeyState(VK_LWIN) | GetAsyncKeyState(VK_RWIN)) & 0x8000) ? kModWin : 0));
+    e.modifierHeld = modifierHeld;
+    e.consumed = consumed;
+    s_wheelTap(e);
+}
+
+// --record tap for the main.cpp paths (PTP, Raw Input) and touchpad contact
+// changes. Not inside a hook; same POD copy into the pre-allocated ring.
+static void tapOther(WheelSource source, int32_t delta, bool modifierHeld, bool consumed)
+{
+    WheelTapEvent e;
+    LARGE_INTEGER q;
+    QueryPerformanceCounter(&q);
+    e.qpc = q.QuadPart;
+    POINT p = {};
+    GetCursorPos(&p);
+    e.x = p.x;
+    e.y = p.y;
+    e.delta = static_cast<int16_t>(delta < -32768 ? -32768 : (delta > 32767 ? 32767 : delta));
+    e.source = source;
     e.mods = static_cast<uint8_t>(
         ((GetAsyncKeyState(VK_SHIFT) & 0x8000) ? kModShift : 0)
         | ((GetAsyncKeyState(VK_CONTROL) & 0x8000) ? kModCtrl : 0)
@@ -301,7 +363,18 @@ static LRESULT CALLBACK mouseHookProc(int nCode, WPARAM wParam, LPARAM lParam)
 #endif
         // Phase 5B: Configurable modifier key (AC-2.1.19, AC-2.1.20)
         const bool modifierHeld = candidate && isConfiguredModifierHeld();
-        const WheelDecision d = decideWheel(kind, rawDelta, s_modifierKeyVK, modifierHeld);
+
+        // The gesture's mode, set by the modifier at its first event, decides
+        // (AC-2.1.25–29): a few comparisons on main-thread state (R-05).
+        WheelDecision d;
+        ScrollDevice device = ScrollDevice::Mouse;
+        if (candidate)
+        {
+            stampHookScroll();
+            const ScrollVerdict g = s_gestures.onScroll(modifierHeld, s_touchpadCoast, steadyNowUs());
+            device = g.device;
+            d = decideWheelInGesture(kind, rawDelta, s_modifierKeyVK, g.action);
+        }
 
 #ifdef SMOOTHZOOM_DEV_TOOLS
         if (s_wheelTap)
@@ -310,7 +383,7 @@ static LRESULT CALLBACK mouseHookProc(int nCode, WPARAM wParam, LPARAM lParam)
 
         if (d.consume)
         {
-            applyWheelDecision(d);
+            applyWheelDecision(d, device);
             // Consume the event — do not pass to next hook or applications (AC-2.1.02)
             return 1;
         }
@@ -625,12 +698,66 @@ void InputInterceptor::resetTransientKeyState()
     s_toggleKey1Held = false;
     s_toggleKey2Held = false;
     s_invertChordDown = false;
+    s_gestures.reset();   // contact reports and wheel events were missed too
     if (s_toggleEngaged)
     {
         s_toggleEngaged = false;
         if (s_state)
             s_state->commandQueue.push(ZoomCommand::ToggleRelease);
     }
+}
+
+// ─── Raw Input / PTP scroll paths (called from main.cpp's WM_INPUT) ─────────
+
+void InputInterceptor::onTouchpadContacts(int contacts)
+{
+#ifdef SMOOTHZOOM_DEV_TOOLS
+    // Record only changes in the finger count (reports arrive at >= 125 Hz).
+    static int s_lastTappedContacts = 0;
+    if (s_wheelTap && contacts != s_lastTappedContacts)
+        tapOther(WheelSource::Contact, contacts, false, false);
+    s_lastTappedContacts = contacts;
+#endif
+    s_gestures.onTouchpadContacts(contacts, steadyNowUs());
+}
+
+ScrollVerdict InputInterceptor::onTouchpadScroll(int32_t hookConventionDelta, bool modifierHeld)
+{
+    ScrollVerdict g;
+    if (s_state == nullptr)
+        return g;
+    // Finger motion reported by the touchpad itself: a touchpad event, and
+    // never a coast (AC-2.1.30).
+    g = s_gestures.onScroll(modifierHeld, s_touchpadCoast, steadyNowUs(), true);
+    g.device = ScrollDevice::Touchpad;
+    if (g.action == ScrollAction::Zoom)
+        addScrollDelta(hookConventionDelta, ScrollDevice::Touchpad);
+#ifdef SMOOTHZOOM_DEV_TOOLS
+    if (s_wheelTap)
+        tapOther(WheelSource::Ptp, hookConventionDelta, modifierHeld, g.action == ScrollAction::Zoom);
+#endif
+    return g;
+}
+
+ScrollVerdict InputInterceptor::onRawWheel(int16_t delta, bool modifierHeld)
+{
+    ScrollVerdict g;
+    if (s_state == nullptr)
+        return g;
+    // Raw Input cannot consume: a swallowed event simply is not zoomed.
+    g = s_gestures.onScroll(modifierHeld, s_touchpadCoast, steadyNowUs());
+    if (g.action == ScrollAction::Zoom)
+        addScrollDelta(delta, g.device);
+#ifdef SMOOTHZOOM_DEV_TOOLS
+    if (s_wheelTap)
+        tapOther(WheelSource::RawInput, delta, modifierHeld, g.action == ScrollAction::Zoom);
+#endif
+    return g;
+}
+
+void InputInterceptor::setTouchpadNaturalScrolling(bool natural)
+{
+    s_touchpadNatural = natural;
 }
 
 // Phase 5B: Register for settings change notifications (AC-2.9.04)
@@ -651,22 +778,32 @@ void InputInterceptor::setWheelTap(WheelTapFn fn)
     s_wheelTap = fn;
 }
 
-bool InputInterceptor::devInjectWheel(WheelKind kind, int16_t rawDelta, bool modifierHeld)
+ScrollVerdict InputInterceptor::devInjectWheel(WheelKind kind, int16_t rawDelta, bool modifierHeld)
 {
+    ScrollVerdict g;
     if (s_state == nullptr)
-        return false;
+        return g;
     // Same decision and side effects as mouseHookProc; only the modifier verdict
-    // comes from the trace instead of live key tracking.
-    const bool candidate = wheelIsZoomCandidate(kind, s_modifierKeyVK);
-    const WheelDecision d = decideWheel(kind, rawDelta, s_modifierKeyVK, candidate && modifierHeld);
+    // comes from the trace instead of live key tracking. A non-candidate
+    // passes without reaching the gesture tracker, as in the hook.
+    if (!wheelIsZoomCandidate(kind, s_modifierKeyVK))
+        return g;
+    stampHookScroll();
+    g = s_gestures.onScroll(modifierHeld, s_touchpadCoast, steadyNowUs());
+    const WheelDecision d = decideWheelInGesture(kind, rawDelta, s_modifierKeyVK, g.action);
     if (d.consume)
-        applyWheelDecision(d);
-    return d.consume;
+        applyWheelDecision(d, g.device);
+    return g;
 }
 
 int InputInterceptor::configuredModifierVK()
 {
     return s_modifierKeyVK;
+}
+
+bool InputInterceptor::touchpadNaturalScrolling()
+{
+    return s_touchpadNatural;
 }
 #endif
 

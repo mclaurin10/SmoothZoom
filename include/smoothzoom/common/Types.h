@@ -44,6 +44,14 @@ enum class ZoomCommand : uint8_t
     ToggleInvert,   // Ctrl+Alt+I (Phase 6, AC-2.10.01)
 };
 
+// Which device a scroll-gesture event came from (AC-2.1.30). Selects the
+// per-device sensitivity and direction settings (AC-2.9.20–21).
+enum class ScrollDevice : uint8_t
+{
+    Mouse,      // mouse wheel (detented, free-spin, high-resolution), and anything unattributed
+    Touchpad,   // precision touchpad two-finger scroll, including its coast
+};
+
 // Viewport tracking source priority (Doc 3 §3.6 — ViewportTracker)
 enum class TrackingSource : uint8_t
 {

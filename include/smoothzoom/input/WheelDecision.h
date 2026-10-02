@@ -13,6 +13,7 @@
 // =============================================================================
 
 #include "smoothzoom/input/ModifierUtils.h"
+#include "smoothzoom/input/ScrollGesture.h"
 #include <cstdint>
 
 namespace SmoothZoom
@@ -63,6 +64,20 @@ inline WheelDecision decideWheel(WheelKind kind, int16_t rawDelta, int modifierV
 
     d.consume = true;
     d.accumulatorDelta = delta;
+    return d;
+}
+
+// The same decision inside a scroll gesture (AC-2.1.25-29): the gesture's mode,
+// decided by the modifier at its first event, stands in for the live modifier
+// test, and a swallowed event (the coast of a zoom gesture with the coast
+// setting off) is consumed without zooming. Pass -> decideWheel(.., false),
+// Zoom -> decideWheel(.., true); only Swallow differs, by its zero delta.
+inline WheelDecision decideWheelInGesture(WheelKind kind, int16_t rawDelta, int modifierVK,
+                                          ScrollAction action)
+{
+    WheelDecision d = decideWheel(kind, rawDelta, modifierVK, action != ScrollAction::Pass);
+    if (action == ScrollAction::Swallow)
+        d.accumulatorDelta = 0;
     return d;
 }
 
