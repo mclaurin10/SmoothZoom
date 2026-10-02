@@ -15,7 +15,7 @@
 
 ## 1. How to Read This Document
 
-Each risk is assigned a unique identifier (R-01 through R-31) and rated on two dimensions:
+Each risk is assigned a unique identifier (R-01 through R-32) and rated on two dimensions:
 
 **Likelihood** — how probable is it that this risk materializes?
 - **Low:** Unlikely given current evidence, but not impossible.
@@ -605,7 +605,11 @@ These risks concern the Windows UI Automation (UIA) framework used for focus fol
 
 **Description:** `MagSetFullscreenTransform` takes the viewport offset as `int` desktop pixels; `MagBridge::setTransform` truncates the float proportional offset (`MagBridge.cpp:87-89`). One desktop pixel of offset error moves the content under the pointer by `zoom` physical pixels, so while zooming with a stationary pointer the "fixed" anchor point (AC-2.1.09–AC-2.1.11) jitters by up to ~`zoom` px every frame. Baseline (TEMPLAPTOP, `bench/baseline/TEMPLAPTOP-AC`): anchor error p95 2.8–9.5 px, max 11.4 px at 10×. This is a shimmer source, not a correctness bug for clicks (proportional mapping keeps the cursor hotspot consistent).
 
-**Mitigation candidates (tuning sessions; none implemented):** round instead of truncate (halves the error); choose the per-frame zoom value so that `pos·(1−1/zoom)` lands on an integer for the anchor (a sub-0.1% zoom adjustment); keep `MagBridge` the only place this happens (R-01 isolation).
+**Mitigation (implemented 2026-10-02, branch `perf/laptop-tuning`):**
+1. `MagBridge::setTransform` rounds instead of truncating. Anchor error relative to the whole-pixel floor (bench C-15/16) went from p95 1.76–1.97 / max ≈ 2.0 to p95 0.95–0.98 / max ≤ 1.0 on all eight traces.
+2. During wheel-notch smoothing only, `ViewportTracker::alignZoomForAnchor` shows a zoom slightly behind the true one (never ahead, ≥ ½ of each step, ≤ `min(0.5 %, 0.5·zoom/D)` with D the pointer-to-farthest-corner distance, so no pixel moves more than the anchor error saved) to keep the anchor from reversing on the pixel grid. Snap-backs (C-18) on wheel traces fell from 40/35/19/10 % (rounding only) to about 30/18/16/4 %. Touchpad input is not adjusted (AC-2.2.03) and stays at rounding level (≈ 16–49 %).
+
+**Residual:** snap-backs remain above the bench target (15 %) on detented, wheel-flick, wheel-sweep and all touchpad traces. Removing them within the edge-movement and touchpad-directness bounds is not possible with integer offsets. An independent review found that an earlier, uncapped version passed more traces only by moving the jitter to the screen edges and adding touchpad lag; that version was replaced. Rounding can also place the viewport up to 0.5 desktop px past a monitor edge when an element offset is clamped (minor; the fix touches per-monitor clamping).
 
 **Contingency:** Desktop Duplication migration (R-01) renders with sub-pixel offsets.
 
@@ -621,7 +625,9 @@ These risks concern the Windows UI Automation (UIA) framework used for focus fol
 
 **Description:** The first `MagSetFullscreenTransform` that moves away from 1.0× in a process blocks the render thread for **162–210 ms** on TEMPLAPTOP (Arc 140V). Later departures from 1.0× in the same process are fast (≤ 0.1 ms). Input that arrives during the stall is applied in one jump on the next frame, so the user's first zoom after launch visibly freezes, then jumps (AC-2.2.01, AC-2.2.02). The bench reports it as `cold_start` (C-11).
 
-**Mitigation candidates:** pre-warm the magnifier during startup (off-screen of the user's attention, e.g. right after `MagInitialize`), provided it is invisible at 1.0×; investigate which part of DWM setup the first call pays for.
+**Mitigation (implemented 2026-10-02):** `MagBridge::warmUp()` runs once on the render thread after `MagInitialize` (skipped if another magnifier is detected): `MagSetFullscreenTransform(1.0001)` then `(1.0)`. The setup cost (165–236 ms, logged) is paid at launch; the bench's first transform fell from 159–161 ms to 0.05–0.16 ms on all traces (C-11 passes).
+
+**Open (needs measurement):** whether keeping DWM's magnifier set up from launch has a lasting cost at 1.0× (idle GPU/power, loss of independent flip or MPO for full-screen apps; check with PresentMon); whether the 1.0001× frame is ever composed (sub-pixel resample for one frame); and whether the stall returns after resume, a display change or a DWM restart, since the warm-up runs only once per process.
 
 ---
 
@@ -636,6 +642,24 @@ These risks concern the Windows UI Automation (UIA) framework used for focus fol
 **Description:** In one gate invocation the bench's main thread (which also services the LL hooks), the render thread and DWM's `cRefresh` counter all paused together, for 940 ms and 246 ms. The render loop blocks in `DwmFlush()`, which only returns when DWM composes, and with a static screen and zoom DWM may not compose. Queued wheel input landed as one +1920 jump. A main-thread stall longer than `LowLevelHooksTimeout` also lets real input bypass the hooks (R-05). Hypothesis to test: the main thread's synchronous `Shell_NotifyIcon` (tray icon switches when zoom first exceeds 1.005×) blocked on a busy Explorer, coinciding with a DWM idle period.
 
 **Mitigation candidates:** move tray-icon updates off the hook thread or make them asynchronous; bound the render loop's wait (e.g. `DwmFlush` paired with a timed wake when input is pending) without breaking the message-pump requirement (`rules/render-loop.md`); a bench trace with deliberate idle periods to reproduce it.
+
+**Update 2026-10-02:** no R-25 signature in several hundred later bench runs (yardstick v2 detects the signature: render-tick gap ≥ 100 ms, DWM paused and the injector ≥ 50 ms late). It is rerun and reported separately, and recurrence is treated as an environment error. No code change.
+
+---
+
+### R-32: Smoothness Bench Results Depend on Machine State
+
+| Attribute | Value |
+|-----------|-------|
+| Likelihood | **High** (observed 2026-10-02) |
+| Impact | **Medium** (wrong conclusions from the gate) |
+| First Exposed | Phase 7 tuning loop |
+
+**Description:** The same code produced 7 failing checks before an unplanned reboot and 14–16 after it, on an otherwise idle machine. After the reboot DWM woke the render loop later and with more jitter (2.4–3.4 ms after vblank, versus 1.5–2.1 ms), which fails C-07's 10 % allowance on most traces. `SetCursorPos` also took 1–5 ms at times, which races the frozen replay (the pointer is moved before the injection is time-stamped) and shows up as 0.5–0.9 s "holes" on traces with pointer moves. Separately, before the AC-2.1.09 fix, whatever held keyboard focus when a run started (for example a chat prompt field) made whole runs follow focus. Battery power and real touchpad or mouse use during a run also invalidate it.
+
+**Mitigation:** the gate's environment check (session lock, display, DWM timing) and R-25 stall reruns; always compare against a same-environment control run of known code; record power source and timing (`tick_interval_ms`, `vblank_phase_ms`) with every result; do not touch the machine while a gate runs. A scroll zoom now counts as pointer input (AC-2.1.09), which removes the focus dependence.
+
+**Contingency:** add a timing-baseline check to the gate (fail as *environment* when wake-after-vblank or tick p95 drift from the machine profile), and stamp the injection before moving the cursor in the replay (requires unfreezing `DevTools.cpp`).
 
 ---
 

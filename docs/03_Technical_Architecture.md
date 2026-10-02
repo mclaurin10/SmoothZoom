@@ -263,6 +263,17 @@ function applyScrollDelta(rawDelta, pointerPos):
 
 This produces the perceptually-even zoom behavior specified in AC-2.1.06: the same scroll effort doubles the zoom from 1× to 2× as from 5× to 10×.
 
+**Scroll smoothing (2026-10-02, AC-2.2.03; supersedes "no interpolation" in the `SCROLL_DIRECT` row above).** In code the modes are `Idle`, `Scrolling`, `Animating`. `targetZoom` is always the accumulated multiplicative result above; the soft bounds are evaluated on the target. What is *displayed* (`currentZoom`) depends on the input:
+
+| Input | Classified as | Display |
+|---|---|---|
+| Frame delta not a multiple of 120, or any sub-notch delta in the last 250 ms (`kFineHoldSeconds`) | Continuous (precision touchpad, high-resolution wheel) | `currentZoom = targetZoom` immediately (direct) |
+| Frame delta a multiple of 120, no recent sub-notch delta | Whole notch (detented / free-spin wheel) | Smoothed toward the target in log space |
+
+Smoothing is a critically damped second-order response in log-zoom (`kSmoothOmega = 100 /s`), integrated exactly for any `dt`, so it retargets on every notch with continuous velocity and never overshoots. An isolated notch is ≈ 50 % applied on its first 60 Hz frame. It comes to rest on the last frame that still falls within `kSmoothRestBy = 97 ms` of the newest notch that moved the target. That time is measured from the input itself: InputInterceptor (and the Raw Input fallback) store the QPC of each wheel input in `SharedState::lastScrollInputQpc`, and RenderLoop passes the input's age to `applyScrollDelta`. Notches that push into a bound leave the target unchanged and do not extend the motion. These constants are not user settings; `animationSpeed` still governs only keyboard/toggle animation.
+
+Interactions: a scroll that interrupts a keyboard animation or toggle builds its target on the displayed level (AC-2.2.08). `engageToggle`, `trayToggle` and the settings bounds check use the scroll *target* while smoothing is in flight (`restingZoom()`), so the level the user scrolled to is what is saved or clamped. `endScroll()` returns to `Idle` only after smoothing has come to rest, so the 1.0× idle short-circuit engages on an exact 1.0.
+
 **Keyboard-shortcut step calculation (additive model):**
 
 ```
@@ -324,6 +335,10 @@ desktopY = yOffset + py / Z = py(1 - 1/Z) + py/Z = py
 ```
 
 The desktop point under the pointer equals the pointer's screen position, regardless of zoom. This means that when the user scroll-zooms while the pointer is stationary, the content under the pointer remains fixed — the zoom-center behavior specified in AC-2.1.09 through AC-2.1.12 emerges naturally without separate zoom-center tracking code.
+
+**Whole-pixel offsets (R-23, 2026-10-02).** `MagSetFullscreenTransform` takes integer offsets, so the identity above holds to within 0.5 desktop px per axis (0.5 × zoom screen px) once MagBridge rounds (it used to truncate, up to 1 px). While the zoom moves, that residual error jumps back and forth on the pixel grid ("snap-backs"). `alignZoomForAnchor()` reduces this during wheel-notch smoothing only: it may show a zoom slightly behind the true one, never ahead of it, at least half of each frame's step, and within `min(0.5 %, 0.5·zoom / D)` where D is the distance from the pointer to the farthest screen corner, so no pixel moves more than the anchor error it saves. It prefers candidates whose on-screen anchor error moves < 1 px, or continues its last direction, over a reversal. At rest the exact zoom is shown. Touchpad input and keyboard/toggle animations are never adjusted.
+
+**Scroll as pointer activity (AC-2.1.09/AC-2.5.10, 2026-10-02).** RenderLoop records a frame with zoom-scroll input as pointer activity in `lastPointerMoveTime`, so a scroll zoom re-anchors on the pointer even if keyboard focus changed after the mouse last moved. A later focus change still wins (AC-2.5.12); caret priority while typing is unchanged.
 
 **Focus/caret offset computation:**
 
@@ -554,6 +569,15 @@ function renderThreadMain():
 
 `DwmFlush()` synchronizes the render loop to the display's vertical refresh. Each `frameTick()` executes once per display frame, ensuring both optimal timing and zero wasted computation.
 
+**Pacing as built (2026-10-02).** The loop is `frameTick()` → `PeekMessage` pump → `DwmFlush()`, every vblank. While wheel smoothing is in flight, the controller stays in `Scrolling` and every frame produces a new zoom, so the transform is updated each refresh until it rests (≤ 97 ms after the last notch). Once settled, the `zoom/offset unchanged` check skips `MagSetFullscreenTransform`, and at exactly 1.0× the idle short-circuit skips all tracking work. Within `frameTick()`:
+1. Exchange the scroll accumulator; if non-zero, read `lastScrollInputQpc` and pass the input's age to `applyScrollDelta`.
+2. Drain commands, then `tick(dt)` (keyboard/toggle ease-out, or scroll smoothing), then `endScroll()` on frames without input.
+3. Pointer: `GetCursorPos`, deadzone, and a pointer-activity stamp on any raw move **or** zoom-scroll frame.
+4. Source arbitration, anchor alignment (wheel smoothing, pointer source, outside source transitions), offset by source, 200 ms source blend.
+5. `MagBridge::setTransform` only if zoom or offset changed.
+
+At startup, after `MagInitialize` and the conflict read-back, the render thread calls `MagBridge::warmUp()` once (skipped if another magnifier is detected), paying DWM's one-time full-screen magnifier setup (≈ 165–235 ms on TEMPLAPTOP, logged) before the user's first zoom (R-24).
+
 ### 3.8 MagBridge
 
 **Purpose:** Encapsulates all interaction with the Windows Magnification API (`Magnification.dll`). No other component calls Magnification API functions directly. This isolation enables future migration to Desktop Duplication API or `Windows.Graphics.Capture` without touching any other component.
@@ -564,7 +588,8 @@ function renderThreadMain():
 |----------|-----------|---------|
 | `MagInitialize()` | Application startup (main thread) | Initialize the magnification runtime. Must succeed or the app exits. |
 | `MagUninitialize()` | Application shutdown | Clean up. |
-| `MagSetFullscreenTransform(level, xOff, yOff)` | Every render frame where zoom or offset changed | Apply magnification level and viewport position. |
+| `MagSetFullscreenTransform(level, xOff, yOff)` | Every render frame where zoom or offset changed | Apply magnification level and viewport position. Float offsets are **rounded** to the nearest pixel (`lround`, R-23; previously truncated). |
+| `MagSetFullscreenTransform(1.0001, 0, 0)` then `(1.0, 0, 0)` | Once, at render-thread startup (`warmUp()`), unless another magnifier is active | Pays DWM's one-time magnifier setup (≈ 170 ms) at launch instead of on the first zoom (R-24). |
 | `MagGetFullscreenTransform(...)` | Startup (to check for existing magnifier) | Query current state to detect conflicts. |
 | `MagSetFullscreenColorEffect(pMatrix)` | When color inversion is toggled | Apply or remove the 5×5 inversion matrix. |
 | `MagSetInputTransform(FALSE, srcRect, destRect)` | Shutdown and crash handler only | Disable input coordinate remapping to restore clean state. Not called per-frame — proportional viewport mapping (§3.4) makes it redundant, and enabling it causes a `GetCursorPos` feedback loop. |
