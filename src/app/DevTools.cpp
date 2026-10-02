@@ -508,12 +508,29 @@ static HANDLE s_waitTimer = nullptr;
 // Wait until QPC `target` while servicing the message queue (LL hooks and the
 // app's windows keep working). Coarse wait on a high-resolution waitable timer,
 // then a short spin for the last ~1 ms. Returns false if WM_QUIT/abort.
+// Fingers down in the replayed trace. A trace logs CONTACT rows only when
+// the count changes, but a live touchpad reports at >= 125 Hz while touched,
+// and the gesture tracker treats contacts not refreshed for 250 ms as lifted.
+// So the replay re-reports the current count every ~8 ms while it is > 0.
+static int     s_replayContacts = 0;
+static int64_t s_replayContactsQpc = 0;
+
+static void refreshReplayContacts()
+{
+    if (s_replayContacts <= 0) return;
+    const int64_t now = qpcNow();
+    if (now - s_replayContactsQpc < qpcFreq() / 125) return;
+    s_replayContactsQpc = now;
+    InputInterceptor::onTouchpadContacts(s_replayContacts);
+}
+
 static bool waitUntil(int64_t target, bool (*pump)())
 {
     const int64_t f = qpcFreq();
     for (;;)
     {
         if (!pump() || s_abort.load()) return false;
+        refreshReplayContacts();
         int64_t remaining = target - qpcNow();
         if (remaining <= 0) return true;
         if (remaining > f / 666) // > 1.5 ms: sleep until ~1 ms before target
@@ -614,6 +631,8 @@ void runBench(SharedState& state, bool (*pump)())
             break;
         case TraceKind::Contact:
             InputInterceptor::onTouchpadContacts(e.delta);
+            s_replayContacts = e.delta;
+            s_replayContactsQpc = qpcNow();
             break;
         case TraceKind::Stroke:
             InputInterceptor::onTouchpadStroke();

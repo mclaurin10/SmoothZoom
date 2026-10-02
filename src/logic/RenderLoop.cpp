@@ -373,7 +373,7 @@ void RenderLoop::frameTick()
     //    (AC-2.9.20–21). scrollDelta, their raw sum, is for bench telemetry.
     int32_t mouseDelta = s_state->scrollAccumulator.exchange(0, std::memory_order_acquire);
     int32_t touchpadDelta = s_state->touchpadScrollAccumulator.exchange(0, std::memory_order_acquire);
-    int32_t scrollDelta = mouseDelta + touchpadDelta;
+    [[maybe_unused]] int32_t scrollDelta = mouseDelta + touchpadDelta;
     const bool scrollInput = (mouseDelta != 0 || touchpadDelta != 0);
 
     // 2. Drain keyboard commands (lock-free queue)

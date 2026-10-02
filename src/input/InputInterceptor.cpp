@@ -374,6 +374,11 @@ static LRESULT CALLBACK mouseHookProc(int nCode, WPARAM wParam, LPARAM lParam)
             const ScrollVerdict g = s_gestures.onScroll(modifierHeld, s_touchpadCoast, steadyNowUs());
             device = g.device;
             d = decideWheelInGesture(kind, rawDelta, s_modifierKeyVK, g.action);
+            // Win held + wheel inside a pass-through gesture (Win pressed just
+            // after a page scroll): the scroll goes to the app, but releasing
+            // Win must still not open the Start Menu (AC-2.1.16).
+            if (modifierHeld && kind == WheelKind::Vertical && isWinModifier() && !d.consume)
+                s_winKeyMgr.markUsedForZoom();
         }
 
 #ifdef SMOOTHZOOM_DEV_TOOLS

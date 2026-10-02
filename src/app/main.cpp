@@ -41,6 +41,8 @@
 #include "DevTools.h"
 #endif
 
+#include "smoothzoom/input/WheelDecision.h"
+
 #include <cmath>
 #include <filesystem>
 #include <fstream>
@@ -896,7 +898,7 @@ static void handlePtpHidReport(const BYTE* reportData, DWORD reportSize)
         else if (whole < -32768) whole = -32768;
         int16_t delta = static_cast<int16_t>(whole);
 
-        const SmoothZoom::ScrollVerdict g =
+        [[maybe_unused]] const SmoothZoom::ScrollVerdict g =
             SmoothZoom::InputInterceptor::onTouchpadScroll(delta, modHeld);
         SZ_LOG_DEBUG("Main", L"PTP scroll: avgDY=%d wheelEquiv=%d action=%d",
                      avgDeltaY, static_cast<int>(delta), static_cast<int>(g.action));
@@ -1204,10 +1206,17 @@ static LRESULT CALLBACK msgWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lP
 
         const RAWMOUSE& rm = raw->data.mouse;
         int16_t delta = 0;
+        auto rawSnap = std::atomic_load(&g_sharedState.settingsSnapshot);
+        const int rawModVK = rawSnap ? rawSnap->modifierKeyVK : SmoothZoom::kDefaultModifierVK;
         if (rm.usButtonFlags & RI_MOUSE_WHEEL)
             delta = static_cast<int16_t>(rm.usButtonData);
-        else if (rm.usButtonFlags & RI_MOUSE_HWHEEL)
+        else if ((rm.usButtonFlags & RI_MOUSE_HWHEEL)
+                 && SmoothZoom::wheelIsZoomCandidate(SmoothZoom::WheelKind::Horizontal, rawModVK))
             delta = static_cast<int16_t>(rm.usButtonData);
+        // A horizontal wheel that is not a zoom candidate (no Shift modifier)
+        // never reaches the hook's gesture tracker; it must not start a
+        // pass-through gesture here either (the hook does not stamp it, so
+        // the dedup below would not stop it).
 
         if (delta == 0)
             return DefWindowProcW(hWnd, msg, wParam, lParam);
@@ -1226,7 +1235,8 @@ static LRESULT CALLBACK msgWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lP
         int genericVK = SmoothZoom::toGenericVK(modVK);
         bool modHeld = (GetAsyncKeyState(genericVK) & 0x8000) != 0;
 
-        const SmoothZoom::ScrollVerdict g = SmoothZoom::InputInterceptor::onRawWheel(delta, modHeld);
+        [[maybe_unused]] const SmoothZoom::ScrollVerdict g =
+            SmoothZoom::InputInterceptor::onRawWheel(delta, modHeld);
         // Debug, not Info: this fires per scroll event on the main thread,
         // and the logger flushes synchronously per line (R-05).
         SZ_LOG_DEBUG("Main", L"Raw Input scroll fallback: delta=%d action=%d",
