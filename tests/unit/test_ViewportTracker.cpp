@@ -661,12 +661,12 @@ TEST_CASE("alignZoomForAnchor stays in the allowed window", "[ViewportTracker][A
             if (dir > 0)
             {
                 REQUIRE(a.zoom <= zoom);                                   // never ahead
-                REQUIRE(a.zoom >= prev + 0.5f * step - 1e-5f);              // at least half the step
+                REQUIRE(a.zoom >= prev + ViewportTracker::kAnchorMinStepFraction * step - 1e-5f); // minimum pace
             }
             else
             {
                 REQUIRE(a.zoom >= zoom);
-                REQUIRE(a.zoom <= prev + 0.5f * step + 1e-5f);
+                REQUIRE(a.zoom <= prev + ViewportTracker::kAnchorMinStepFraction * step + 1e-5f);
             }
             REQUIRE(std::fabs(a.zoom / zoom - 1.0f) <= ViewportTracker::kAnchorNudgeMax + 1e-5f);
         }
