@@ -1,0 +1,24 @@
+{
+  "schema": 1,
+  "description": "Pass/fail thresholds for tools/bench/gate.ps1. Derived from the display refresh period and what smooth zoom requires, not from the baseline. Thresholds in ms assume the measured period; '_periods' metrics are refresh-rate independent. Rationale for each: docs/03_Technical_Architecture.md section 7.4.",
+  "refresh_period_ms": 16.667,
+  "criteria": [
+    { "id": "C-01", "metric": "completed",                         "op": "==", "value": true,  "agg": "all",    "why": "Bench ran to the end (no watchdog/quit)." },
+    { "id": "C-02", "metric": "uiaccess",                          "op": "==", "value": true,  "agg": "all",    "why": "Without UIAccess MagSetFullscreenTransform fails silently (R-12); numbers would be meaningless." },
+    { "id": "C-03", "metric": "counts.updates_failed",             "op": "==", "value": 0,     "agg": "max",    "why": "Every transform update must land (R-12, AC-ERR.04)." },
+    { "id": "C-04", "metric": "counts.frames_dropped",             "op": "==", "value": 0,     "agg": "max",    "why": "Telemetry buffer must not overflow (bench validity)." },
+    { "id": "C-05", "metric": "refreshes.missed_pct",              "op": "<=", "value": 1.0,   "agg": "median", "why": "Smooth motion needs a new zoom value on every refresh while a gesture is in progress; 1% allows scheduler noise only (AC-2.2.02, AC-2.2.03)." },
+    { "id": "C-06", "metric": "refreshes.multi_update",            "op": "==", "value": 0,     "agg": "max",    "why": "DWM composes once per refresh; a second update in one refresh means the first is never shown, so the motion is uneven." },
+    { "id": "C-07", "metric": "update_interval_periods.p95",       "op": "<=", "value": 1.10,  "agg": "median", "why": "During a gesture, consecutive updates are one refresh apart; 10% tolerance for DwmFlush wake jitter." },
+    { "id": "C-08", "metric": "update_interval_periods.max",       "op": "<=", "value": 1.5,   "agg": "median", "why": "No gap of two or more refreshes inside a gesture: that is a visible hitch." },
+    { "id": "C-09", "metric": "late_ticks",                        "op": "==", "value": 0,     "agg": "max",    "why": "No render-loop tick later than 1.5 periods (render-loop invariant 4, AC-2.3.10)." },
+    { "id": "C-10", "metric": "set_call_ms.max",                   "op": "<=", "value": 2.0,   "agg": "max",    "why": "MagSetFullscreenTransform must stay a small fraction of the 16.7 ms frame budget (render-loop.md: per-frame tick < 0.1 ms target; 2 ms ceiling)." },
+    { "id": "C-11", "metric": "cold_start.max_set_call_ms",        "op": "<=", "value": 16.667,"agg": "median", "why": "The first zoom after launch must also render on the next frame (AC-2.2.01); a cold-start stall longer than one period is a visible freeze." },
+    { "id": "C-12", "metric": "latency_ms.input_to_update.p95",    "op": "<=", "value": 17.0,  "agg": "median", "why": "AC-2.2.01: rendered on the very next display frame, so input to transform update is at most one period (+0.3 ms timer slack)." },
+    { "id": "C-13", "metric": "latency_ms.input_to_next_vblank.p95","op": "<=", "value": 33.4, "agg": "median", "why": "Update issued within one period then shown at the following vblank: at most two periods input-to-photon (R-03 tolerable bound)." },
+    { "id": "C-14", "metric": "settle_ms.max",                     "op": "<=", "value": 100.0, "agg": "median", "why": "After the last input the zoom must come to rest without perceptible catch-up (AC-2.2.03, AC-2.4.08); 100 ms is below the 100-150 ms animation band of AC-2.2.04." },
+    { "id": "C-15", "metric": "anchor_error_px.p95",               "op": "<=", "value": 0.5,   "agg": "median", "why": "The desktop point under a stationary pointer must not move while zooming (AC-2.1.09-11); sub-pixel error keeps it visually fixed." },
+    { "id": "C-16", "metric": "anchor_error_px.max",               "op": "<=", "value": 1.0,   "agg": "median", "why": "A jump of more than one physical pixel at the anchor is visible as shimmer." },
+    { "id": "C-17", "metric": "roundtrip_error_pct_max",           "op": "<=", "value": 0.1,   "agg": "max",    "skip_if_null": true, "why": "Scrolling in and back out by the same amount inside the free zoom band must return to the same zoom (AC-2.1.06; R-17 drift)." }
+  ]
+}
