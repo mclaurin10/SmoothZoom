@@ -7,6 +7,8 @@
 #include <catch2/catch_approx.hpp>
 #include <catch2/catch_message.hpp>
 #include "smoothzoom/logic/ViewportTracker.h"
+#include <cmath>
+#include <algorithm>
 
 using namespace SmoothZoom;
 using Catch::Approx;
@@ -641,4 +643,117 @@ TEST_CASE("Multi-monitor: default origin (0,0) matches single-monitor behavior",
 
     REQUIRE(withOrigin.x == Approx(withoutOrigin.x));
     REQUIRE(withOrigin.y == Approx(withoutOrigin.y));
+}
+
+// =============================================================================
+// Anchor alignment (R-23): small monotone zoom adjustments against snap-backs
+// =============================================================================
+
+TEST_CASE("alignZoomForAnchor stays in the allowed window", "[ViewportTracker][Anchor]")
+{
+    const int32_t W = 1920, H = 1200;
+    for (float prev = 1.2f; prev < 9.0f; prev *= 1.07f)
+    {
+        for (float dir : {1.0f, -1.0f})
+        {
+            float zoom = prev * (dir > 0 ? 1.03f : 1.0f / 1.03f);
+            auto a = ViewportTracker::alignZoomForAnchor(zoom, prev, true, 0.3f, -0.2f, 710, 444, W, H);
+            const float step = zoom - prev;
+            if (dir > 0)
+            {
+                REQUIRE(a.zoom <= zoom);                                   // never ahead
+                REQUIRE(a.zoom >= prev + ViewportTracker::kAnchorMinStepFraction * step - 1e-5f); // minimum pace
+            }
+            else
+            {
+                REQUIRE(a.zoom >= zoom);
+                REQUIRE(a.zoom <= prev + ViewportTracker::kAnchorMinStepFraction * step + 1e-5f);
+            }
+            REQUIRE(std::fabs(a.zoom / zoom - 1.0f) <= ViewportTracker::kAnchorNudgeMax + 1e-5f);
+        }
+    }
+}
+
+TEST_CASE("alignZoomForAnchor returns the exact zoom when nothing moves", "[ViewportTracker][Anchor]")
+{
+    auto a = ViewportTracker::alignZoomForAnchor(3.0f, 3.0f, true, 0.0f, 0.0f, 710, 444, 1920, 1200);
+    REQUIRE(a.zoom == 3.0f);
+    auto e = ViewportTracker::anchorError(3.0f, 710, 444, 1920, 1200);
+    REQUIRE(a.errX == e.errX);
+    REQUIRE(a.errY == e.errY);
+    // Error is at most the whole-pixel floor: 0.5 desktop px x zoom.
+    REQUIRE(std::fabs(e.errX) <= 0.5f * 3.0f + 1e-4f);
+}
+
+TEST_CASE("alignZoomForAnchor cuts anchor snap-backs during a smooth zoom", "[ViewportTracker][Anchor]")
+{
+    // Smooth zoom-in 1.2x -> 6x over 120 frames under a still pointer.
+    auto reversals = [](bool align) {
+        float prevShown = 1.2f, pex = 0.0f, pey = 0.0f;
+        bool have = false;
+        int lastDir[2] = {0, 0}, count = 0;
+        for (int f = 1; f <= 120; ++f)
+        {
+            float z = 1.2f * std::pow(5.0f, f / 120.0f);
+            auto a = align ? ViewportTracker::alignZoomForAnchor(z, prevShown, have, pex, pey, 710, 444, 1920, 1200)
+                           : ViewportTracker::anchorError(z, 710, 444, 1920, 1200);
+            if (have)
+            {
+                float m[2] = {a.errX - pex, a.errY - pey};
+                bool hit = false;
+                for (int ax = 0; ax < 2; ++ax)
+                    if (std::fabs(m[ax]) >= 1.0f)
+                    {
+                        int s = m[ax] > 0 ? 1 : -1;
+                        if (lastDir[ax] && s != lastDir[ax]) hit = true;
+                        lastDir[ax] = s;
+                    }
+                count += hit;
+            }
+            prevShown = a.zoom; pex = a.errX; pey = a.errY; have = true;
+        }
+        return count;
+    };
+    const int exact = reversals(false), aligned = reversals(true);
+    REQUIRE(exact > 10);
+    REQUIRE(aligned * 4 <= exact * 3);   // a measurable cut (>= 25 %) within the edge-movement cap
+}
+
+TEST_CASE("alignZoomForAnchor never moves the screen edge more than the anchor error it saves",
+          "[ViewportTracker][Anchor]")
+{
+    const int32_t W = 1920, H = 1200, px = 710, py = 444;
+    const float farD = std::hypot(float(W - px), float(H - py));
+    for (float prev = 1.3f; prev < 9.0f; prev *= 1.05f)
+    {
+        float zoom = prev * 1.03f;
+        auto a = ViewportTracker::alignZoomForAnchor(zoom, prev, true, 0.0f, 0.0f, px, py, W, H);
+        // Scaling by d moves the farthest pixel by farD * d screen px; at most 0.5 * zoom.
+        REQUIRE(farD * std::fabs(a.zoom / zoom - 1.0f) <= 0.5f * zoom + 1e-3f);
+    }
+}
+
+// RenderLoop records a zoom-scroll frame as pointer activity (AC-2.1.09: the
+// pointer is the scroll zoom's focal point; AC-2.5.10: most recent input wins).
+TEST_CASE("Scroll gesture after a focus change re-anchors on the pointer (AC-2.1.09, AC-2.5.10)",
+          "[ViewportTracker][Phase3]")
+{
+    ViewportTracker vt;
+    int64_t now = 10000;
+    int64_t pointerMoved = 4000;   // mouse last moved long ago
+    int64_t focusChanged = 6000;   // then the user clicked/tabbed into a field
+    int64_t scrolled = 9900;       // then Shift+scrolled without moving the mouse
+    int64_t lastPointerActivity = std::max(pointerMoved, scrolled);
+
+    REQUIRE(vt.determineActiveSource(now, pointerMoved, focusChanged, 0, true, false) == TrackingSource::Focus);
+    REQUIRE(vt.determineActiveSource(now, lastPointerActivity, focusChanged, 0, true, false) == TrackingSource::Pointer);
+}
+
+TEST_CASE("Focus change after a scroll gesture still wins (AC-2.5.12)", "[ViewportTracker][Phase3]")
+{
+    ViewportTracker vt;
+    int64_t now = 10000;
+    int64_t scrolled = 8000;
+    int64_t focusChanged = 9000;   // Tab after zooming
+    REQUIRE(vt.determineActiveSource(now, scrolled, focusChanged, 0, true, false) == TrackingSource::Focus);
 }

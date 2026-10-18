@@ -34,7 +34,8 @@ TEST_CASE("SettingsManager starts with defaults", "[SettingsManager][Phase5]")
     SettingsManager mgr;
     auto snap = mgr.snapshot();
 
-    REQUIRE(snap->modifierKeyVK == 0x5B);
+    REQUIRE(snap->modifierKeyVK == 0xA0);  // VK_LSHIFT (AC-2.1.04)
+    REQUIRE(snap->keyboardShortcutsEnabled == false);  // AC-2.8.13
     REQUIRE(snap->minZoom == Approx(1.0f));
     REQUIRE(snap->maxZoom == Approx(10.0f));
     REQUIRE(snap->keyboardZoomStep == Approx(0.25f));
@@ -53,10 +54,10 @@ TEST_CASE("SettingsManager starts with defaults", "[SettingsManager][Phase5]")
 
 TEST_CASE("Load valid JSON → all fields parsed (AC-2.9.01)", "[SettingsManager][Phase5]")
 {
-    // Use VK_LSHIFT (0xA0 = 160) as modifier — VK_LCONTROL (0xA2 = 162) is
-    // blocked by the Ctrl-removal policy (commit c206950) and reverts to VK_LWIN.
+    // Use VK_RWIN (0x5C = 92), a valid non-default modifier — VK_LCONTROL
+    // (0xA2 = 162) is blocked by the Ctrl-removal policy (commit c206950).
     std::string json = R"({
-        "modifierKeyVK": 160,
+        "modifierKeyVK": 92,
         "minZoom": 1.5,
         "maxZoom": 8.0,
         "keyboardZoomStep": 0.5,
@@ -69,6 +70,7 @@ TEST_CASE("Load valid JSON → all fields parsed (AC-2.9.01)", "[SettingsManager
         "followTextCursor": false,
         "colorInversionEnabled": true,
         "reverseScrollDirection": true,
+        "keyboardShortcutsEnabled": true,
         "toggleKey1VK": 160,
         "toggleKey2VK": 164
     })";
@@ -78,7 +80,8 @@ TEST_CASE("Load valid JSON → all fields parsed (AC-2.9.01)", "[SettingsManager
     REQUIRE(mgr.loadFromFile(path.c_str()));
 
     auto snap = mgr.snapshot();
-    REQUIRE(snap->modifierKeyVK == 160);
+    REQUIRE(snap->modifierKeyVK == 92);
+    REQUIRE(snap->keyboardShortcutsEnabled == true);
     REQUIRE(snap->minZoom == Approx(1.5f));
     REQUIRE(snap->maxZoom == Approx(8.0f));
     REQUIRE(snap->keyboardZoomStep == Approx(0.5f));
@@ -97,10 +100,11 @@ TEST_CASE("Load valid JSON → all fields parsed (AC-2.9.01)", "[SettingsManager
 
 TEST_CASE("Save then load round-trip (AC-2.9.02)", "[SettingsManager][Phase5]")
 {
-    // Set non-default values — use VK_LSHIFT (0xA0), not VK_LCONTROL (0xA2)
-    // which is blocked by the Ctrl-removal policy and reverts to VK_LWIN.
+    // Set non-default values — use VK_LMENU (0xA4), not VK_LCONTROL (0xA2)
+    // which is blocked by the Ctrl-removal policy and reverts to the default.
     SettingsSnapshot custom;
-    custom.modifierKeyVK = 0xA0;
+    custom.modifierKeyVK = 0xA4;
+    custom.keyboardShortcutsEnabled = true;
     custom.minZoom = 1.5f;
     custom.maxZoom = 7.0f;
     custom.keyboardZoomStep = 0.1f;
@@ -127,6 +131,7 @@ TEST_CASE("Save then load round-trip (AC-2.9.02)", "[SettingsManager][Phase5]")
 
     auto snap = mgr2.snapshot();
     REQUIRE(snap->modifierKeyVK == custom.modifierKeyVK);
+    REQUIRE(snap->keyboardShortcutsEnabled == custom.keyboardShortcutsEnabled);
     REQUIRE(snap->minZoom == Approx(custom.minZoom));
     REQUIRE(snap->maxZoom == Approx(custom.maxZoom));
     REQUIRE(snap->keyboardZoomStep == Approx(custom.keyboardZoomStep));
@@ -177,7 +182,8 @@ TEST_CASE("Load JSON with missing fields → defaults fill in (AC-2.9.02)", "[Se
     REQUIRE(snap->maxZoom == Approx(5.0f));          // Changed
     REQUIRE(snap->minZoom == Approx(1.0f));           // Default
     REQUIRE(snap->keyboardZoomStep == Approx(0.25f)); // Default
-    REQUIRE(snap->modifierKeyVK == 0x5B);             // Default
+    REQUIRE(snap->modifierKeyVK == 0xA0);             // Default (Shift)
+    REQUIRE(snap->keyboardShortcutsEnabled == true);  // Existing file, no key ⇒ upgrade ⇒ on
     REQUIRE(snap->defaultZoomLevel == Approx(2.0f));  // Default (within [1.0, 5.0])
 }
 
@@ -437,6 +443,97 @@ TEST_CASE("save stamps current schemaVersion; legacy migrates forward on write",
     REQUIRE(mgr2.snapshot()->schemaVersion == kSettingsSchemaVersion);
 }
 
+// =============================================================================
+// Schema 2: separate touchpad settings (AC-2.9.20–22) and the coast setting
+// =============================================================================
+
+TEST_CASE("Fresh install: touchpad settings default, coast on", "[SettingsManager][Schema][Touchpad]")
+{
+    SettingsManager mgr;
+    auto snap = mgr.snapshot();
+    REQUIRE(kSettingsSchemaVersion == 2);
+    REQUIRE(snap->touchpadSensitivity == Approx(1.0f));
+    REQUIRE(snap->touchpadReverseScrollDirection == false);
+    REQUIRE(snap->scrollSensitivity == Approx(1.0f));
+    REQUIRE(snap->reverseScrollDirection == false);
+    REQUIRE(snap->momentumZoom == true);
+}
+
+TEST_CASE("Upgraded schema-1 config copies its custom scroll values to the touchpad", "[SettingsManager][Schema][Touchpad]")
+{
+    auto path = writeTempFile(R"({"schemaVersion": 1, "scrollSensitivity": 2.5,
+                                  "reverseScrollDirection": true, "momentumZoom": false})",
+                              "schema1_custom.json");
+    SettingsManager mgr;
+    REQUIRE(mgr.loadFromFile(path.c_str()));
+    auto snap = mgr.snapshot();
+    REQUIRE(snap->schemaVersion == 1);
+    REQUIRE(snap->scrollSensitivity == Approx(2.5f));
+    REQUIRE(snap->reverseScrollDirection == true);
+    REQUIRE(snap->touchpadSensitivity == Approx(2.5f));        // copied
+    REQUIRE(snap->touchpadReverseScrollDirection == true);     // copied
+    REQUIRE(snap->momentumZoom == false);                      // kept
+
+    // Saving writes schema 2 with both sets; reloading keeps the values.
+    std::string rt = (std::filesystem::temp_directory_path() / "smoothzoom_test_schema1_rt.json").string();
+    REQUIRE(mgr.saveToFile(rt.c_str()));
+    SettingsManager mgr2;
+    REQUIRE(mgr2.loadFromFile(rt.c_str()));
+    auto s2 = mgr2.snapshot();
+    REQUIRE(s2->schemaVersion == 2);
+    REQUIRE(s2->touchpadSensitivity == Approx(2.5f));
+    REQUIRE(s2->touchpadReverseScrollDirection == true);
+    REQUIRE(s2->scrollSensitivity == Approx(2.5f));
+    REQUIRE(s2->reverseScrollDirection == true);
+}
+
+TEST_CASE("Upgraded schema-1 config with default values copies defaults (nothing changes)", "[SettingsManager][Schema][Touchpad]")
+{
+    auto path = writeTempFile(R"({"schemaVersion": 1, "maxZoom": 8.0})", "schema1_default.json");
+    SettingsManager mgr;
+    REQUIRE(mgr.loadFromFile(path.c_str()));
+    REQUIRE(mgr.snapshot()->touchpadSensitivity == Approx(1.0f));
+    REQUIRE(mgr.snapshot()->touchpadReverseScrollDirection == false);
+}
+
+TEST_CASE("Legacy unversioned config with a custom sensitivity is migrated too", "[SettingsManager][Schema][Touchpad]")
+{
+    auto path = writeTempFile(R"({"scrollSensitivity": 0.4})", "schema0_custom.json");
+    SettingsManager mgr;
+    REQUIRE(mgr.loadFromFile(path.c_str()));
+    REQUIRE(mgr.snapshot()->touchpadSensitivity == Approx(0.4f));
+}
+
+TEST_CASE("Schema-2 config keeps separate touchpad and mouse values", "[SettingsManager][Schema][Touchpad]")
+{
+    auto path = writeTempFile(R"({"schemaVersion": 2, "scrollSensitivity": 0.5, "reverseScrollDirection": false,
+                                  "touchpadSensitivity": 3.0, "touchpadReverseScrollDirection": true})",
+                              "schema2_split.json");
+    SettingsManager mgr;
+    REQUIRE(mgr.loadFromFile(path.c_str()));
+    auto snap = mgr.snapshot();
+    REQUIRE(snap->scrollSensitivity == Approx(0.5f));
+    REQUIRE(snap->reverseScrollDirection == false);
+    REQUIRE(snap->touchpadSensitivity == Approx(3.0f));
+    REQUIRE(snap->touchpadReverseScrollDirection == true);
+}
+
+TEST_CASE("Schema-1 file never reads touchpad keys (copy wins); out-of-range touchpad value keeps the copy",
+          "[SettingsManager][Schema][Touchpad]")
+{
+    auto p1 = writeTempFile(R"({"schemaVersion": 1, "scrollSensitivity": 2.0, "touchpadSensitivity": 4.0})",
+                            "schema1_stray.json");
+    SettingsManager a;
+    REQUIRE(a.loadFromFile(p1.c_str()));
+    REQUIRE(a.snapshot()->touchpadSensitivity == Approx(2.0f));
+
+    auto p2 = writeTempFile(R"({"schemaVersion": 2, "scrollSensitivity": 2.0, "touchpadSensitivity": 9.0})",
+                            "schema2_range.json");
+    SettingsManager b;
+    REQUIRE(b.loadFromFile(p2.c_str()));
+    REQUIRE(b.snapshot()->touchpadSensitivity == Approx(2.0f));
+}
+
 TEST_CASE("defaultZoomLevel out of range for custom bounds → keeps default", "[SettingsManager][Phase5]")
 {
     // maxZoom=3.0, defaultZoomLevel=5.0 (above max) → default should stay 2.0
@@ -448,4 +545,131 @@ TEST_CASE("defaultZoomLevel out of range for custom bounds → keeps default", "
     auto snap = mgr.snapshot();
     REQUIRE(snap->maxZoom == Approx(3.0f));
     REQUIRE(snap->defaultZoomLevel == Approx(2.0f)); // 5.0 > 3.0 → kept default
+}
+
+// =============================================================================
+// Shift default modifier + "Keyboard shortcuts" setting (AC-2.1.04, AC-2.8.13–15)
+// =============================================================================
+
+TEST_CASE("Existing config keeps its saved modifier (Win stays Win)", "[SettingsManager][ShiftScroll]")
+{
+    // The shape of a pre-change config.json: Win modifier, no shortcuts key.
+    auto path = writeTempFile(R"({"schemaVersion": 1, "modifierKeyVK": 91})", "legacy_win.json");
+    SettingsManager mgr;
+    REQUIRE(mgr.loadFromFile(path.c_str()));
+    REQUIRE(mgr.snapshot()->modifierKeyVK == 0x5B);
+    // Absent key in an existing file ⇒ upgrade ⇒ shortcuts stay on.
+    REQUIRE(mgr.snapshot()->keyboardShortcutsEnabled == true);
+
+    for (int vk : { 0x5C, 0xA0, 0xA1, 0xA4, 0xA5, 0x10, 0x12 })
+    {
+        auto p = writeTempFile("{\"modifierKeyVK\": " + std::to_string(vk) + "}", "legacy_mod.json");
+        SettingsManager m;
+        REQUIRE(m.loadFromFile(p.c_str()));
+        CHECK(m.snapshot()->modifierKeyVK == vk);
+    }
+}
+
+TEST_CASE("Invalid modifier (e.g. retired Ctrl) falls back to the Shift default", "[SettingsManager][ShiftScroll]")
+{
+    for (int vk : { 0xA2, 0xA3, 0x11, 0x41, 0 })
+    {
+        auto p = writeTempFile("{\"modifierKeyVK\": " + std::to_string(vk) + "}", "bad_mod.json");
+        SettingsManager m;
+        REQUIRE(m.loadFromFile(p.c_str()));
+        CHECK(m.snapshot()->modifierKeyVK == kDefaultModifierVK);
+    }
+    REQUIRE(kDefaultModifierVK == 0xA0);
+}
+
+TEST_CASE("keyboardShortcutsEnabled persists both ways; non-boolean keeps default", "[SettingsManager][ShiftScroll]")
+{
+    for (bool on : { true, false })
+    {
+        SettingsSnapshot s;
+        s.keyboardShortcutsEnabled = on;
+        SettingsManager mgr1;
+        mgr1.applySnapshot(s);
+        std::string rt = (std::filesystem::temp_directory_path() / "smoothzoom_test_kbshortcuts_rt.json").string();
+        REQUIRE(mgr1.saveToFile(rt.c_str()));
+
+        std::ifstream f(rt);
+        std::stringstream text;
+        text << f.rdbuf();
+        CHECK(text.str().find("\"keyboardShortcutsEnabled\"") != std::string::npos);
+
+        SettingsManager mgr2;
+        REQUIRE(mgr2.loadFromFile(rt.c_str()));
+        CHECK(mgr2.snapshot()->keyboardShortcutsEnabled == on);
+    }
+
+    // Non-boolean value: ignored, so the existing-file rule (on) applies.
+    auto p = writeTempFile(R"({"keyboardShortcutsEnabled": 1})", "kb_nonbool.json");
+    SettingsManager m;
+    REQUIRE(m.loadFromFile(p.c_str()));
+    CHECK(m.snapshot()->keyboardShortcutsEnabled == true);
+}
+
+TEST_CASE("Fresh install (no config.json) ⇒ shortcuts off; upgrade (config.json, no key) ⇒ on",
+          "[SettingsManager][ShiftScroll]")
+{
+    // Fresh install: the file does not exist, load fails, defaults stay.
+    std::string missing = (std::filesystem::temp_directory_path() / "smoothzoom_test_no_such_config.json").string();
+    std::filesystem::remove(missing);
+    SettingsManager fresh;
+    REQUIRE_FALSE(fresh.loadFromFile(missing.c_str()));
+    CHECK(fresh.snapshot()->keyboardShortcutsEnabled == false);
+    CHECK(fresh.snapshot()->modifierKeyVK == kDefaultModifierVK);
+
+    // Upgrade: a pre-change config.json (exactly the shape the old build wrote).
+    auto legacy = writeTempFile(R"({
+        "animationSpeed": 1, "colorInversionEnabled": false, "defaultZoomLevel": 2.0,
+        "followKeyboardFocus": true, "followTextCursor": true, "imageSmoothingEnabled": true,
+        "keyboardZoomStep": 0.25, "logLevel": "info", "maxZoom": 10.0, "minZoom": 1.0,
+        "modifierKeyVK": 91, "momentumZoom": true, "reverseScrollDirection": false,
+        "schemaVersion": 1, "scrollSensitivity": 1.0, "startWithWindows": false,
+        "startZoomed": false, "toggleKey1VK": 162, "toggleKey2VK": 164
+    })", "legacy_full.json");
+    SettingsManager upgraded;
+    REQUIRE(upgraded.loadFromFile(legacy.c_str()));
+    CHECK(upgraded.snapshot()->keyboardShortcutsEnabled == true);
+    CHECK(upgraded.snapshot()->modifierKeyVK == 0x5B);
+
+    // An explicit false in an existing file is respected (user turned it off).
+    auto off = writeTempFile(R"({"modifierKeyVK": 160, "keyboardShortcutsEnabled": false})", "kb_off.json");
+    SettingsManager m;
+    REQUIRE(m.loadFromFile(off.c_str()));
+    CHECK(m.snapshot()->keyboardShortcutsEnabled == false);
+
+    // The first save writes the key, so the rule only ever applies once.
+    std::string rt = (std::filesystem::temp_directory_path() / "smoothzoom_test_upgrade_rt.json").string();
+    REQUIRE(upgraded.saveToFile(rt.c_str()));
+    std::ifstream f(rt);
+    std::stringstream text;
+    text << f.rdbuf();
+    CHECK(text.str().find("\"keyboardShortcutsEnabled\": true") != std::string::npos);
+}
+
+TEST_CASE("blockStickyKeysShortcut: on by default, also for upgraded configs; persists", "[SettingsManager][StickyKeys]")
+{
+    SettingsManager fresh;
+    CHECK(fresh.snapshot()->blockStickyKeysShortcut == true);
+
+    auto legacy = writeTempFile(R"({"modifierKeyVK": 91})", "sticky_legacy.json");
+    SettingsManager upgraded;
+    REQUIRE(upgraded.loadFromFile(legacy.c_str()));
+    CHECK(upgraded.snapshot()->blockStickyKeysShortcut == true);
+
+    for (bool on : { false, true })
+    {
+        SettingsSnapshot s;
+        s.blockStickyKeysShortcut = on;
+        SettingsManager m1;
+        m1.applySnapshot(s);
+        std::string rt = (std::filesystem::temp_directory_path() / "smoothzoom_test_sticky_rt.json").string();
+        REQUIRE(m1.saveToFile(rt.c_str()));
+        SettingsManager m2;
+        REQUIRE(m2.loadFromFile(rt.c_str()));
+        CHECK(m2.snapshot()->blockStickyKeysShortcut == on);
+    }
 }

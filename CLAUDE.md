@@ -1,8 +1,8 @@
 # SmoothZoom
 
-**Current Status:** Phases 0–6 complete — **feature-complete v1.0 magnifier**. All ten components plus the Phase 6 hardening set (color inversion, multi-monitor, crash recovery, conflict detection, hook watchdog, config schema versioning) are implemented and merged to `master`. **Current phase: Phase 7 — v1.0 Release Verification & Certification** (performance audit E6.12 + the 139-AC manual sweep E6.13 — see `docs/07_v1.0_Release_Verification_PRD.md`). Input Interoperability is the deferred **Phase 8**.
+**Current Status:** Phases 0–6 complete — **feature-complete v1.0 magnifier**. All ten components plus the Phase 6 hardening set (color inversion, multi-monitor, crash recovery, conflict detection, hook watchdog, config schema versioning) are implemented and merged to `master`. **Current phase: Phase 7 — v1.0 Release Verification & Certification** (performance audit E6.12 + the 139-AC manual sweep E6.13 — see `docs/07_v1.0_Release_Verification_PRD.md`). Input Interoperability is the deferred **Phase 8**; two Phase 8 items were pulled forward by explicit user approval on 2026-10-02 (see the note under Phased Delivery).
 
-Native C++17 Win32 full-screen magnifier for Windows. Hold Win+Scroll to smoothly zoom up to 10× with continuous viewport tracking of pointer, keyboard focus, and text cursor. Uses the Windows Magnification API.
+Native C++17 Win32 full-screen magnifier for Windows. Hold Shift+Scroll (default modifier; Win or Alt configurable) to smoothly zoom up to 10× with continuous viewport tracking of pointer, keyboard focus, and text cursor. Uses the Windows Magnification API.
 
 ## Design Documents — Read Before Implementing
 
@@ -11,11 +11,11 @@ Five core design docs, a v1.0 verification PRD, and a research report specify th
 | Doc | File | Covers |
 |-----|------|--------|
 | 1 — Scope | `01_Project_Scope_and_Non-Scope.md` | In/out of scope, success criteria, constraints, settings |
-| 2 — Behavior Spec | `02_Behavior_Specification.md` | 139 acceptance criteria (AC-numbered). The authority on behavior. |
+| 2 — Behavior Spec | `02_Behavior_Specification.md` | 161 acceptance criteria (139 baselined + 6 added 2026-10-01 + 16 added 2026-10-02; AC-numbered). The authority on behavior. |
 | 3 — Architecture | `03_Technical_Architecture.md` | Components, threading, data flow, pseudocode, build/deploy |
 | 4 — Phases | `04_Phased_Delivery_Plan.md` | Phases 0–8: exit criteria, AC-to-phase mapping (0–6 delivered, 7 verifying, 8 deferred) |
 | 5 — Risks | `05_Technical_Risks_and_Mitigations.md` | 22 risks (R-01–R-22) with mitigations |
-| 7 — Verification PRD | `07_v1.0_Release_Verification_PRD.md` | v1.0 release verification & certification: perf audit, 139-AC sweep, exit criteria |
+| 7 — Verification PRD | `07_v1.0_Release_Verification_PRD.md` | v1.0 release verification & certification: perf audit, AC sweep (now 161), exit criteria |
 
 Cite **AC numbers** for behavior (e.g., AC-2.1.06), **risk IDs** for technical concerns (e.g., R-05), and **exit criteria** for phase gates (e.g., E1.4).
 
@@ -75,7 +75,7 @@ Violating these causes silent failure or a broken build. Non-negotiable.
 
 ## Phased Delivery
 
-All feature phases (0–6) are delivered. Each phase produced a runnable, testable build. Check Doc 4 for full exit criteria and AC coverage per phase. **Do not remove or regress shipped features.** Phase 7 is verification/certification (no new features); Phase 8 (Input Interoperability) is deferred — do not start it before v1.0 ships.
+All feature phases (0–6) are delivered. Each phase produced a runnable, testable build. Check Doc 4 for full exit criteria and AC coverage per phase. **Do not remove or regress shipped features.** Phase 7 is verification/certification (no new features); Phase 8 (Input Interoperability) is deferred — do not start it before v1.0 ships, except the two items the user pulled forward (below).
 
 | Phase | Name | Key Delivery | Status |
 |-------|------|-------------|--------|
@@ -86,18 +86,22 @@ All feature phases (0–6) are delivered. Each phase produced a runnable, testab
 | 4 | Temporary Toggle | Ctrl+Alt hold-to-peek, bidirectional, state preservation | Done |
 | 5 | Settings, Tray, Persistence | config.json, settings window, tray icon, configurable modifier/shortcuts | Done |
 | 6 | Polish & Hardening | Color inversion, multi-monitor, crash recovery, conflict detection, hook watchdog, schema versioning | Done |
-| 7 | v1.0 Release Verification | Performance audit (E6.12), 139-AC manual sweep (E6.13), interactive/elevated test matrix → certified, signed v1.0 | **Current** |
+| 7 | v1.0 Release Verification | Performance audit (E6.12), 161-AC manual sweep (E6.13), interactive/elevated test matrix → certified, signed v1.0 | **Current** |
 | 8 | Input Interoperability | Scroll-sensitivity/momentum settings UI, consolidate Raw Input/PTP into the Input layer, per-device robustness, pinch-feasibility spike | Deferred (post-1.0) |
 
 > **Input-interop P0 has already landed** ahead of Phase 8: `ScrollNormalizer` (device-independent scroll units), continuous precision-touchpad scroll, and the `scrollSensitivity` / `momentumZoom` settings fields. The remaining interop work (settings UI, input-layer consolidation, robustness, pinch spike) is Phase 8 — see `docs/input-interop-handoff.md`.
+
+> **Approved pull-forward (2026-10-02, branch `feature/touchpad-gestures`):** momentum gating (handoff item B3: gesture mode lock + touchpad coast setting) and separate touchpad / mouse scroll settings (sensitivity, direction), with the Settings window regrouped to expose them. The rest of Phase 8 — Raw Input / PTP consolidation (handoff #6), B1/B2 robustness, the pinch spike — stays deferred.
 
 ## Component Boundaries
 
 Each component has a single responsibility. No component reaches into another's internals. Communication only through shared state or defined interfaces.
 
 - **MagBridge** is the only file that `#include`s `Magnification.h`. This isolates a future migration to Desktop Duplication API. (R-01)
-- **WinKeyManager** is factored out of InputInterceptor for testability of the Win key state machine.
-- **InputInterceptor** consumes keyboard events only for the four zoom keys (`VK_OEM_PLUS`, `VK_ADD`, `VK_OEM_MINUS`, `VK_SUBTRACT`), and only while the configured modifier is held — on both key-down and key-up. This prevents a `+`/`_` character leak when the modifier is Shift (and from peripheral macros that synthesize `Shift+=`/`Shift+-`). All other keyboard events pass through (observe-only). It consumes scroll events only when the modifier is held.
+- **WinKeyManager** is factored out of InputInterceptor for testability of the Win key state machine. It is fed Win key events **only when Win is the configured modifier**; with Shift (default) or Alt it stays idle and never injects.
+- **Default modifier is Shift** (`kDefaultModifierVK`, since 2026-10-01). An existing config keeps its saved modifier. A persisted **"Keyboard shortcuts"** setting (tray menu, `keyboardShortcutsEnabled`) gates modifier+Plus/Minus/Esc, the Ctrl+Alt peek and Ctrl+Alt+I. It is off on a fresh install and on for an existing config without the key. Win+Ctrl+M is never gated. Scroll-gesture zoom never depends on it. Decisions live in the pure headers `WheelDecision.h` / `KeyDecision.h`.
+- **Sticky Keys shortcut** (5× Shift prompt) is suppressed while Shift is the modifier (`blockStickyKeysShortcut`, opt-out, AC-2.1.23–24, R-31). In-memory only (`fWinIni = 0`), never while Sticky Keys is on, and restored on exit, modifier/setting change and in the crash handler. Policy in `StickyKeysPolicy.h`.
+- **InputInterceptor** consumes keyboard events only for the four zoom keys (`VK_OEM_PLUS`, `VK_ADD`, `VK_OEM_MINUS`, `VK_SUBTRACT`), only while keyboard shortcuts are on and the configured modifier is held — on both key-down and key-up, injected or not. It never consumes a modifier key (Shift included). This prevents a `+`/`_` character leak when the modifier is Shift (and from peripheral macros that synthesize `Shift+=`/`Shift+-`). All other keyboard events pass through (observe-only). It consumes scroll events only of a **zoom gesture**: the modifier at a gesture's first event decides zoom or pass-through until the gesture ends (new touchpad contact or a 150 ms pause; touch-to-stop for coasts). One `ScrollGestureTracker` (`ScrollGesture.h`, pure, unit-tested) serves the hook and the PTP / Raw Input paths in `main.cpp`. Touchpad events have their own accumulator, sensitivity and direction (fingers up = zoom in, independent of Windows' natural scrolling); the touchpad coast (`momentumZoom`) never applies to a mouse wheel.
 - **ViewportTracker** arbitrates between sources: active typing → Caret; recent focus change (after 100ms debounce) → Focus; otherwise → Pointer. Transitions between sources animate over 200ms.
 - **ZoomController** has four modes: IDLE, SCROLL_DIRECT, ANIMATING, TOGGLING. Uses `double` internally for zoom math, converts to `float` only at the API boundary. Snaps to 1.0× within epsilon 0.005. (R-17)
 
@@ -115,3 +119,4 @@ Each component has a single responsibility. No component reaches into another's 
 - Link: `Magnification.lib`, `Dwmapi.lib`, `UIAutomationCore.lib`, `User32.lib`, `Shell32.lib`, `Ole32.lib`, `OleAut32.lib`, `Wtsapi32.lib`, `Hid.lib`, `Advapi32.lib`, `Comctl32.lib`.
 - All builds signed. Self-signed cert installed to Trusted Root CA for dev.
 - Run from secure folder (e.g., `C:\Program Files\SmoothZoom\`).
+- **Perf tuning loop (dev only):** `SMOOTHZOOM_DEV_TOOLS=ON` adds `--record`/`--bench`/`--reset`/`--config <path>` (use `--config` for every test and bench run so the user's `%APPDATA%\SmoothZoom\config.json`, log and sentinel are never touched); non-elevated deploy and the smoothness gate live in `tools/` + `bench/`. See Doc 3 §7.

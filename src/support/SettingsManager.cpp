@@ -92,7 +92,7 @@ bool SettingsManager::loadFromFile(const char* path)
                       vk == 0xA4 || vk == 0xA5 ||    // LMENU, RMENU
                       vk == 0x10 || vk == 0x12);      // SHIFT, MENU
         if (!valid)
-            settings.modifierKeyVK = 0x5B;  // Default to LWIN
+            settings.modifierKeyVK = kDefaultModifierVK;  // Default (Shift)
     }
 
     readInt("animationSpeed", settings.animationSpeed, 0, 2);
@@ -112,7 +112,7 @@ bool SettingsManager::loadFromFile(const char* path)
     readFloat("minZoom", settings.minZoom, 1.0f, 10.0f);
     readFloat("maxZoom", settings.maxZoom, 1.0f, 10.0f);
     readFloat("keyboardZoomStep", settings.keyboardZoomStep, 0.05f, 1.0f); // AC-2.9.12: 5%–100%
-    readFloat("scrollSensitivity", settings.scrollSensitivity, 0.1f, 5.0f); // A3: scroll-gesture rate
+    readFloat("scrollSensitivity", settings.scrollSensitivity, 0.1f, 5.0f); // A3: scroll-gesture rate (mouse)
 
     // ── Cross-validation: min must be <= max (AC-2.9.10) ──
     if (settings.minZoom > settings.maxZoom)
@@ -138,6 +138,26 @@ bool SettingsManager::loadFromFile(const char* path)
     readBool("colorInversionEnabled", settings.colorInversionEnabled);
     readBool("reverseScrollDirection", settings.reverseScrollDirection);
     readBool("momentumZoom", settings.momentumZoom);
+
+    // Touchpad settings (schema 2, AC-2.9.22). Before 2 there was one
+    // sensitivity and one direction for every device, so an older config
+    // copies its values into the touchpad fields: an upgrade changes nothing
+    // the user had set. A missing key in a newer file gets the same copy.
+    settings.touchpadSensitivity = settings.scrollSensitivity;
+    settings.touchpadReverseScrollDirection = settings.reverseScrollDirection;
+    if (settings.schemaVersion >= 2)
+    {
+        readFloat("touchpadSensitivity", settings.touchpadSensitivity, 0.1f, 5.0f);
+        readBool("touchpadReverseScrollDirection", settings.touchpadReverseScrollDirection);
+    }
+
+    // Upgrade rule (AC-2.8.13): a config.json written before this setting
+    // existed has no key, and those users always had working shortcuts — keep
+    // them on. Only a fresh install (no config.json, so loadFromFile is never
+    // reached or fails) gets the SettingsSnapshot default, off.
+    settings.keyboardShortcutsEnabled = true;
+    readBool("keyboardShortcutsEnabled", settings.keyboardShortcutsEnabled);
+    readBool("blockStickyKeysShortcut", settings.blockStickyKeysShortcut);
 
     // ── Log level (diagnostics) ──
     // Stored as a human-friendly string ("debug"/"info"/"warn"/"error",
@@ -202,6 +222,10 @@ bool SettingsManager::saveToFile(const char* path) const
     j["reverseScrollDirection"] = snap->reverseScrollDirection;
     j["scrollSensitivity"]     = snap->scrollSensitivity;
     j["momentumZoom"]          = snap->momentumZoom;
+    j["touchpadSensitivity"]   = snap->touchpadSensitivity;
+    j["touchpadReverseScrollDirection"] = snap->touchpadReverseScrollDirection;
+    j["keyboardShortcutsEnabled"] = snap->keyboardShortcutsEnabled;
+    j["blockStickyKeysShortcut"] = snap->blockStickyKeysShortcut;
     // logLevel written as a human-readable string (mirrors the load mapping).
     j["logLevel"]              = (snap->logLevel == 0) ? "debug" :
                                  (snap->logLevel == 2) ? "warn"  :

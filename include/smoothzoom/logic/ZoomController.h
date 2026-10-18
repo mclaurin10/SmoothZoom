@@ -4,6 +4,7 @@
 // Zoom level state, scroll accumulation, animation targets. Doc 3 §3.5
 // =============================================================================
 
+#include "smoothzoom/common/Types.h"
 #include <cstdint>
 
 namespace SmoothZoom
@@ -19,14 +20,27 @@ public:
         Animating,  // Ease-out in progress (keyboard step, toggle, or animateToZoom)
     };
 
-    // Scroll-gesture zoom: consume accumulated delta, compute new level
-    void applyScrollDelta(int32_t accumulatedDelta);
+    // Scroll-gesture zoom: consume accumulated delta, compute new level.
+    // targetZoom() is always the accumulated result (AC-2.1.06). Continuous
+    // input (sub-notch deltas: precision touchpad) moves currentZoom() with
+    // it directly; whole-notch input (detented/free-spin wheels, multiples of
+    // 120) is smoothed toward the target by tick() (AC-2.2.03).
+    // inputAgeSeconds: how long ago the newest of these inputs arrived (the
+    // smoothing comes to rest a fixed time after the input, not the frame).
+    // device selects the sensitivity setting (AC-2.9.20); the zoom model is
+    // the same for both.
+    void applyScrollDelta(int32_t accumulatedDelta, double inputAgeSeconds = 0.0,
+                          ScrollDevice device = ScrollDevice::Mouse);
 
-    // End an active scroll gesture: Scrolling → Idle (no-op in Idle/Animating).
+    // End an active scroll gesture: Scrolling → Idle (no-op in Idle/Animating,
+    // and deferred while notch smoothing is still in flight).
     // Called by RenderLoop on a frame with no scroll input so the controller
     // settles into Idle, enabling the 1.0× idle short-circuit (AC-2.3.13, R-18).
     // A subsequent scroll re-enters Scrolling via applyScrollDelta().
     void endScroll();
+
+    // True while whole-notch smoothing is moving currentZoom() toward targetZoom().
+    bool scrollSmoothing() const { return smoothing_; }
 
     // Keyboard step: set animation target (+1 = zoom in, -1 = zoom out)
     void applyKeyboardStep(int direction);
@@ -50,10 +64,11 @@ public:
     // detects a new settings version. Triggers animation if zoom is out of new
     // bounds (AC-2.9.05, AC-2.9.06).
     // animationSpeed: 0=slow, 1=normal, 2=fast
-    // scrollSensitivity: multiplier on scroll-gesture zoom rate (1.0 = default).
+    // scrollSensitivity / touchpadSensitivity: multipliers on the mouse and
+    // touchpad scroll-gesture zoom rate (1.0 = default, AC-2.9.20).
     void applySettings(float minZoom, float maxZoom, float keyboardStep,
                        float defaultZoomLevel, int animationSpeed,
-                       float scrollSensitivity = 1.0f);
+                       float scrollSensitivity = 1.0f, float touchpadSensitivity = 1.0f);
 
     // Reset to 1.0× instantly (shutdown path)
     void reset();
@@ -78,7 +93,22 @@ private:
     // Scales the normalized scroll delta before the logarithmic zoom model so
     // users can compensate for device differences (free-spin vs fine wheels,
     // touchpad feel). 1.0 = default.
-    float scrollSensitivity_ = 1.0f;
+    float scrollSensitivity_ = 1.0f;      // mouse
+    float touchpadSensitivity_ = 1.0f;    // touchpad (AC-2.9.20)
+
+    // Whole-notch scroll smoothing (AC-2.2.03): displayed log-zoom and its
+    // velocity (log units/s), critically damped toward log(targetZoom_).
+    bool smoothing_ = false;
+    double smoothLog_ = 0.0;
+    double smoothVel_ = 0.0;
+    double notchAge_ = 0.0;       // seconds since the last whole-notch input that moved the target
+    bool notchFresh_ = false;     // notchAge_ was set this frame (already current: don't add dt)
+    double fineHold_ = 0.0;       // > 0: a sub-notch delta was seen recently (continuous device)
+
+    // The level the user is heading to: the scroll target while notch
+    // smoothing is in flight, else the displayed zoom.
+    float restingZoom() const { return smoothing_ ? targetZoom_ : currentZoom_; }
+    void stopSmoothing() { smoothing_ = false; smoothVel_ = 0.0; notchFresh_ = false; }
 
     // Phase 4: Toggle state
     bool isToggled_ = false;

@@ -453,6 +453,10 @@ Formal measurement against all performance criteria from Scope §6.2:
 
 > **Status:** Current. The phase gate is verification, not new features.
 
+> **Approved scope change (2026-10-01):** the user approved one behavior change during Phase 7: `Shift` as the default scroll modifier, and a persisted tray "Keyboard shortcuts" setting that gates every keyboard zoom shortcut (Doc 1 §2.1/§2.8/§2.9; Doc 2 AC-2.1.22–24, AC-2.8.13–15; Doc 5 R-26 to R-31). It is not a phase-gate violation. VER-1 now covers **145** ACs: the 139 baselined plus the 6 added. Branch `feature/shift-scroll`.
+
+> **Approved Phase 8 pull-forward (2026-10-02):** the user approved two Phase 8 items ahead of v1.0 (branch `feature/touchpad-gestures`): momentum gating (handoff B3: per-gesture mode lock, working touchpad coast setting, touch-to-stop) and separate touchpad / mouse sensitivity and direction, with a regrouped, DPI-aware settings window. Doc 2 gains AC-2.1.25–31 and AC-2.9.20–28, so VER-1 covers **161** ACs. Doc 5: R-26, R-29, R-30 updated, R-33–R-35 added. The rest of Phase 8 (§9B: Raw Input / PTP consolidation, B1/B2, pinch spike) stays deferred.
+
 ### 9A.1 Purpose
 
 Phases 0–6 delivered the complete v1.0 feature set. Phase 7 takes that feature-complete build and certifies it for release: every acceptance criterion is verified against the signed, installed binary, and every performance target is measured on reference hardware. No new user-facing features are added in this phase. The exit is a certified, signed v1.0.
@@ -463,7 +467,7 @@ This phase is specified in full in the standalone PRD **`07_v1.0_Release_Verific
 
 | # | Criterion | Folds in |
 |---|-----------|----------|
-| VER-1 | All 139 non-deferred acceptance criteria from Document 2 verified PASS against the signed build; results recorded in the checklist. | E6.13 |
+| VER-1 | All 161 acceptance criteria from Document 2 (139 baselined + AC-2.1.22–24, AC-2.8.13–15 added 2026-10-01 + AC-2.1.25–31, AC-2.9.20–28 added 2026-10-02), excluding the deferred items, verified PASS against the signed build; results recorded in the checklist. | E6.13 |
 | VER-2 | Full performance audit on the Intel UHD 620 reference machine **and** dev hardware: CPU idle <2%, CPU active <5%, frame latency ≤16 ms, GPU <10%, memory <50 MB. Adaptive frame-rate (R-18) implemented if the idle target is missed. | E6.12 |
 | VER-3 | Interactive/elevated test matrix passes: dual-monitor (E6.4–E6.7), monitor unplug while zoomed (E6.9), mixed-DPI / `WM_DPICHANGED`, UAC / secure desktop (E6.10), `Win+L` lock/unlock transient-key reset, sleep/resume, native-Magnifier conflict (E6.8 / AC-ERR.01–02). | E6.4–E6.10 |
 | VER-4 | Crash recovery validated live (force-kill → zoom resets, sentinel cleaned), graceful exit animation (AC-2.9.16), and hook-watchdog reinstall (AC-ERR.03) all confirmed on the signed build. | E6.11 |
@@ -478,7 +482,7 @@ Earlier ad-hoc testing surfaced items to confirm or close during this phase (tra
 
 ## 9B. Phase 8 — Input Interoperability (Deferred, Post-1.0)
 
-> **Status:** Planned, deferred until v1.0 ships. Do not begin before Phase 7 completes.
+> **Status:** Planned, deferred until v1.0 ships. Do not begin before Phase 7 completes. **Exception (2026-10-02, user-approved):** B3 momentum gating and separate touchpad / mouse settings were pulled forward (see the §9A note); the remaining items stay deferred.
 
 ### 9B.1 Purpose
 

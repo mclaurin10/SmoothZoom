@@ -14,6 +14,10 @@
 #include "smoothzoom/input/InputInterceptor.h"
 #include "smoothzoom/input/WinKeyManager.h"
 #include "smoothzoom/input/ModifierUtils.h"
+#include "smoothzoom/input/WheelDecision.h"
+#include "smoothzoom/input/ScrollGesture.h"
+#include "smoothzoom/input/KeyDecision.h"
+#include "smoothzoom/input/StickyKeysPolicy.h"
 #include "smoothzoom/common/AppMessages.h"
 #include "smoothzoom/common/SharedState.h"
 #include "smoothzoom/common/Types.h"
@@ -56,16 +60,121 @@ static int64_t steadyNowMs()
     return duration_cast<milliseconds>(steady_clock::now().time_since_epoch()).count();
 }
 
+// Same clock in microseconds, for scroll-gesture timing (ScrollGesture.h).
+static int64_t steadyNowUs()
+{
+    using namespace std::chrono;
+    return duration_cast<microseconds>(steady_clock::now().time_since_epoch()).count();
+}
+
+// ─── Scroll gestures (AC-2.1.25–31, B3) ─────────────────────────────────────
+// One tracker for every scroll path: the mouse hook, the PTP and Raw Input
+// handlers in main.cpp and --bench replay all run on the main thread, so one
+// physical gesture keeps one mode even when it moves from the PTP path to the
+// hook mid-swipe. Plain statics, no synchronization.
+static ScrollGestureTracker s_gestures;
+static bool s_touchpadCoast = true;     // momentumZoom: zoom through the touchpad coast
+static bool s_touchpadNatural = false;  // Windows touchpad "natural" scrolling direction
+
 // Phase 5B: Configurable keys — updated by settings observer on main thread.
 // Safe to read from hook callbacks (same thread). (AC-2.1.19, AC-2.1.20)
-static int s_modifierKeyVK = VK_LWIN;
+static int s_modifierKeyVK = kDefaultModifierVK;  // until the first settings notification
 static int s_toggleKey1VK  = VK_LCONTROL;
 static int s_toggleKey2VK  = VK_LMENU;
 static HWND s_msgWindow    = nullptr;
 
+// Keyboard zoom shortcuts on/off (tray "Keyboard shortcuts", AC-2.8.13–15):
+// modifier + Plus/Minus/Esc, the Ctrl+Alt peek toggle and Ctrl+Alt+I. The
+// keyboard hook stays installed while off — it still tracks the scroll
+// modifier (Shift+scroll needs it), the toggle keys, Win+Ctrl+M and
+// caret-priority keystrokes — but consumes nothing and posts no zoom command.
+static bool s_shortcutsEnabled = false;
+
 // Tracks non-Win modifier key state via keyboard hook for reliable detection
 // in mouse hook. Both hooks run on the main thread — no synchronization needed.
 static bool s_nonWinModifierHeld = false;
+
+// ─── Sticky Keys shortcut suppression (AC-2.1.23/24, R-31) ──────────────────
+// Main thread only (settings observer, uninstall); never from a hook callback.
+// POD statics so the crash handler can restore without allocating.
+static bool     s_stickySuppressed = false;
+static uint32_t s_stickyUserFlags  = 0;   // user's flags when suppression began
+
+// The user's own setting, from the profile (SmoothZoom never writes it).
+static bool readPersistedStickyFlags(uint32_t& out)
+{
+    wchar_t buf[32] = {};
+    DWORD cb = sizeof(buf);
+    if (RegGetValueW(HKEY_CURRENT_USER, L"Control Panel\\Accessibility\\StickyKeys", L"Flags",
+                     RRF_RT_REG_SZ, nullptr, buf, &cb) != ERROR_SUCCESS)
+        return false;
+    return parseStickyFlagsString(buf, out);
+}
+
+static bool restoreStickyShortcut(bool useProfile)
+{
+    if (!s_stickySuppressed)
+        return true;
+    STICKYKEYS sk = { sizeof(sk) };
+    if (!SystemParametersInfoW(SPI_GETSTICKYKEYS, sizeof(sk), &sk, 0))
+        return false;
+    uint32_t user = s_stickyUserFlags;
+    if (useProfile)
+    {
+        uint32_t persisted = 0;
+        if (readPersistedStickyFlags(persisted))
+            user = persisted;  // reflects any change the user made in Settings meanwhile
+    }
+    sk.dwFlags = restoredStickyFlags(sk.dwFlags, user);
+    // fWinIni = 0: in-memory only, the profile is never written.
+    if (!SystemParametersInfoW(SPI_SETSTICKYKEYS, sizeof(sk), &sk, 0))
+        return false;
+    s_stickySuppressed = false;
+    return true;
+}
+
+static void applyStickyShortcutPolicy(bool wanted)
+{
+    if (!wanted)
+    {
+        if (s_stickySuppressed && restoreStickyShortcut(true))
+            SZ_LOG_INFO("InputInterceptor", L"Sticky Keys shortcut restored");
+        return;
+    }
+    if (s_stickySuppressed)
+        return;
+
+    STICKYKEYS sk = { sizeof(sk) };
+    if (!SystemParametersInfoW(SPI_GETSTICKYKEYS, sizeof(sk), &sk, 0))
+        return;
+    if (!stickyKeysMayBeChanged(sk.dwFlags))
+    {
+        SZ_LOG_INFO("InputInterceptor", L"Sticky Keys is on - shortcut left unchanged");
+        return;
+    }
+    // Restore target = the profile value when readable. After a previous run was
+    // killed mid-suppression, the in-memory flags still have the shortcut off,
+    // but the profile does not, so this also repairs that case on exit.
+    uint32_t user = sk.dwFlags;
+    uint32_t persisted = 0;
+    if (readPersistedStickyFlags(persisted))
+        user = persisted;
+    s_stickyUserFlags = user;
+
+    sk.dwFlags = suppressedStickyFlags(sk.dwFlags);
+    if (SystemParametersInfoW(SPI_SETSTICKYKEYS, sizeof(sk), &sk, 0))  // fWinIni = 0
+    {
+        s_stickySuppressed = true;
+        SZ_LOG_INFO("InputInterceptor", L"Sticky Keys shortcut suppressed (user flags 0x%X)", user);
+    }
+}
+
+// Phase 4/5B: Toggle key state — configurable keys (3 bools + 1 queue push),
+// R-05 safe. Declared here so the settings observer can release an engaged
+// peek when shortcuts are turned off.
+static bool s_toggleKey1Held = false;
+static bool s_toggleKey2Held = false;
+static bool s_toggleEngaged = false;
 
 // Phase 5B: Settings observer callback — runs on main thread (same as hooks).
 static void onSettingsChanged(const SettingsSnapshot& s, void* /*userData*/)
@@ -73,6 +182,16 @@ static void onSettingsChanged(const SettingsSnapshot& s, void* /*userData*/)
     s_modifierKeyVK = s.modifierKeyVK;
     s_toggleKey1VK  = s.toggleKey1VK;
     s_toggleKey2VK  = s.toggleKey2VK;
+    s_shortcutsEnabled = s.keyboardShortcutsEnabled;
+    s_touchpadCoast = s.momentumZoom;
+    applyStickyShortcutPolicy(stickyShortcutSuppressionWanted(s.blockStickyKeysShortcut, s.modifierKeyVK));
+    if (!s_shortcutsEnabled && s_toggleEngaged)
+    {
+        // Turning shortcuts off mid-peek: end the peek now (AC-2.8.14).
+        s_toggleEngaged = false;
+        if (s_state)
+            s_state->commandQueue.push(ZoomCommand::ToggleRelease);
+    }
     s_nonWinModifierHeld = false;  // Reset on config change to avoid stale state
     s_winKeyMgr.reset();  // BF-2: Clear stale Win key state on modifier change
 }
@@ -109,6 +228,101 @@ static bool isWinModifier()
     return s_modifierKeyVK == VK_LWIN || s_modifierKeyVK == VK_RWIN;
 }
 
+// Add a zooming scroll delta to its device's accumulator (render thread will
+// exchange-with-0). delta is in the hook's convention. Touchpad deltas are
+// turned into the touchpad's own direction first (AC-2.1.31): fingers up =
+// positive whatever Windows' scrolling direction. Mouse deltas also stamp the
+// input time for notch smoothing (RenderLoop; QPC is a ~20 ns read), before
+// the release fetch_add so the frame that sees the delta sees the stamp.
+static void addScrollDelta(int32_t delta, ScrollDevice device)
+{
+    if (device == ScrollDevice::Touchpad)
+    {
+        s_state->touchpadScrollAccumulator.fetch_add(
+            touchpadCanonicalDelta(delta, s_touchpadNatural), std::memory_order_release);
+        return;
+    }
+    LARGE_INTEGER qpc;
+    QueryPerformanceCounter(&qpc);
+    s_state->lastScrollInputQpc.store(qpc.QuadPart, std::memory_order_relaxed);
+    s_state->scrollAccumulator.fetch_add(delta, std::memory_order_release);
+}
+
+// The hook saw a zoom-candidate wheel event: the Raw Input / PTP fallbacks
+// stand down for 50 ms whatever its gesture's mode, so one physical gesture
+// is never counted by two paths (or started as a second gesture by them).
+static void stampHookScroll()
+{
+    s_state->lastLLHookScrollTime.store(
+        static_cast<int64_t>(GetTickCount64()), std::memory_order_relaxed);
+}
+
+// Side effects of a consumed wheel event (shared by the hook and --bench replay).
+// Hook-safe: a few atomic writes, one QPC read and a WinKeyManager flag (no-op
+// unless Win is held). A swallowed event (zero delta) only stays consumed.
+static void applyWheelDecision(const WheelDecision& d, ScrollDevice device)
+{
+    if (d.accumulatorDelta != 0)
+        addScrollDelta(d.accumulatorDelta, device);
+
+    // Suppress Start Menu only when Win is the modifier (AC-2.1.16, AC-2.1.20)
+    if (d.markWinUsedForZoom)
+        s_winKeyMgr.markUsedForZoom();
+}
+
+#ifdef SMOOTHZOOM_DEV_TOOLS
+// --record tap. Runs inside the hook: fills a POD on the stack and hands it to
+// the tap, which copies it into a pre-allocated ring (DevTools.cpp). The extra
+// GetAsyncKeyState reads exist only in dev builds with recording active.
+static WheelTapFn s_wheelTap = nullptr;
+
+static void tapHookWheel(WheelKind kind, int16_t rawDelta, const MSLLHOOKSTRUCT* info,
+                         bool modifierHeld, bool consumed)
+{
+    WheelTapEvent e;
+    LARGE_INTEGER q;
+    QueryPerformanceCounter(&q);
+    e.qpc = q.QuadPart;
+    e.x = info->pt.x;
+    e.y = info->pt.y;
+    e.flags = info->flags;
+    e.delta = rawDelta;
+    e.source = (kind == WheelKind::Vertical) ? WheelSource::HookWheel : WheelSource::HookHWheel;
+    e.mods = static_cast<uint8_t>(
+        ((GetAsyncKeyState(VK_SHIFT) & 0x8000) ? kModShift : 0)
+        | ((GetAsyncKeyState(VK_CONTROL) & 0x8000) ? kModCtrl : 0)
+        | ((GetAsyncKeyState(VK_MENU) & 0x8000) ? kModAlt : 0)
+        | (((GetAsyncKeyState(VK_LWIN) | GetAsyncKeyState(VK_RWIN)) & 0x8000) ? kModWin : 0));
+    e.modifierHeld = modifierHeld;
+    e.consumed = consumed;
+    s_wheelTap(e);
+}
+
+// --record tap for the main.cpp paths (PTP, Raw Input) and touchpad contact
+// changes. Not inside a hook; same POD copy into the pre-allocated ring.
+static void tapOther(WheelSource source, int32_t delta, bool modifierHeld, bool consumed)
+{
+    WheelTapEvent e;
+    LARGE_INTEGER q;
+    QueryPerformanceCounter(&q);
+    e.qpc = q.QuadPart;
+    POINT p = {};
+    GetCursorPos(&p);
+    e.x = p.x;
+    e.y = p.y;
+    e.delta = static_cast<int16_t>(delta < -32768 ? -32768 : (delta > 32767 ? 32767 : delta));
+    e.source = source;
+    e.mods = static_cast<uint8_t>(
+        ((GetAsyncKeyState(VK_SHIFT) & 0x8000) ? kModShift : 0)
+        | ((GetAsyncKeyState(VK_CONTROL) & 0x8000) ? kModCtrl : 0)
+        | ((GetAsyncKeyState(VK_MENU) & 0x8000) ? kModAlt : 0)
+        | (((GetAsyncKeyState(VK_LWIN) | GetAsyncKeyState(VK_RWIN)) & 0x8000) ? kModWin : 0));
+    e.modifierHeld = modifierHeld;
+    e.consumed = consumed;
+    s_wheelTap(e);
+}
+#endif
+
 // ─── Mouse Hook Callback ────────────────────────────────────────────────────
 // Minimal: read event, check modifier via WinKeyManager, update atomics, return.
 static LRESULT CALLBACK mouseHookProc(int nCode, WPARAM wParam, LPARAM lParam)
@@ -120,14 +334,26 @@ static LRESULT CALLBACK mouseHookProc(int nCode, WPARAM wParam, LPARAM lParam)
 
     auto* info = reinterpret_cast<MSLLHOOKSTRUCT*>(lParam);
 
-    switch (wParam)
+    if (wParam == WM_MOUSEWHEEL || wParam == WM_MOUSEHWHEEL)
     {
-    case WM_MOUSEWHEEL:
-    {
+        const WheelKind kind = (wParam == WM_MOUSEWHEEL) ? WheelKind::Vertical
+                                                         : WheelKind::Horizontal;
+        const int16_t rawDelta = static_cast<int16_t>(HIWORD(info->mouseData));
+
+        // Windows (and some mouse drivers) may convert Shift+Scroll into
+        // horizontal scroll (WM_MOUSEHWHEEL) before it reaches low-level hooks,
+        // so WM_MOUSEHWHEEL is a zoom candidate only when Shift IS the
+        // configured modifier; otherwise horizontal scroll passes through
+        // untouched (AC-2.1.02, R-07). The modifier test is evaluated only for
+        // candidates, as before the WheelDecision extraction.
+        const bool candidate = wheelIsZoomCandidate(kind, s_modifierKeyVK);
+
 #ifdef SMOOTHZOOM_INPUT_DIAG  // opt-in per-event hook tracing — deliberately NOT enabled by Debug/SMOOTHZOOM_LOGGING (R-05: hook callbacks must do no I/O)
+        if (candidate)
         {
             wchar_t dbg[256];
-            swprintf_s(dbg, L"[SZ-DIAG] WM_MOUSEWHEEL: nonWinMod=%d, modVK=0x%X, asyncMod=%d, fg=0x%p\n",
+            swprintf_s(dbg, L"[SZ-DIAG] %s: nonWinMod=%d, modVK=0x%X, asyncMod=%d, fg=0x%p\n",
+                kind == WheelKind::Vertical ? L"WM_MOUSEWHEEL" : L"WM_MOUSEHWHEEL (Shift mod)",
                 s_nonWinModifierHeld ? 1 : 0,
                 s_modifierKeyVK,
                 (GetAsyncKeyState(toGenericVK(s_modifierKeyVK)) & 0x8000) ? 1 : 0,
@@ -136,79 +362,36 @@ static LRESULT CALLBACK mouseHookProc(int nCode, WPARAM wParam, LPARAM lParam)
         }
 #endif
         // Phase 5B: Configurable modifier key (AC-2.1.19, AC-2.1.20)
-        bool modifierHeld = isConfiguredModifierHeld();
+        const bool modifierHeld = candidate && isConfiguredModifierHeld();
 
-        if (modifierHeld)
+        // The gesture's mode, set by the modifier at its first event, decides
+        // (AC-2.1.25–29): a few comparisons on main-thread state (R-05).
+        WheelDecision d;
+        ScrollDevice device = ScrollDevice::Mouse;
+        if (candidate)
         {
-            // Extract scroll delta from high word of mouseData
-            int16_t delta = static_cast<int16_t>(HIWORD(info->mouseData));
-
-            // Record LL hook scroll timestamp for Raw Input dedup
-            s_state->lastLLHookScrollTime.store(
-                static_cast<int64_t>(GetTickCount64()), std::memory_order_relaxed);
-
-            // Atomically accumulate delta (render thread will exchange-with-0)
-            s_state->scrollAccumulator.fetch_add(delta, std::memory_order_release);
-
-            // Suppress Start Menu only when Win is the modifier (AC-2.1.16, AC-2.1.20)
-            if (s_modifierKeyVK == VK_LWIN || s_modifierKeyVK == VK_RWIN)
+            stampHookScroll();
+            const ScrollVerdict g = s_gestures.onScroll(modifierHeld, s_touchpadCoast, steadyNowUs());
+            device = g.device;
+            d = decideWheelInGesture(kind, rawDelta, s_modifierKeyVK, g.action);
+            // Win held + wheel inside a pass-through gesture (Win pressed just
+            // after a page scroll): the scroll goes to the app, but releasing
+            // Win must still not open the Start Menu (AC-2.1.16).
+            if (modifierHeld && kind == WheelKind::Vertical && isWinModifier() && !d.consume)
                 s_winKeyMgr.markUsedForZoom();
+        }
 
+#ifdef SMOOTHZOOM_DEV_TOOLS
+        if (s_wheelTap)
+            tapHookWheel(kind, rawDelta, info, modifierHeld, d.consume);
+#endif
+
+        if (d.consume)
+        {
+            applyWheelDecision(d, device);
             // Consume the event — do not pass to next hook or applications (AC-2.1.02)
             return 1;
         }
-        break;
-    }
-
-    case WM_MOUSEHWHEEL:
-    {
-        // Windows (and some mouse drivers) convert Shift+Scroll into horizontal
-        // scroll (WM_MOUSEHWHEEL) before it reaches low-level hooks. Only
-        // intercept when Shift IS the configured modifier — otherwise let
-        // horizontal scroll pass through to applications normally (AC-2.1.02).
-        // R-07: Shift+Scroll conflict mitigation.
-        bool isShiftMod = (s_modifierKeyVK == VK_LSHIFT || s_modifierKeyVK == VK_RSHIFT
-                           || s_modifierKeyVK == VK_SHIFT);
-
-        if (isShiftMod)
-        {
-#ifdef SMOOTHZOOM_INPUT_DIAG  // opt-in per-event hook tracing — deliberately NOT enabled by Debug/SMOOTHZOOM_LOGGING (R-05: hook callbacks must do no I/O)
-            {
-                wchar_t dbg[256];
-                swprintf_s(dbg, L"[SZ-DIAG] WM_MOUSEHWHEEL (Shift mod): nonWinMod=%d, modVK=0x%X, asyncMod=%d, fg=0x%p\n",
-                    s_nonWinModifierHeld ? 1 : 0,
-                    s_modifierKeyVK,
-                    (GetAsyncKeyState(toGenericVK(s_modifierKeyVK)) & 0x8000) ? 1 : 0,
-                    GetForegroundWindow());
-                OutputDebugStringW(dbg);
-            }
-#endif
-            bool modifierHeld = isConfiguredModifierHeld();
-
-            if (modifierHeld)
-            {
-                int16_t delta = static_cast<int16_t>(HIWORD(info->mouseData));
-
-                // Negate: WM_MOUSEHWHEEL uses opposite sign convention from
-                // WM_MOUSEWHEEL (positive = right, not up). Restores vertical
-                // scroll semantics so scroll-up = zoom-in (AC-2.1.01).
-                delta = -delta;
-
-                // Record LL hook scroll timestamp for Raw Input dedup
-                s_state->lastLLHookScrollTime.store(
-                    static_cast<int64_t>(GetTickCount64()), std::memory_order_relaxed);
-
-                s_state->scrollAccumulator.fetch_add(delta, std::memory_order_release);
-
-                // Consume — prevent horizontal scroll reaching applications
-                return 1;
-            }
-        }
-        break;
-    }
-
-    default:
-        break;
     }
 
     // Pass through to next hook
@@ -216,15 +399,11 @@ static LRESULT CALLBACK mouseHookProc(int nCode, WPARAM wParam, LPARAM lParam)
 }
 
 // ─── Keyboard Hook Callback ─────────────────────────────────────────────────
-// Tracks Win key via WinKeyManager. Consumes zoom-in/out keys only when the
-// configured modifier is held (prevents character leak with Shift modifier);
-// all other keyboard events pass through. (AC-2.1.18)
+// Tracks Win key via WinKeyManager (Win modifier only). When keyboard shortcuts
+// are enabled, consumes zoom-in/out keys only while the configured modifier is
+// held (prevents character leak with Shift modifier); when they are disabled it
+// consumes nothing. All other keyboard events pass through. (AC-2.1.18, AC-2.8.14)
 // Phase 4: Tracks Ctrl+Alt for temporary toggle (AC-2.7.01–AC-2.7.10).
-
-// Phase 4/5B: Toggle key state — configurable keys (3 bools + 1 queue push), R-05 safe.
-static bool s_toggleKey1Held = false;
-static bool s_toggleKey2Held = false;
-static bool s_toggleEngaged = false;
 
 // Ctrl+Alt+I edge filter: LL hooks receive typematic auto-repeats and
 // KBDLLHOOKSTRUCT carries no repeat flag. Without edge-triggering, holding the
@@ -244,8 +423,10 @@ static LRESULT CALLBACK keyboardHookProc(int nCode, WPARAM wParam, LPARAM lParam
     bool isDown = (wParam == WM_KEYDOWN || wParam == WM_SYSKEYDOWN);
     bool isUp = (wParam == WM_KEYUP || wParam == WM_SYSKEYUP);
 
-    // Track Win key state via WinKeyManager (AC-2.1.04: both LWin and RWin)
-    if (info->vkCode == VK_LWIN || info->vkCode == VK_RWIN)
+    // Track Win key state via WinKeyManager (AC-2.1.04: both LWin and RWin).
+    // Only when Win IS the modifier: with Shift/Alt there is no Start Menu to
+    // suppress, so the state machine stays Idle and never injects (AC-2.1.20).
+    if (isWinModifier() && (info->vkCode == VK_LWIN || info->vkCode == VK_RWIN))
     {
         if (isDown)
         {
@@ -278,21 +459,42 @@ static LRESULT CALLBACK keyboardHookProc(int nCode, WPARAM wParam, LPARAM lParam
     if (isToggle1) s_toggleKey1Held = isDown;
     if (isToggle2) s_toggleKey2Held = isDown;
 
-    bool bothHeld = s_toggleKey1Held && s_toggleKey2Held;
-    if (bothHeld && !s_toggleEngaged)
+    // Held-key tracking above always runs; only the engage/release edge is
+    // gated by the "Keyboard shortcuts" setting (see KeyDecision.h).
+    switch (decideToggleChord(s_toggleKey1Held && s_toggleKey2Held, s_toggleEngaged, s_shortcutsEnabled))
     {
+    case ToggleEdge::Engage:
         s_toggleEngaged = true;
         s_state->commandQueue.push(ZoomCommand::ToggleEngage);
-    }
-    if (!bothHeld && s_toggleEngaged)
-    {
+        break;
+    case ToggleEdge::Release:
         s_toggleEngaged = false;
         s_state->commandQueue.push(ZoomCommand::ToggleRelease);
+        break;
+    case ToggleEdge::None:
+        break;
     }
 
     // Clear the inversion-chord edge filter on 'I' release (see s_invertChordDown)
     if (info->vkCode == 'I' && isUp)
         s_invertChordDown = false;
+
+    // Modifier+key zoom shortcuts (Phase 2: AC-2.8.01–AC-2.8.10, Phase 5B: AC-2.1.19).
+    // Uses the configurable modifier — not hardcoded to Win. See KeyDecision.h.
+    const KeyDecision kd = decideShortcutKey(
+        static_cast<int>(info->vkCode), isDown, isUp,
+        (info->flags & LLKHF_INJECTED) != 0,
+        s_modifierKeyVK, s_shortcutsEnabled && isConfiguredModifierHeld(), s_shortcutsEnabled);
+
+    switch (kd.action)
+    {
+    case ShortcutAction::ZoomIn:    s_state->commandQueue.push(ZoomCommand::ZoomIn);    break;
+    case ShortcutAction::ZoomOut:   s_state->commandQueue.push(ZoomCommand::ZoomOut);   break;
+    case ShortcutAction::ResetZoom: s_state->commandQueue.push(ZoomCommand::ResetZoom); break;
+    case ShortcutAction::None:      break;
+    }
+    if (kd.markWinUsedForZoom)
+        s_winKeyMgr.markUsedForZoom();
 
     if (isDown)
     {
@@ -322,53 +524,32 @@ static LRESULT CALLBACK keyboardHookProc(int nCode, WPARAM wParam, LPARAM lParam
             s_winKeyMgr.markUsedWithOtherKey();
         }
 
-        // Modifier+key shortcuts (Phase 2: AC-2.8.01–AC-2.8.10, Phase 5B: AC-2.1.19)
-        // Uses configurable modifier — not hardcoded to Win key.
-        bool modHeld = isConfiguredModifierHeld();
-        if (modHeld)
-        {
-            switch (info->vkCode)
-            {
-            case VK_OEM_PLUS:   // '=' / '+' on main keyboard
-            case VK_ADD:        // '+' on numpad
-                s_state->commandQueue.push(ZoomCommand::ZoomIn);
-                if (isWinModifier()) s_winKeyMgr.markUsedForZoom();
-                break;
-
-            case VK_OEM_MINUS:  // '-' on main keyboard
-            case VK_SUBTRACT:   // '-' on numpad
-                s_state->commandQueue.push(ZoomCommand::ZoomOut);
-                if (isWinModifier()) s_winKeyMgr.markUsedForZoom();
-                break;
-
-            case VK_ESCAPE:
-                s_state->commandQueue.push(ZoomCommand::ResetZoom);
-                if (isWinModifier()) s_winKeyMgr.markUsedForZoom();
-                break;
-            }
-        }
-
         // Win+Ctrl+M → open settings (AC-2.8.11)
-        // Always Win-based regardless of configured modifier.
-        // Physical Win check guards against a stale state machine (missed
-        // key-up across the secure desktop) turning plain Ctrl+M into this.
+        // Always Win-based regardless of configured modifier, and not gated by
+        // the "Keyboard shortcuts" setting (it is not a zoom shortcut and types
+        // no character). The physical Win check is authoritative; with the Win
+        // modifier the state machine must also agree, which guards against a
+        // stale state (missed key-up across the secure desktop) turning plain
+        // Ctrl+M into this. WinKeyManager is only fed with the Win modifier.
         if (info->vkCode == 'M'
-            && s_winKeyMgr.state() != WinKeyManager::State::Idle
+            && (!isWinModifier() || s_winKeyMgr.state() != WinKeyManager::State::Idle)
             && ((GetAsyncKeyState(VK_LWIN) | GetAsyncKeyState(VK_RWIN)) & 0x8000)
             && (GetAsyncKeyState(VK_CONTROL) & 0x8000)
             && s_msgWindow)
         {
             PostMessageW(s_msgWindow, WM_OPEN_SETTINGS, 0, 0);
-            s_winKeyMgr.markUsedForZoom();
+            if (isWinModifier()) s_winKeyMgr.markUsedForZoom();
         }
 
-        // Ctrl+Alt+I → toggle color inversion (Phase 6: AC-2.10.01)
-        // Edge-triggered via s_invertChordDown — see declaration comment.
-        if (info->vkCode == 'I')
+        // Ctrl+Alt+I → toggle color inversion (Phase 6: AC-2.10.01), gated by
+        // the "Keyboard shortcuts" setting. Edge-triggered via s_invertChordDown
+        // — see declaration comment.
+        if (info->vkCode == 'I' && s_shortcutsEnabled)
         {
             bool ctrlHeld = (GetAsyncKeyState(VK_CONTROL) & 0x8000) != 0;
             bool altHeld  = (GetAsyncKeyState(VK_MENU)    & 0x8000) != 0;
-            if (ctrlHeld && altHeld && !s_invertChordDown)
+            if (decideInvertChord(static_cast<int>(info->vkCode), isDown, ctrlHeld, altHeld,
+                                  s_invertChordDown, s_shortcutsEnabled))
             {
                 s_invertChordDown = true;
                 s_state->commandQueue.push(ZoomCommand::ToggleInvert);
@@ -381,35 +562,21 @@ static LRESULT CALLBACK keyboardHookProc(int nCode, WPARAM wParam, LPARAM lParam
         // exit mechanism (AC-2.9.16); no AC mandates a keyboard exit.
     }
 
-    // Consume zoom-in/zoom-out action keys when the configured modifier is held.
-    // Required for non-Win modifiers (e.g., Shift) where Shift+= produces '+' and
-    // Shift+- produces '_', leaking into focused text fields. Also required for
-    // peripheral macros (Logitech Options+, AHK, etc.) that send Shift+=/Shift+-
-    // via SendInput — those events have LLKHF_INJECTED set but must still be
-    // consumed, otherwise the character leaks into the focused app. The zoom
-    // command was already posted above (lines 278-299) on key-down; this gate
-    // blocks the keystroke from reaching applications on BOTH key-down and key-up.
+    // Consume the zoom-in/zoom-out keys (decided above) on BOTH key-down and
+    // key-up while the configured modifier is held. Required for non-Win
+    // modifiers (e.g., Shift) where Shift+= produces '+' and Shift+- produces '_',
+    // leaking into focused text fields, and for peripheral macros (Logitech
+    // Options+, AHK, etc.) that send Shift+=/Shift+- via SendInput with
+    // LLKHF_INJECTED set — those are consumed too (no injected guard for these
+    // four keys; see KeyDecision.h).
     //
     // Why only zoom-in/out (not Esc/settings/toggle/inversion):
     //   - VK_ESCAPE produces no character — safe to pass through (apps may need it).
     //   - Win+Ctrl+M, Ctrl+Alt+I, Ctrl+Alt toggle — all use Ctrl/Alt/Win
     //     which never produce printable characters. Consuming them could break
     //     standard app behavior (e.g., Esc closing dialogs).
-    //
-    // No LLKHF_INJECTED guard: WinKeyManager only injects VK_CONTROL, never any
-    // of the four zoom keys below, so consuming injected variants is safe and
-    // required for peripheral-macro use cases.
-    if ((isDown || isUp) && isConfiguredModifierHeld())
-    {
-        switch (info->vkCode)
-        {
-        case VK_OEM_PLUS:   // '=' / '+' on main keyboard
-        case VK_ADD:        // '+' on numpad
-        case VK_OEM_MINUS:  // '-' on main keyboard
-        case VK_SUBTRACT:   // '-' on numpad
-            return 1;       // Consume — prevent character insertion
-        }
-    }
+    if (kd.consume)
+        return 1;   // Consume — prevent character insertion
 
     // Never consume non-zoom keyboard events (Doc 3 §3.1, AC-2.1.18)
     return CallNextHookEx(s_keyboardHook, nCode, wParam, lParam);
@@ -444,6 +611,9 @@ bool InputInterceptor::install(SharedState& state)
 
 void InputInterceptor::uninstall()
 {
+    if (s_stickySuppressed && restoreStickyShortcut(true))
+        SZ_LOG_INFO("InputInterceptor", L"Sticky Keys shortcut restored");
+
     if (s_mouseHook)
     {
         UnhookWindowsHookEx(s_mouseHook);
@@ -510,6 +680,13 @@ bool InputInterceptor::forceReinstall()
     return isHealthy();
 }
 
+bool InputInterceptor::crashRestoreStickyKeys()
+{
+    // Exception-filter safe: two SystemParametersInfo calls on POD state, no
+    // registry read, no allocation, no logging.
+    return restoreStickyShortcut(false);
+}
+
 int64_t InputInterceptor::lastCallbackTick()
 {
     return s_lastHookCallbackTick;
@@ -526,12 +703,75 @@ void InputInterceptor::resetTransientKeyState()
     s_toggleKey1Held = false;
     s_toggleKey2Held = false;
     s_invertChordDown = false;
+    s_gestures.reset();   // contact reports and wheel events were missed too
     if (s_toggleEngaged)
     {
         s_toggleEngaged = false;
         if (s_state)
             s_state->commandQueue.push(ZoomCommand::ToggleRelease);
     }
+}
+
+// ─── Raw Input / PTP scroll paths (called from main.cpp's WM_INPUT) ─────────
+
+void InputInterceptor::onTouchpadContacts(int contacts)
+{
+#ifdef SMOOTHZOOM_DEV_TOOLS
+    // Record only changes in the finger count (reports arrive at >= 125 Hz).
+    static int s_lastTappedContacts = 0;
+    if (s_wheelTap && contacts != s_lastTappedContacts)
+        tapOther(WheelSource::Contact, contacts, false, false);
+    s_lastTappedContacts = contacts;
+#endif
+    s_gestures.onTouchpadContacts(contacts, steadyNowUs());
+}
+
+void InputInterceptor::onTouchpadStroke()
+{
+#ifdef SMOOTHZOOM_DEV_TOOLS
+    if (s_wheelTap)
+        tapOther(WheelSource::Stroke, 0, false, false);
+#endif
+    s_gestures.onTouchpadStroke(steadyNowUs());
+}
+
+ScrollVerdict InputInterceptor::onTouchpadScroll(int32_t hookConventionDelta, bool modifierHeld)
+{
+    ScrollVerdict g;
+    if (s_state == nullptr)
+        return g;
+    // Finger motion reported by the touchpad itself: a touchpad event, and
+    // never a coast (AC-2.1.30).
+    g = s_gestures.onScroll(modifierHeld, s_touchpadCoast, steadyNowUs(), true);
+    g.device = ScrollDevice::Touchpad;
+    if (g.action == ScrollAction::Zoom)
+        addScrollDelta(hookConventionDelta, ScrollDevice::Touchpad);
+#ifdef SMOOTHZOOM_DEV_TOOLS
+    if (s_wheelTap)
+        tapOther(WheelSource::Ptp, hookConventionDelta, modifierHeld, g.action == ScrollAction::Zoom);
+#endif
+    return g;
+}
+
+ScrollVerdict InputInterceptor::onRawWheel(int16_t delta, bool modifierHeld)
+{
+    ScrollVerdict g;
+    if (s_state == nullptr)
+        return g;
+    // Raw Input cannot consume: a swallowed event simply is not zoomed.
+    g = s_gestures.onScroll(modifierHeld, s_touchpadCoast, steadyNowUs());
+    if (g.action == ScrollAction::Zoom)
+        addScrollDelta(delta, g.device);
+#ifdef SMOOTHZOOM_DEV_TOOLS
+    if (s_wheelTap)
+        tapOther(WheelSource::RawInput, delta, modifierHeld, g.action == ScrollAction::Zoom);
+#endif
+    return g;
+}
+
+void InputInterceptor::setTouchpadNaturalScrolling(bool natural)
+{
+    s_touchpadNatural = natural;
 }
 
 // Phase 5B: Register for settings change notifications (AC-2.9.04)
@@ -545,5 +785,40 @@ void InputInterceptor::setMessageWindow(void* hWnd)
 {
     s_msgWindow = static_cast<HWND>(hWnd);
 }
+
+#ifdef SMOOTHZOOM_DEV_TOOLS
+void InputInterceptor::setWheelTap(WheelTapFn fn)
+{
+    s_wheelTap = fn;
+}
+
+ScrollVerdict InputInterceptor::devInjectWheel(WheelKind kind, int16_t rawDelta, bool modifierHeld)
+{
+    ScrollVerdict g;
+    if (s_state == nullptr)
+        return g;
+    // Same decision and side effects as mouseHookProc; only the modifier verdict
+    // comes from the trace instead of live key tracking. A non-candidate
+    // passes without reaching the gesture tracker, as in the hook.
+    if (!wheelIsZoomCandidate(kind, s_modifierKeyVK))
+        return g;
+    stampHookScroll();
+    g = s_gestures.onScroll(modifierHeld, s_touchpadCoast, steadyNowUs());
+    const WheelDecision d = decideWheelInGesture(kind, rawDelta, s_modifierKeyVK, g.action);
+    if (d.consume)
+        applyWheelDecision(d, g.device);
+    return g;
+}
+
+int InputInterceptor::configuredModifierVK()
+{
+    return s_modifierKeyVK;
+}
+
+bool InputInterceptor::touchpadNaturalScrolling()
+{
+    return s_touchpadNatural;
+}
+#endif
 
 } // namespace SmoothZoom

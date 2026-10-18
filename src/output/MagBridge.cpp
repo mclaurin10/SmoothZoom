@@ -16,6 +16,7 @@
 #include <windows.h>
 #include <magnification.h>
 #include <atomic>
+#include <cmath>
 
 #pragma comment(lib, "Magnification.lib")
 
@@ -79,14 +80,32 @@ void MagBridge::shutdown()
     initialized_ = false;
 }
 
+bool MagBridge::warmUp()
+{
+    if (!initialized_)
+        return false;
+
+    // The first MagSetFullscreenTransform away from 1.0x after MagInitialize
+    // blocks ~160 ms on TEMPLAPTOP while DWM builds the magnifier; later ones
+    // are fast. 1.0001x moves the screen edge by 0.2 px and is reset at once.
+    BOOL ok = MagSetFullscreenTransform(1.0001f, 0, 0);
+    MagSetFullscreenTransform(1.0f, 0, 0);
+    if (!ok)
+        lastError_ = GetLastError();
+    return ok != FALSE;
+}
+
 bool MagBridge::setTransform(float magnification, float xOffset, float yOffset)
 {
     if (!initialized_)
         return false;
 
+    // The API takes whole desktop pixels. Round to nearest (R-23): truncation
+    // put the point under the pointer up to 1 px (x zoom on screen) off and
+    // made it jitter while zooming; rounding halves that to the 0.5 px floor.
     BOOL ok = MagSetFullscreenTransform(magnification,
-                                        static_cast<int>(xOffset),
-                                        static_cast<int>(yOffset));
+                                        static_cast<int>(std::lround(xOffset)),
+                                        static_cast<int>(std::lround(yOffset)));
     if (!ok)
     {
         lastError_ = GetLastError();

@@ -37,7 +37,13 @@
 #include "smoothzoom/support/Logger.h"
 #include "smoothzoom/input/ModifierUtils.h"
 #include "smoothzoom/input/ScrollNormalizer.h"
+#ifdef SMOOTHZOOM_DEV_TOOLS
+#include "DevTools.h"
+#endif
 
+#include "smoothzoom/input/WheelDecision.h"
+
+#include <cmath>
 #include <filesystem>
 #include <fstream>
 #include <memory>
@@ -106,6 +112,7 @@ struct PtpDeviceInfo {
 
 struct PtpContactState {
     bool active = false;
+    bool confident = false;  // Confidence usage set: a finger, not a palm
     LONG y = 0;
     LONG prevY = 0;
     bool hasPrev = false;  // true if previous Y is valid (contact was active last frame)
@@ -118,6 +125,14 @@ static PtpContactState s_ptpContacts[5] = {};
 // reports so continuous touchpad motion produces continuous, sub-notch zoom.
 // Device-unit→wheel-equivalent normalization lives in ScrollNormalizer (A1).
 static float s_ptpWheelRemainder = 0.0f;
+// The device reports the PTP Confidence usage (palm rejection). Until a report
+// shows it set, every touching contact counts as a finger.
+static bool s_ptpSeenConfidence = false;
+// Two-finger travel since the last touch-down (wheel-equivalent units), and
+// whether it has been reported as a new stroke (ScrollGesture.h).
+static int   s_ptpFingersDown = 0;
+static float s_ptpStrokeTravel = 0.0f;
+static bool  s_ptpStrokeReported = false;
 
 // One-shot per-device PTP characterization. Logs the first few normalized
 // two-finger-scroll samples at INFO so a new touchpad can be fingerprinted from
@@ -131,7 +146,9 @@ static constexpr int kPtpCharSampleCount = 8;
 // Windows touchpad "natural scrolling" direction setting.
 // When true, the OS flips WM_MOUSEWHEEL deltas for touchpad gestures before
 // they reach the LL hook — but raw HID reports are unaffected. The PTP path
-// must compensate to match the LL hook's (already-flipped) convention.
+// converts finger motion to the hook's convention first; InputInterceptor then
+// undoes the flip for every touchpad event, so a touchpad gesture zooms the same
+// way in every app and under either Windows setting (AC-2.1.31).
 // Registry: HKCU\SOFTWARE\Microsoft\Windows\CurrentVersion\PrecisionTouchPad
 //   ScrollDirection = 0 → natural (reverse), 1 or absent → traditional.
 static bool s_ptpNaturalScrolling = false;
@@ -160,9 +177,14 @@ static bool queryTouchpadNaturalScrolling()
 
 // ── Dirty-Shutdown Sentinel Helpers (R-14) ──────────────────────────────────
 
+// config.json location: %APPDATA%\SmoothZoom\ normally; dev-tools builds
+// accept --config <path> so test and bench runs never touch the user's file.
+// The log and the .running sentinel live next to whichever file is used.
+static std::string resolveConfigPath();
+
 static std::filesystem::path getSentinelPath()
 {
-    std::string configPath = SmoothZoom::SettingsManager::getDefaultConfigPath();
+    std::string configPath = resolveConfigPath();
     if (configPath.empty())
         return {};
     return std::filesystem::path(configPath).parent_path() / ".running";
@@ -281,6 +303,7 @@ using SmoothZoom::WM_UPDATE_TRAY_ICON;
 using SmoothZoom::IDM_SETTINGS;
 using SmoothZoom::IDM_TOGGLE_ZOOM;
 using SmoothZoom::IDM_EXIT;
+using SmoothZoom::IDM_KEYBOARD_SHORTCUTS;
 // Explorer restart detection
 static UINT WM_TASKBAR_CREATED = 0;
 
@@ -347,6 +370,17 @@ static LONG WINAPI crashHandler(EXCEPTION_POINTERS* /*exInfo*/)
     {
         colorOk = MagSetFullscreenColorEffect(reinterpret_cast<PMAGCOLOREFFECT>(
             const_cast<float*>(&kIdentityColorEffect[0][0])));
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER)
+    {
+        // Swallow — we're already in a crash handler
+    }
+
+    // Put back the Sticky Keys shortcut if it was suppressed (AC-2.1.24). It is
+    // never persisted, so sign-out restores it anyway; this restores it now.
+    __try
+    {
+        SmoothZoom::InputInterceptor::crashRestoreStickyKeys();
     }
     __except (EXCEPTION_EXECUTE_HANDLER)
     {
@@ -426,6 +460,52 @@ static void armShutdownWatchdog()
         SZ_LOG_ERROR("Main",
             L"Failed to arm shutdown watchdog (CreateThread failed, GetLastError=%lu)",
             GetLastError());
+}
+
+// ── Dev tools (SMOOTHZOOM_DEV_TOOLS only) ───────────────────────────────────
+// --bench runs unattended: modal dialogs would stall it, so they become log
+// lines plus a distinct exit code. Release builds compile none of this.
+#ifdef SMOOTHZOOM_DEV_TOOLS
+static bool devUnattended() { return SmoothZoom::DevTools::unattended(); }
+static int devEmergencyReset() { return emergencyResetMagnification(); }
+
+// Drain this thread's queue (hooks, timers, tray, settings dialog) without
+// blocking. Returns false once WM_QUIT is seen. Used by the bench replay loop
+// in place of the GetMessage pump.
+static bool devPumpMessages();
+#else
+static bool devUnattended() { return false; }
+#endif
+
+static std::string resolveConfigPath()
+{
+#ifdef SMOOTHZOOM_DEV_TOOLS
+    std::string overridePath = SmoothZoom::DevTools::configOverridePath();
+    if (!overridePath.empty())
+        return overridePath;
+#endif
+    return SmoothZoom::SettingsManager::getDefaultConfigPath();
+}
+
+// --bench skips config.json unless --config names one explicitly.
+static bool devConfigExplicit()
+{
+#ifdef SMOOTHZOOM_DEV_TOOLS
+    return !SmoothZoom::DevTools::configOverridePath().empty();
+#else
+    return false;
+#endif
+}
+
+// Read Windows' touchpad scrolling direction and hand it to the scroll paths
+// (AC-2.1.31). --bench replays with the direction the trace was recorded under
+// (DevTools sets it), so the live setting must not overwrite it.
+static void refreshTouchpadNaturalScrolling()
+{
+    if (devUnattended())
+        return;
+    s_ptpNaturalScrolling = queryTouchpadNaturalScrolling();
+    SmoothZoom::InputInterceptor::setTouchpadNaturalScrolling(s_ptpNaturalScrolling);
 }
 
 // ── PTP HID Device Initialization ────────────────────────────────────────────
@@ -594,6 +674,10 @@ static bool initPtpDevice(HANDLE hDevice)
     // Reset tracking state and diagnostics flag (allow logging for future device changes)
     for (auto& c : s_ptpContacts) c = {};
     s_ptpWheelRemainder = 0.0f;
+    s_ptpSeenConfidence = false;
+    s_ptpFingersDown = 0;
+    s_ptpStrokeTravel = 0.0f;
+    s_ptpStrokeReported = false;
     s_ptpCharSamplesLogged = 0;  // re-characterize whenever the active device changes
     s_ptpInitDiagLogged = false;
 
@@ -630,18 +714,23 @@ static void handlePtpHidReport(const BYTE* reportData, DWORD reportSize)
         HidP_GetUsageValue(HidP_Input, 0x0D, lc, 0x51, &contactId, ppd,
                            report, reportSize);
 
-        // Tip Switch (button usage 0x42 on digitizer page)
+        // Tip Switch (button usage 0x42 on digitizer page) and Confidence
+        // (0x47: cleared for a palm or other unintended contact)
         USAGE usages[8] = {};
         ULONG usageLen = 8;
         bool tipSwitch = false;
+        bool confidence = false;
         if (HidP_GetUsages(HidP_Input, 0x0D, lc, usages, &usageLen, ppd,
                            report, reportSize) == HIDP_STATUS_SUCCESS)
         {
             for (ULONG u = 0; u < usageLen; u++)
             {
-                if (usages[u] == 0x42) { tipSwitch = true; break; }
+                if (usages[u] == 0x42) tipSwitch = true;
+                else if (usages[u] == 0x47) confidence = true;
             }
         }
+        if (confidence)
+            s_ptpSeenConfidence = true;
 
         // Y position (Generic Desktop page 0x01, same link collection as contact)
         ULONG y = 0;
@@ -663,13 +752,33 @@ static void handlePtpHidReport(const BYTE* reportData, DWORD reportSize)
             cs.hasPrev = cs.active; // Valid prev only if was already active
             cs.y = static_cast<LONG>(y);
             cs.active = true;
+            cs.confident = confidence;
         }
         else
         {
             cs.active = false;
+            cs.confident = false;
             cs.hasPrev = false;
         }
     }
+
+    // Fingers touching (tip switch, and Confidence when the device reports it:
+    // a resting palm is not a contact). Every report goes to the gesture
+    // tracker: a new contact starts a new gesture and ends a coast; the lift
+    // marks the coast (AC-2.1.25, AC-2.1.28–30).
+    int fingersDown = 0;
+    for (int slot = 0; slot < s_ptpDevice.numSlots; slot++)
+        if (s_ptpContacts[slot].active && (s_ptpContacts[slot].confident || !s_ptpSeenConfidence))
+            fingersDown++;
+    SmoothZoom::InputInterceptor::onTouchpadContacts(fingersDown);
+    if (fingersDown == 0)
+        s_ptpWheelRemainder = 0.0f;   // no sub-notch carry-over into the next touch
+    if (fingersDown > 0 && s_ptpFingersDown == 0)
+    {
+        s_ptpStrokeTravel = 0.0f;     // touch-down: measure this touch's travel
+        s_ptpStrokeReported = false;
+    }
+    s_ptpFingersDown = fingersDown;
 
     // Only process when we have a complete frame with 2+ contacts
     if (contactCount < 2)
@@ -725,6 +834,21 @@ static void handlePtpHidReport(const BYTE* reportData, DWORD reportSize)
         s_ptpCharSamplesLogged++;
     }
 
+    // New stroke: once two fingers have travelled kTouchpadStrokeStartUnits
+    // since the touch, a coast that the touch stopped is over (AC-2.1.28).
+    // Before the dedup, because the stopped coast's leftover wheel events keep
+    // the hook busy while the fingers start to move.
+    if (!s_ptpStrokeReported)
+    {
+        SmoothZoom::PtpAxisScale travelScale{ s_ptpDevice.logicalRangeY };
+        s_ptpStrokeTravel += std::fabs(SmoothZoom::ptpDeltaToWheelEquiv(static_cast<float>(avgDeltaY), travelScale));
+        if (s_ptpStrokeTravel >= SmoothZoom::kTouchpadStrokeStartUnits)
+        {
+            s_ptpStrokeReported = true;
+            SmoothZoom::InputInterceptor::onTouchpadStroke();
+        }
+    }
+
     // Dedup with LL hook: skip if hook handled scroll recently
     int64_t lastLL = g_sharedState.lastLLHookScrollTime.load(std::memory_order_relaxed);
     int64_t now = static_cast<int64_t>(GetTickCount64());
@@ -735,36 +859,32 @@ static void handlePtpHidReport(const BYTE* reportData, DWORD reportSize)
         return;
     }
 
-    // Check modifier key
+    // Modifier state. Every two-finger step goes to the gesture tracker, held or
+    // not: the modifier at a gesture's first event decides whether the whole
+    // gesture zooms (AC-2.1.26–27), not the state at each step.
     auto snap = std::atomic_load(&g_sharedState.settingsSnapshot);
-    int modVK = snap ? snap->modifierKeyVK : VK_LWIN;
+    int modVK = snap ? snap->modifierKeyVK : SmoothZoom::kDefaultModifierVK;
     int genericVK = SmoothZoom::toGenericVK(modVK);
     bool modHeld = (GetAsyncKeyState(genericVK) & 0x8000) != 0;
     SZ_LOG_DEBUG("PTP", L"handlePtpHidReport: modVK=0x%X, genericVK=0x%X, modHeld=%d, asyncState=0x%04X",
                  modVK, genericVK, modHeld ? 1 : 0,
                  static_cast<unsigned>(GetAsyncKeyState(genericVK) & 0xFFFF));
-    if (!modHeld)
-        return;
 
-    // Convert PTP device-unit Y delta to WHEEL_DELTA (120) units.
-    // PTP Y increases downward. Fingers moving down = positive avgDeltaY = scroll down.
-    // WHEEL_DELTA positive = scroll up. Negate for traditional Windows scroll direction.
-    //
-    // Natural scrolling compensation: when the OS "natural scrolling" setting is ON,
-    // the LL hook's WM_MOUSEWHEEL delta is pre-flipped by Windows — but raw HID data
-    // is not. Without this check, the PTP path produces the opposite direction from
-    // the LL hook path when natural scrolling is enabled.
-    // Natural OFF: negate (traditional: fingers down → scroll up → positive WHEEL_DELTA)
-    // Natural ON:  don't negate (OS already flips LL hook; match that convention)
-    int32_t adjustedDeltaY = s_ptpNaturalScrolling ? avgDeltaY : -avgDeltaY;
+    // Convert PTP device-unit Y delta to WHEEL_DELTA (120) units, in the
+    // convention the LL hook sees for the same motion: PTP Y increases
+    // downward, and Windows flips the hook's touchpad deltas when natural
+    // scrolling is on, but not the raw HID data. Natural OFF: negate
+    // (fingers down = scroll down = negative). Natural ON: keep the sign.
+    // InputInterceptor turns this into the touchpad's own direction.
+    float adjustedDeltaY = SmoothZoom::ptpToHookConvention(static_cast<float>(avgDeltaY),
+                                                           s_ptpNaturalScrolling);
 
     // A1: normalize device-unit Y delta to wheel-equivalent units (120/notch)
     // using the device's own logical Y range, so a given fraction-of-pad swipe
     // produces the same zoom on any touchpad. Falls back to a fixed constant
     // when the descriptor lacked a usable Y range.
     SmoothZoom::PtpAxisScale yScale{ s_ptpDevice.logicalRangeY };
-    s_ptpWheelRemainder +=
-        SmoothZoom::ptpDeltaToWheelEquiv(static_cast<float>(adjustedDeltaY), yScale);
+    s_ptpWheelRemainder += SmoothZoom::ptpDeltaToWheelEquiv(adjustedDeltaY, yScale);
 
     int32_t whole = static_cast<int32_t>(s_ptpWheelRemainder); // truncate toward zero
     SZ_LOG_DEBUG("PTP", L"handlePtpHidReport: remainder=%.2f, whole=%d, unitsPerNotch=%.1f",
@@ -778,9 +898,10 @@ static void handlePtpHidReport(const BYTE* reportData, DWORD reportSize)
         else if (whole < -32768) whole = -32768;
         int16_t delta = static_cast<int16_t>(whole);
 
-        SZ_LOG_DEBUG("Main", L"PTP scroll: avgDY=%d wheelEquiv=%d",
-                     avgDeltaY, static_cast<int>(delta));
-        g_sharedState.scrollAccumulator.fetch_add(delta, std::memory_order_release);
+        [[maybe_unused]] const SmoothZoom::ScrollVerdict g =
+            SmoothZoom::InputInterceptor::onTouchpadScroll(delta, modHeld);
+        SZ_LOG_DEBUG("Main", L"PTP scroll: avgDY=%d wheelEquiv=%d action=%d",
+                     avgDeltaY, static_cast<int>(delta), static_cast<int>(g.action));
     }
 }
 
@@ -918,6 +1039,11 @@ static LRESULT CALLBACK msgWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lP
         case IDM_SETTINGS:    g_trayUI.showSettingsWindow(); return 0;
         case IDM_TOGGLE_ZOOM: g_sharedState.commandQueue.push(SmoothZoom::ZoomCommand::TrayToggle); return 0;
         case IDM_EXIT:        g_trayUI.requestGracefulExit(); return 0;
+        case IDM_KEYBOARD_SHORTCUTS:
+            g_trayUI.toggleKeyboardShortcuts();
+            SZ_LOG_INFO("Main", L"Keyboard shortcuts = %s",
+                        g_settingsManager.snapshot()->keyboardShortcutsEnabled ? L"ON" : L"OFF");
+            return 0;
         }
         break;
 
@@ -987,7 +1113,7 @@ static LRESULT CALLBACK msgWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lP
     case WM_SETTINGCHANGE:
         // Refresh touchpad natural scrolling setting when user changes it in Windows Settings.
         // WM_SETTINGCHANGE is broadcast system-wide on control panel / Settings changes.
-        s_ptpNaturalScrolling = queryTouchpadNaturalScrolling();
+        refreshTouchpadNaturalScrolling();
         SZ_LOG_DEBUG("Main", L"WM_SETTINGCHANGE: touchpad natural scrolling now %s",
                      s_ptpNaturalScrolling ? L"ON" : L"OFF");
         return 0;
@@ -1080,10 +1206,17 @@ static LRESULT CALLBACK msgWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lP
 
         const RAWMOUSE& rm = raw->data.mouse;
         int16_t delta = 0;
+        auto rawSnap = std::atomic_load(&g_sharedState.settingsSnapshot);
+        const int rawModVK = rawSnap ? rawSnap->modifierKeyVK : SmoothZoom::kDefaultModifierVK;
         if (rm.usButtonFlags & RI_MOUSE_WHEEL)
             delta = static_cast<int16_t>(rm.usButtonData);
-        else if (rm.usButtonFlags & RI_MOUSE_HWHEEL)
+        else if ((rm.usButtonFlags & RI_MOUSE_HWHEEL)
+                 && SmoothZoom::wheelIsZoomCandidate(SmoothZoom::WheelKind::Horizontal, rawModVK))
             delta = static_cast<int16_t>(rm.usButtonData);
+        // A horizontal wheel that is not a zoom candidate (no Shift modifier)
+        // never reaches the hook's gesture tracker; it must not start a
+        // pass-through gesture here either (the hook does not stamp it, so
+        // the dedup below would not stop it).
 
         if (delta == 0)
             return DefWindowProcW(hWnd, msg, wParam, lParam);
@@ -1094,19 +1227,20 @@ static LRESULT CALLBACK msgWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lP
         if (now - lastLL < 50)
             return DefWindowProcW(hWnd, msg, wParam, lParam);
 
-        // Check modifier via GetAsyncKeyState (can't access WinKeyManager from here)
+        // Check modifier via GetAsyncKeyState (can't access WinKeyManager from here).
+        // The gesture tracker decides: the modifier only counts at a gesture's
+        // first event (AC-2.1.26–27).
         auto snap = std::atomic_load(&g_sharedState.settingsSnapshot);
-        int modVK = snap ? snap->modifierKeyVK : VK_LWIN;
+        int modVK = snap ? snap->modifierKeyVK : SmoothZoom::kDefaultModifierVK;
         int genericVK = SmoothZoom::toGenericVK(modVK);
         bool modHeld = (GetAsyncKeyState(genericVK) & 0x8000) != 0;
 
-        if (modHeld)
-        {
-            // Debug, not Info: this fires per qualifying scroll event on the
-            // main thread, and the logger flushes synchronously per line (R-05).
-            SZ_LOG_DEBUG("Main", L"Raw Input scroll fallback: delta=%d", delta);
-            g_sharedState.scrollAccumulator.fetch_add(delta, std::memory_order_release);
-        }
+        [[maybe_unused]] const SmoothZoom::ScrollVerdict g =
+            SmoothZoom::InputInterceptor::onRawWheel(delta, modHeld);
+        // Debug, not Info: this fires per scroll event on the main thread,
+        // and the logger flushes synchronously per line (R-05).
+        SZ_LOG_DEBUG("Main", L"Raw Input scroll fallback: delta=%d action=%d",
+                     delta, static_cast<int>(g.action));
 
         return DefWindowProcW(hWnd, msg, wParam, lParam);
     }
@@ -1172,6 +1306,24 @@ int WINAPI wWinMain(
     // ── 0. Install crash handler (R-14) ──────────────────────────────────────
     SetUnhandledExceptionFilter(crashHandler);
 
+#ifdef SMOOTHZOOM_DEV_TOOLS
+    // Dev tools: parse arguments first. --reset/--probe run standalone and exit
+    // before the single-instance guard (they must work while a hung instance
+    // still holds it).
+    {
+        std::wstring argErr;
+        if (!SmoothZoom::DevTools::parseCommandLine(argErr))
+        {
+            SZ_LOG_ERROR("Main", L"Bad dev-tools arguments: %s", argErr.c_str());
+            return SmoothZoom::DevTools::kExitBadArgs;
+        }
+        if (SmoothZoom::DevTools::mode() == SmoothZoom::DevTools::Mode::Reset)
+            return SmoothZoom::DevTools::runResetMode();
+        if (SmoothZoom::DevTools::mode() == SmoothZoom::DevTools::Mode::Probe)
+            return SmoothZoom::DevTools::runProbeMode();
+    }
+#endif
+
     // Log level resolution — two sources, in precedence order:
     //   1. config.json "logLevel" — the RELIABLE path for the shipped UIAccess
     //      launch. The brokered launch does not inherit the caller's environment
@@ -1210,6 +1362,13 @@ int WINAPI wWinMain(
         CreateMutexW(nullptr, FALSE, L"Local\\SmoothZoom.SingleInstance");
     if (hSingleInstance != nullptr && GetLastError() == ERROR_ALREADY_EXISTS)
     {
+#ifdef SMOOTHZOOM_DEV_TOOLS
+        if (devUnattended())
+        {
+            CloseHandle(hSingleInstance);
+            return SmoothZoom::DevTools::kExitAlreadyRunning;
+        }
+#endif
         MessageBoxW(nullptr,
                     L"SmoothZoom is already running.\n\n"
                     L"Look for its icon in the system tray.",
@@ -1218,6 +1377,11 @@ int WINAPI wWinMain(
         CloseHandle(hSingleInstance);
         return 0;
     }
+
+#ifdef SMOOTHZOOM_DEV_TOOLS
+    // Quit event (tools/deploy.ps1 stop) + --timeout / --selfkill-ms watchdog.
+    SmoothZoom::DevTools::startWatchdog(GetCurrentThreadId(), devEmergencyReset);
+#endif
 
     // ── 0a. Dirty-shutdown sentinel check (R-14, E6.11) ─────────────────────
     s_sentinelPath = getSentinelPath();
@@ -1255,7 +1419,7 @@ int WINAPI wWinMain(
     // Register observers BEFORE loading so the initial load triggers them.
     g_settingsManager.addObserver(publishToSharedState, &g_sharedState);
     SmoothZoom::InputInterceptor::registerSettingsObserver(g_settingsManager);
-    g_configPath = SmoothZoom::SettingsManager::getDefaultConfigPath();
+    g_configPath = resolveConfigPath();
 
     // ── 0c½. Initialize file logging alongside config.json ──────────────────
     if (!g_configPath.empty())
@@ -1264,8 +1428,18 @@ int WINAPI wWinMain(
         SmoothZoom::initLogFile(logPath.c_str());
     }
 
-    if (!g_configPath.empty())
-        g_settingsManager.loadFromFile(g_configPath.c_str());
+    // --bench runs on built-in defaults so baselines don't drift with the
+    // user's config.json (and never writes it back), unless --config names a
+    // file explicitly; then that file is loaded (still never written).
+    bool settingsLoaded = false;
+    if (!g_configPath.empty() && (!devUnattended() || devConfigExplicit()))
+        settingsLoaded = g_settingsManager.loadFromFile(g_configPath.c_str());
+    // A failed load (fresh install, corrupt file) notifies nobody. Observers whose
+    // defaults need an action (InputInterceptor's Sticky Keys policy) must still
+    // see the default snapshot once.
+    if (!settingsLoaded)
+        g_settingsManager.applySnapshot(*g_settingsManager.snapshot());
+    SZ_LOG_INFO("Main", L"Config: %S", g_configPath.c_str());
     // Ensure SharedState has settings even if load failed (defaults apply):
     {
         auto snap = g_settingsManager.snapshot();
@@ -1289,6 +1463,32 @@ int WINAPI wWinMain(
     SZ_LOG_INFO("Main", L"Log level = %d (0=Debug 1=Info 2=Warn 3=Error), source=%s",
                 static_cast<int>(SmoothZoom::logLevelFilter()),
                 envLogLevelSet ? L"env" : L"config");
+    {
+        auto snap = g_settingsManager.snapshot();
+        SZ_LOG_INFO("Main", L"Scroll modifier VK=0x%X, keyboard shortcuts=%s",
+                    snap->modifierKeyVK, snap->keyboardShortcutsEnabled ? L"ON" : L"OFF");
+    }
+
+#ifdef SMOOTHZOOM_DEV_TOOLS
+    // --bench: load the trace and allocate render-thread telemetry before the
+    // render loop starts; replay with the modifier the trace was recorded with.
+    if (SmoothZoom::DevTools::mode() == SmoothZoom::DevTools::Mode::Bench)
+    {
+        int traceModifierVK = 0;
+        if (!SmoothZoom::DevTools::prepareBench(traceModifierVK))
+        {
+            removeSentinel(s_sentinelPath);
+            return SmoothZoom::DevTools::kExitBadArgs;
+        }
+        if (traceModifierVK != 0)
+        {
+            SmoothZoom::SettingsSnapshot snap = *g_settingsManager.snapshot();
+            snap.modifierKeyVK = traceModifierVK;
+            g_settingsManager.applySnapshot(snap);
+        }
+        SmoothZoom::RenderLoop::setDevTelemetry(SmoothZoom::DevTools::benchTelemetry());
+    }
+#endif
 
     // Initialize virtual screen dimensions in shared state (read by render thread)
     g_sharedState.screenWidth.store(GetSystemMetrics(SM_CXVIRTUALSCREEN), std::memory_order_relaxed);
@@ -1299,6 +1499,14 @@ int WINAPI wWinMain(
     // ── 0e. Conflict detection (AC-ERR.01, E6.8) ─────────────────────────────
     {
         DWORD magPid = findMagnifyExe();
+#ifdef SMOOTHZOOM_DEV_TOOLS
+        if (magPid != 0 && devUnattended())
+        {
+            SZ_LOG_ERROR("Main", L"Magnify.exe is running — bench cannot proceed");
+            removeSentinel(s_sentinelPath);
+            return SmoothZoom::DevTools::kExitConflict;
+        }
+#endif
         if (magPid != 0)
         {
             int choice = MessageBoxW(nullptr,
@@ -1333,6 +1541,14 @@ int WINAPI wWinMain(
     // ── 1. Install input hooks (must be on a thread with a message pump) ────
     if (!g_inputInterceptor.install(g_sharedState))
     {
+#ifdef SMOOTHZOOM_DEV_TOOLS
+        if (devUnattended())
+        {
+            SZ_LOG_ERROR("Main", L"Failed to install input hooks");
+            removeSentinel(s_sentinelPath);
+            return SmoothZoom::DevTools::kExitHookFailed;
+        }
+#endif
         MessageBoxW(nullptr,
                     L"Failed to install input hooks.\n\n"
                     L"This may be caused by:\n"
@@ -1351,6 +1567,14 @@ int WINAPI wWinMain(
     if (!g_renderLoop.isRunning())
     {
         g_inputInterceptor.uninstall();
+#ifdef SMOOTHZOOM_DEV_TOOLS
+        if (devUnattended())
+        {
+            SZ_LOG_ERROR("Main", L"Magnification API initialization failed (R-12?)");
+            removeSentinel(s_sentinelPath);
+            return SmoothZoom::DevTools::kExitMagInitFailed;
+        }
+#endif
         MessageBoxW(nullptr,
                     L"Failed to initialize the Magnification API.\n\n"
                     L"This may be caused by:\n"
@@ -1372,7 +1596,11 @@ int WINAPI wWinMain(
     // transform from a crashed instance) was active. Warn and continue — unlike
     // Magnify.exe we cannot identify or close an unknown magnifier, and
     // SmoothZoom overrides the transform on its first zoom anyway.
-    if (g_renderLoop.magnifierConflictActive())
+    if (g_renderLoop.magnifierConflictActive() && devUnattended())
+    {
+        SZ_LOG_WARN("Main", L"Another magnifier appears active at startup (bench continues)");
+    }
+    else if (g_renderLoop.magnifierConflictActive())
     {
         MessageBoxW(nullptr,
                     L"Another full-screen magnifier appears to be active.\n\n"
@@ -1401,8 +1629,8 @@ int WINAPI wWinMain(
         // Phase 6: Register for session lock/unlock notifications (AC-ERR.04, E6.10)
         WTSRegisterSessionNotification(g_msgWindow, NOTIFY_FOR_THIS_SESSION);
 
-        // Query Windows touchpad scroll direction for PTP natural scrolling compensation
-        s_ptpNaturalScrolling = queryTouchpadNaturalScrolling();
+        // Query Windows touchpad scroll direction (AC-2.1.31)
+        refreshTouchpadNaturalScrolling();
         SZ_LOG_INFO("Main", L"Touchpad natural scrolling: %s",
                     s_ptpNaturalScrolling ? L"ON" : L"OFF");
 
@@ -1442,12 +1670,17 @@ int WINAPI wWinMain(
     // ── 2d. Create tray icon (Phase 5C: AC-2.9.13–16) ──────────────────────
     g_trayUI.create(hInstance, g_msgWindow, g_sharedState, g_settingsManager,
                     g_configPath.c_str());
+#ifdef SMOOTHZOOM_DEV_TOOLS
+    if (SmoothZoom::DevTools::openSettingsAtStart())
+        g_trayUI.showSettingsWindow();
+#endif
 
     // Start tray icon zoom-state polling timer
     if (g_msgWindow)
         SetTimer(g_msgWindow, kTrayIconTimerId, kTrayIconIntervalMs, nullptr);
 
     // ── 2e. Start-zoomed (Phase 5C: AC-2.9.18–19) ──────────────────────────
+    if (!devUnattended())
     {
         auto snap = g_settingsManager.snapshot();
         if (snap && snap->startZoomed && snap->defaultZoomLevel > 1.0f)
@@ -1457,16 +1690,34 @@ int WINAPI wWinMain(
     // ── 3. Run Win32 message pump ───────────────────────────────────────────
     // Low-level hooks require a message pump on the installing thread.
     // The pump runs until WM_QUIT is posted (by Ctrl+Q via InputInterceptor).
-    MSG msg;
-    while (GetMessageW(&msg, nullptr, 0, 0) > 0)
+#ifdef SMOOTHZOOM_DEV_TOOLS
+    if (SmoothZoom::DevTools::mode() == SmoothZoom::DevTools::Mode::Record
+        && !SmoothZoom::DevTools::startRecord(g_sharedState))
     {
-        // Phase 5C: Tab navigation in settings window
-        HWND hSettings = g_trayUI.settingsHwnd();
-        if (hSettings && IsDialogMessage(hSettings, &msg))
-            continue;
+        // Nothing would be recorded: fail fast with a distinct exit code
+        // instead of running silently until --timeout. Normal shutdown path.
+        SmoothZoom::DevTools::setExitCode(SmoothZoom::DevTools::kExitBadArgs);
+        PostQuitMessage(0);
+    }
+    if (SmoothZoom::DevTools::mode() == SmoothZoom::DevTools::Mode::Bench)
+    {
+        // Replay replaces the GetMessage pump; it pumps the queue itself.
+        SmoothZoom::DevTools::runBench(g_sharedState, devPumpMessages);
+    }
+    else
+#endif
+    {
+        MSG msg;
+        while (GetMessageW(&msg, nullptr, 0, 0) > 0)
+        {
+            // Phase 5C: Tab navigation in settings window
+            HWND hSettings = g_trayUI.settingsHwnd();
+            if (hSettings && IsDialogMessage(hSettings, &msg))
+                continue;
 
-        TranslateMessage(&msg);
-        DispatchMessageW(&msg);
+            TranslateMessage(&msg);
+            DispatchMessageW(&msg);
+        }
     }
 
     // ── 4. Shutdown sequence ────────────────────────────────────────────────
@@ -1482,7 +1733,7 @@ int WINAPI wWinMain(
     g_trayUI.destroy();
 
     // Phase 5B: Save settings on clean exit (AC-2.9.02)
-    if (!g_configPath.empty())
+    if (!g_configPath.empty() && !devUnattended())
         g_settingsManager.saveToFile(g_configPath.c_str());
 
     if (g_msgWindow)
@@ -1543,7 +1794,11 @@ int WINAPI wWinMain(
         // running_. The detached thread is fully done, so CRT ExitProcess on
         // return cannot deadlock on it — a normal return is safe here.
         removeSentinel(s_sentinelPath);
+#ifdef SMOOTHZOOM_DEV_TOOLS
+        return SmoothZoom::DevTools::finish(true);
+#else
         return 0;
+#endif
     }
 
     // Render thread did NOT stop within the timeout — it is almost certainly
@@ -1566,6 +1821,27 @@ int WINAPI wWinMain(
     // block on the wedged Mag subsystem. (AC-2.9.16, VER-4)
     SZ_LOG_WARN("Main",
         L"Render thread did not stop cleanly — force-terminating process (AC-2.9.16)");
+#ifdef SMOOTHZOOM_DEV_TOOLS
+    TerminateProcess(GetCurrentProcess(), static_cast<UINT>(SmoothZoom::DevTools::finish(false)));
+#endif
     TerminateProcess(GetCurrentProcess(), 0);
     return 0;  // Not reached; present so the compiler sees a return.
 }
+
+#ifdef SMOOTHZOOM_DEV_TOOLS
+static bool devPumpMessages()
+{
+    MSG msg;
+    while (PeekMessageW(&msg, nullptr, 0, 0, PM_REMOVE))
+    {
+        if (msg.message == WM_QUIT)
+            return false;
+        HWND hSettings = g_trayUI.settingsHwnd();
+        if (hSettings && IsDialogMessage(hSettings, &msg))
+            continue;
+        TranslateMessage(&msg);
+        DispatchMessageW(&msg);
+    }
+    return true;
+}
+#endif

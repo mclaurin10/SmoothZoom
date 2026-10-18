@@ -21,6 +21,11 @@
 #define VK_RMENU      0xA5
 #define VK_LWIN       0x5B
 #define VK_RWIN       0x5C
+#define VK_ESCAPE     0x1B
+#define VK_ADD        0x6B
+#define VK_SUBTRACT   0x6D
+#define VK_OEM_PLUS   0xBB
+#define VK_OEM_MINUS  0xBD
 #endif
 #endif
 
@@ -60,6 +65,16 @@ inline bool isModifierMatch(int vkCode, int configuredVK)
     default:
         return vkCode == configuredVK;
     }
+}
+
+inline bool isWinModifierVK(int modifierVK)
+{
+    return modifierVK == VK_LWIN || modifierVK == VK_RWIN;
+}
+
+inline bool isShiftModifierVK(int modifierVK)
+{
+    return modifierVK == VK_LSHIFT || modifierVK == VK_RSHIFT || modifierVK == VK_SHIFT;
 }
 
 // Converts a side-specific VK to the generic VK needed by GetAsyncKeyState

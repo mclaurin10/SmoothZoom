@@ -19,10 +19,23 @@ namespace SmoothZoom
 struct SharedState
 {
     // -- Written by main thread (hook callbacks) --
+    // Zoom-scroll deltas per device (AC-2.9.20–21), drained once per frame with
+    // exchange(0). Mouse: hook convention. Touchpad: already in the touchpad's
+    // own direction (fingers up = positive, AC-2.1.31).
     std::atomic<int32_t> scrollAccumulator{0};
+    std::atomic<int32_t> touchpadScrollAccumulator{0};
     std::atomic<bool>    toggleState{false};
     std::atomic<int64_t> lastKeyboardInputTime{0};
-    std::atomic<int64_t> lastLLHookScrollTime{0};  // Dedup: LL hook scroll timestamp (GetTickCount64)
+    // Dedup: last zoom-candidate wheel event the LL hook saw, whatever its
+    // gesture's mode (GetTickCount64). The Raw Input / PTP paths stand down
+    // for 50 ms after it.
+    std::atomic<int64_t> lastLLHookScrollTime{0};
+    // QPC of the latest mouse wheel event added to scrollAccumulator (hook /
+    // Raw Input fallback). RenderLoop compares it only with its own QPC reads, to
+    // time notch smoothing from the input itself (AC-2.2.03). Stored before
+    // the accumulator's release fetch_add, so the frame that sees the delta
+    // sees the stamp.
+    std::atomic<int64_t> lastScrollInputQpc{0};
 
     // -- Written by UIA thread (focus) / caret thread (caret) --
     SeqLock<ScreenRect>  focusRect;

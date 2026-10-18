@@ -141,11 +141,12 @@ Threads communicate through shared state structures protected by lightweight syn
 
 The mouse hook callback:
 1. Reads `MSLLHOOKSTRUCT` from `lParam`.
-2. If the event is `WM_MOUSEWHEEL` and the modifier key is currently held:
-   a. Extracts scroll delta from `HIWORD(mouseData)`.
-   b. Atomically adds delta to the scroll accumulator.
-   c. Sets `winKeyUsedForZoom = true` (if the modifier is Win).
-   d. Returns `1` (consume the event — do not pass to next hook).
+2. If the event is a zoom candidate (`WM_MOUSEWHEEL`, or `WM_MOUSEHWHEEL` with the Shift modifier):
+   a. Stamps `lastLLHookScrollTime` (the Raw Input / PTP fallbacks stand down for 50 ms).
+   b. Asks the scroll-gesture tracker for the event's verdict (`ScrollGestureTracker::onScroll`, below): the modifier is tested only when the event starts a gesture.
+   c. **Zoom:** adds the delta to its device's accumulator (mouse, or touchpad in the touchpad's own direction), marks the Win key as used for zoom (WinKeyManager) **only if the modifier is Win**, returns `1`. **Swallow:** returns `1` without zooming. **Pass:** `CallNextHookEx(...)`.
+
+   The decision is `decideWheelInGesture` (`WheelDecision.h`, §7.3): the gesture's mode stands in for the modifier test of the pure `decideWheel`. It does not depend on the "Keyboard shortcuts" setting: Shift+scroll zooms with shortcuts on or off. Plain, Ctrl+ and Alt+wheel pass through when Shift is the modifier. `WM_MOUSEHWHEEL` is a zoom candidate only when Shift is the modifier (a driver may convert Shift+wheel to horizontal scroll, R-27); it is negated so scroll-up still zooms in.
 3. If the event is `WM_MOUSEMOVE`:
    a. Writes pointer position (x, y) to shared state.
    b. Returns `CallNextHookEx(...)` (pass through).
@@ -153,11 +154,44 @@ The mouse hook callback:
 
 The keyboard hook callback:
 1. Reads `KBDLLHOOKSTRUCT` from `lParam`.
-2. Checks for modifier key down/up, shortcut key combinations, and toggle key combinations.
-3. Delegates Win key state management to WinKeyManager.
-4. For recognized shortcuts (zoom in/out, toggle, settings, color inversion): posts a command to the keyboard command queue.
-5. For all keyboard events: records timestamp to `lastKeyboardInputTime`.
-6. Consumes (returns `1`) only the four zoom keys (`VK_OEM_PLUS`, `VK_ADD`, `VK_OEM_MINUS`, `VK_SUBTRACT`), and only while the configured modifier is held — on both key-down and key-up. This prevents a `+`/`_` character leak when the modifier is Shift, and from peripheral macros (Logitech Options+, AHK) that synthesize `Shift+=`/`Shift+-` via `SendInput`. All other keyboard events return `CallNextHookEx(...)` (observe-only). (WinKeyManager's Start Menu suppression is separate — it injects a synthetic keystroke and does not consume the Win key event.)
+2. Always tracks key state: the scroll modifier (needed by Shift+scroll), the two toggle keys, and the inversion chord's edge filter.
+3. Feeds Win key-down/up to WinKeyManager **only when Win is the configured modifier**. With Shift (the default) or Alt, WinKeyManager stays idle and never injects.
+4. Gated by the **"Keyboard shortcuts"** setting (`keyboardShortcutsEnabled`, AC-2.8.13–15): modifier + Plus/Minus/Esc, the Ctrl+Alt peek toggle, and Ctrl+Alt+I. When on, the hook posts the matching command to the keyboard command queue. When off, it posts nothing and consumes nothing. Turning the setting off mid-peek releases the peek. The decisions are pure functions in `KeyDecision.h` (`decideShortcutKey`, `decideToggleChord`, `decideInvertChord`), unit-tested like `WheelDecision.h`.
+5. Not gated: Win+Ctrl+M (open settings, AC-2.8.11) works with any modifier and either setting, as the keyboard route into settings.
+6. For all keyboard events: records timestamp to `lastKeyboardInputTime`.
+7. Consumes (returns `1`) only the four zoom keys (`VK_OEM_PLUS`, `VK_ADD`, `VK_OEM_MINUS`, `VK_SUBTRACT`), only while shortcuts are on and the configured modifier is held, on both key-down and key-up, injected or not. This prevents a `+`/`_` character leak when the modifier is Shift, and from peripheral macros (Logitech Options+, AHK) that synthesize `Shift+=`/`Shift+-` via `SendInput`. The cost is R-28: with shortcuts on and Shift as the modifier, `+` and `_` cannot be typed. Modifier keys themselves (including Shift) are never consumed. All other keyboard events return `CallNextHookEx(...)` (observe-only). WinKeyManager's Start Menu suppression is separate: it injects a synthetic keystroke and does not consume the Win key event.
+
+   The hook stays installed while shortcuts are off, because it also carries modifier tracking, toggle-key tracking, Win+Ctrl+M and the caret-priority timestamp. There is no `RegisterHotKey`, accelerator table or keyboard Raw Input path.
+
+**Sticky Keys shortcut (AC-2.1.23–24, R-31):** Windows opens the Sticky Keys prompt when `Shift` is pressed five times in a row, and zooming with a `Shift` modifier does exactly that. InputInterceptor's settings observer (main thread, never a hook callback) applies a pure policy, `StickyKeysPolicy.h` (unit-tested). It acts only when `blockStickyKeysShortcut` is on, `Shift` is the modifier, and Sticky Keys itself is off. Then it clears only `SKF_HOTKEYACTIVE | SKF_CONFIRMHOTKEY` via `SystemParametersInfo(SPI_SETSTICKYKEYS)` with `fWinIni = 0`, so the change is never written to the profile. The bits are restored when the condition stops holding, in `uninstall()` on normal exit, and in `crashHandler()` (`InputInterceptor::crashRestoreStickyKeys`, POD state only). The restore value comes from the persisted profile (`HKCU\Control Panel\Accessibility\StickyKeys` `Flags`), so a run that was killed before it could restore is repaired by the next run's exit. Sign-out also restores, because nothing was persisted. Since a failed config load notifies no observers, `main.cpp` notifies them once with the defaults so a fresh install starts suppressing.
+
+**Scroll gestures (`ScrollGesture.h`, AC-2.1.25–31, handoff B3):**
+
+Every scroll path asks one `ScrollGestureTracker` (a pure header, no Win32, unit-tested in `test_ScrollGesture.cpp`) for each event's verdict: **Zoom**, **Swallow** (consume, don't zoom) or **Pass**, and for its device (mouse or touchpad). The hook, the PTP and Raw Input handlers in `main.cpp` (through `InputInterceptor::onTouchpadScroll` / `onRawWheel` / `onTouchpadContacts` / `onTouchpadStroke`) and the `--bench` replay all run on the main thread and share the one instance, so a swipe that starts on the PTP path and continues on the hook (as it does in Windows Terminal) keeps one mode. The tracker is a few comparisons on member state: hook-safe (R-05).
+
+```
+gesture start  = first scroll event after (a) a new touchpad contact (0 fingers -> >= 1)
+                 or (b) a pause > kGesturePauseUs (150 ms) since the previous event
+mode           = modifier held at that first event ? Zoom : Pass      (fixed until the gesture ends)
+device         = touchpad if a confident contact is down, or the event comes from the PTP path,
+                 or a two-finger touch lifted <= 150 ms before; else mouse      (fixed per gesture)
+per event:
+  Pass gesture                                   -> Pass
+  Zoom gesture, touch-stopped (see below)        -> Swallow
+  Zoom gesture, touchpad, fingers up, coast off  -> Swallow
+  otherwise                                      -> Zoom
+touch during a touchpad coast -> the gesture stays (touch-stopped) until the fingers start a new
+                 stroke (PTP: kTouchpadStrokeStartUnits = 1/4 notch of two-finger travel since the
+                 touch, reported before the hook dedup) or a pause; then the next event starts anew
+```
+
+- **Pause threshold, 150 ms:** derived from the recorded traces (`bench/traces/recorded/`, `bench/hardware/wheel-observe.csv`): the longest pause inside one gesture is 75 ms (slow two-finger drag; coast tails pause 39–62 ms), separate gestures were ≥ 144 ms apart. 150 ms is twice the longest in-gesture pause.
+- **Contacts:** `handlePtpHidReport` counts touching fingers per report (tip switch, and Confidence when the device reports it, so a resting palm is not a contact) and calls `onTouchpadContacts` for every report. Contacts not refreshed for 250 ms (`kContactStaleUs`) count as lifted.
+- **Touch-to-stop:** Windows does not end the hook-path coast on a new contact. In a live recording (`bench/traces-recorded-gestures/touch-stop-coast.csv`), about half of 60 touches during a coast were followed by 15–100 ms more of the coast's wheel events. Those leftovers therefore stay in the old gesture (a zoom's are swallowed, a page scroll's still pass) until the new stroke. Verified live in `touch-stop-validate.csv`.
+- **Raw Input / PTP cannot consume:** on those paths Swallow simply means "not zoomed"; the application gets the input anyway (R-30). In Direct Manipulation apps (Edge, File Explorer) the coast is generated inside the app, so SmoothZoom sees only finger motion and the zoom stops at the lift.
+- **No PTP contact data** (non-PTP touchpads): no contact reports arrive, so every event is a mouse event; gestures end only on a pause and the coast setting has no effect.
+
+**Per-device accumulators and direction (AC-2.9.20–21, AC-2.1.31):** zooming deltas go to `scrollAccumulator` (mouse) or `touchpadScrollAccumulator`. A touchpad delta is first put in the touchpad's own direction, fingers up = positive, by undoing Windows' natural-scrolling flip (`touchpadCanonicalDelta`). The hook sees the flip applied by Windows. The PTP path first converts finger motion to the hook's convention (`ptpToHookConvention`, as before). So the same motion zooms the same way on both paths and under either Windows setting. `RenderLoop` drains both accumulators each frame, applies each device's reverse setting, and calls `ZoomController::applyScrollDelta(delta, age, device)`, which uses that device's sensitivity. The zoom model is unchanged, and the log model is additive, so two calls in one frame equal one combined call. The notch-smoothing input stamp (`lastScrollInputQpc`) is written for mouse events only.
 
 **Precision Touchpad (PTP) support via Raw Input:**
 
@@ -165,16 +199,17 @@ Precision Touchpad devices deliver scroll gestures as HID reports through Raw In
 
 1. On `WM_INPUT`, the HID preparsed data is queried via `HidP_GetCaps` and `HidP_GetValueCaps` to locate Contact Count (usage 0x54) and per-contact link collections.
 2. Each frame's report is walked contact-by-contact, extracting Contact ID, Tip Switch state, and Y position via `HidP_GetUsageValue` / `HidP_GetUsages`.
-3. When exactly two contacts are active, the average Y delta is computed and converted to `WHEEL_DELTA` units (120 per notch) using a tunable device-units-per-notch constant.
-4. The resulting delta is accumulated to the shared scroll accumulator atomically, following the same path as LL hook scroll events.
+3. Every report updates the touching-finger count for the gesture tracker (above).
+4. When two contacts are active, the average Y delta is computed, checked against the stroke threshold (before the dedup), and converted to `WHEEL_DELTA` units (120 per notch, `ScrollNormalizer`) in the hook's direction convention.
+5. Unless the hook delivered scroll within 50 ms, each whole-unit step goes to `InputInterceptor::onTouchpadScroll` with the live modifier state; it zooms only if its gesture is a zoom gesture.
 
 **LL Hook vs. Raw Input scroll deduplication:**
 
-Some Precision Touchpad drivers deliver scroll events through both the low-level mouse hook (`WM_MOUSEWHEEL`) and Raw Input (`WM_INPUT`) simultaneously. To prevent double-counting, the LL hook callback records a timestamp (`lastLLHookScrollTime`) on every scroll event. The Raw Input and PTP HID handlers check this timestamp and discard their event if an LL hook scroll was processed within the last 50ms.
+Some Precision Touchpad drivers deliver scroll events through both the low-level mouse hook (`WM_MOUSEWHEEL`) and Raw Input (`WM_INPUT`) simultaneously. To prevent double-counting, the LL hook callback records a timestamp (`lastLLHookScrollTime`) on every zoom-candidate scroll event, whatever its gesture's mode (before the gesture lock it was stamped only for consumed events). The Raw Input and PTP HID handlers check this timestamp and discard their event if an LL hook scroll was processed within the last 50ms.
 
 **Scroll normalization (`ScrollNormalizer`):**
 
-All three scroll-ingest paths — the LL hook (`WM_MOUSEWHEEL`/`WM_MOUSEHWHEEL`), Raw Input mouse (`WM_INPUT`/`RIM_TYPEMOUSE`), and the PTP HID two-finger gesture — converge on a single `std::atomic<int32_t> scrollAccumulator`, drained once per frame by `RenderLoop::frameTick` via `exchange(0)`. A pure, header-only helper, `ScrollNormalizer` (`include/smoothzoom/input/ScrollNormalizer.h`, no Win32 dependency, unit-tested), converts each device's raw input into device-independent "wheel-equivalent units" (120 = one notch). For precision touchpads it normalizes the per-contact Y delta against the device's own logical-axis range and carries a float remainder for continuous sub-notch scrolling. `ZoomController` then applies the user's `scrollSensitivity` multiplier before the logarithmic zoom model.
+All three scroll-ingest paths — the LL hook (`WM_MOUSEWHEEL`/`WM_MOUSEHWHEEL`), Raw Input mouse (`WM_INPUT`/`RIM_TYPEMOUSE`), and the PTP HID two-finger gesture — converge on two accumulators, `scrollAccumulator` (mouse) and `touchpadScrollAccumulator`, drained once per frame by `RenderLoop::frameTick` via `exchange(0)`. A pure, header-only helper, `ScrollNormalizer` (`include/smoothzoom/input/ScrollNormalizer.h`, no Win32 dependency, unit-tested), converts each device's raw input into device-independent "wheel-equivalent units" (120 = one notch). For precision touchpads it normalizes the per-contact Y delta against the device's own logical-axis range and carries a float remainder for continuous sub-notch scrolling. `ZoomController` then applies the device's sensitivity multiplier (`scrollSensitivity` for the mouse, `touchpadSensitivity` for the touchpad) before the logarithmic zoom model.
 
 > **Implementation-location note:** The Raw Input registration and PTP HID parsing currently live in `src/app/main.cpp` (main-thread `WM_INPUT` handling, off the render hot path), not yet in this component. Consolidating all three paths behind one Input-layer funnel is a behavior-preserving refactor scheduled for the deferred Phase 8 (`input-interop-handoff.md` item #6). The architecture treats this as known debt, not a design change.
 
@@ -183,6 +218,8 @@ All three scroll-ingest paths — the LL hook (`WM_MOUSEWHEEL`/`WM_MOUSEHWHEEL`)
 ### 3.2 WinKeyManager
 
 **Purpose:** Tracks the state of the `Win` key and handles Start Menu suppression. This is factored out of InputInterceptor because the logic is stateful and has subtle edge cases that warrant isolation and focused testing.
+
+**Scope:** Active only when `Win` is the configured scroll modifier. With `Shift` (the default) or `Alt`, InputInterceptor does not feed it Win key events, so it stays `Idle` and never injects the suppression `Ctrl` (AC-2.1.20).
 
 **State machine:**
 
@@ -254,6 +291,17 @@ function applyScrollDelta(rawDelta, pointerPos):
 
 This produces the perceptually-even zoom behavior specified in AC-2.1.06: the same scroll effort doubles the zoom from 1× to 2× as from 5× to 10×.
 
+**Scroll smoothing (2026-10-02, AC-2.2.03; supersedes "no interpolation" in the `SCROLL_DIRECT` row above).** In code the modes are `Idle`, `Scrolling`, `Animating`. `targetZoom` is always the accumulated multiplicative result above; the soft bounds are evaluated on the target. What is *displayed* (`currentZoom`) depends on the input:
+
+| Input | Classified as | Display |
+|---|---|---|
+| Frame delta not a multiple of 120, or any sub-notch delta in the last 250 ms (`kFineHoldSeconds`) | Continuous (precision touchpad, high-resolution wheel) | `currentZoom = targetZoom` immediately (direct) |
+| Frame delta a multiple of 120, no recent sub-notch delta | Whole notch (detented / free-spin wheel) | Smoothed toward the target in log space |
+
+Smoothing is a critically damped second-order response in log-zoom (`kSmoothOmega = 100 /s`), integrated exactly for any `dt`, so it retargets on every notch with continuous velocity and never overshoots. An isolated notch is ≈ 50 % applied on its first 60 Hz frame. It comes to rest on the last frame that still falls within `kSmoothRestBy = 97 ms` of the newest notch that moved the target. That time is measured from the input itself: InputInterceptor (and the Raw Input fallback) store the QPC of each wheel input in `SharedState::lastScrollInputQpc`, and RenderLoop passes the input's age to `applyScrollDelta`. Notches that push into a bound leave the target unchanged and do not extend the motion. These constants are not user settings; `animationSpeed` still governs only keyboard/toggle animation.
+
+Interactions: a scroll that interrupts a keyboard animation or toggle builds its target on the displayed level (AC-2.2.08). `engageToggle`, `trayToggle` and the settings bounds check use the scroll *target* while smoothing is in flight (`restingZoom()`), so the level the user scrolled to is what is saved or clamped. `endScroll()` returns to `Idle` only after smoothing has come to rest, so the 1.0× idle short-circuit engages on an exact 1.0.
+
 **Keyboard-shortcut step calculation (additive model):**
 
 ```
@@ -315,6 +363,10 @@ desktopY = yOffset + py / Z = py(1 - 1/Z) + py/Z = py
 ```
 
 The desktop point under the pointer equals the pointer's screen position, regardless of zoom. This means that when the user scroll-zooms while the pointer is stationary, the content under the pointer remains fixed — the zoom-center behavior specified in AC-2.1.09 through AC-2.1.12 emerges naturally without separate zoom-center tracking code.
+
+**Whole-pixel offsets (R-23, 2026-10-02).** `MagSetFullscreenTransform` takes integer offsets, so the identity above holds to within 0.5 desktop px per axis (0.5 × zoom screen px) once MagBridge rounds (it used to truncate, up to 1 px). While the zoom moves, that residual error jumps back and forth on the pixel grid ("snap-backs"). `alignZoomForAnchor()` reduces this during wheel-notch smoothing only: it may show a zoom slightly behind the true one, never ahead of it, at least half of each frame's step, and within `min(0.5 %, 0.5·zoom / D)` where D is the distance from the pointer to the farthest screen corner, so no pixel moves more than the anchor error it saves. It prefers candidates whose on-screen anchor error moves < 1 px, or continues its last direction, over a reversal. At rest the exact zoom is shown. Touchpad input and keyboard/toggle animations are never adjusted.
+
+**Scroll as pointer activity (AC-2.1.09/AC-2.5.10, 2026-10-02).** RenderLoop records a frame with zoom-scroll input as pointer activity in `lastPointerMoveTime`, so a scroll zoom re-anchors on the pointer even if keyboard focus changed after the mouse last moved. A later focus change still wins (AC-2.5.12); caret priority while typing is unchanged.
 
 **Focus/caret offset computation:**
 
@@ -545,6 +597,15 @@ function renderThreadMain():
 
 `DwmFlush()` synchronizes the render loop to the display's vertical refresh. Each `frameTick()` executes once per display frame, ensuring both optimal timing and zero wasted computation.
 
+**Pacing as built (2026-10-02).** The loop is `frameTick()` → `PeekMessage` pump → `DwmFlush()`, every vblank. While wheel smoothing is in flight, the controller stays in `Scrolling` and every frame produces a new zoom, so the transform is updated each refresh until it rests (≤ 97 ms after the last notch). Once settled, the `zoom/offset unchanged` check skips `MagSetFullscreenTransform`, and at exactly 1.0× the idle short-circuit skips all tracking work. Within `frameTick()`:
+1. Exchange the scroll accumulator; if non-zero, read `lastScrollInputQpc` and pass the input's age to `applyScrollDelta`.
+2. Drain commands, then `tick(dt)` (keyboard/toggle ease-out, or scroll smoothing), then `endScroll()` on frames without input.
+3. Pointer: `GetCursorPos`, deadzone, and a pointer-activity stamp on any raw move **or** zoom-scroll frame.
+4. Source arbitration, anchor alignment (wheel smoothing, pointer source, outside source transitions), offset by source, 200 ms source blend.
+5. `MagBridge::setTransform` only if zoom or offset changed.
+
+At startup, after `MagInitialize` and the conflict read-back, the render thread calls `MagBridge::warmUp()` once (skipped if another magnifier is detected), paying DWM's one-time full-screen magnifier setup (≈ 165–235 ms on TEMPLAPTOP, logged) before the user's first zoom (R-24).
+
 ### 3.8 MagBridge
 
 **Purpose:** Encapsulates all interaction with the Windows Magnification API (`Magnification.dll`). No other component calls Magnification API functions directly. This isolation enables future migration to Desktop Duplication API or `Windows.Graphics.Capture` without touching any other component.
@@ -555,7 +616,8 @@ function renderThreadMain():
 |----------|-----------|---------|
 | `MagInitialize()` | Application startup (main thread) | Initialize the magnification runtime. Must succeed or the app exits. |
 | `MagUninitialize()` | Application shutdown | Clean up. |
-| `MagSetFullscreenTransform(level, xOff, yOff)` | Every render frame where zoom or offset changed | Apply magnification level and viewport position. |
+| `MagSetFullscreenTransform(level, xOff, yOff)` | Every render frame where zoom or offset changed | Apply magnification level and viewport position. Float offsets are **rounded** to the nearest pixel (`lround`, R-23; previously truncated). |
+| `MagSetFullscreenTransform(1.0001, 0, 0)` then `(1.0, 0, 0)` | Once, at render-thread startup (`warmUp()`), unless another magnifier is active | Pays DWM's one-time magnifier setup (≈ 170 ms) at launch instead of on the first zoom (R-24). |
 | `MagGetFullscreenTransform(...)` | Startup (to check for existing magnifier) | Query current state to detect conflicts. |
 | `MagSetFullscreenColorEffect(pMatrix)` | When color inversion is toggled | Apply or remove the 5×5 inversion matrix. |
 | `MagSetInputTransform(FALSE, srcRect, destRect)` | Shutdown and crash handler only | Disable input coordinate remapping to restore clean state. Not called per-frame — proportional viewport mapping (§3.4) makes it redundant, and enabling it causes a `GetCursorPos` feedback loop. |
@@ -610,8 +672,8 @@ If the application crashes without running this sequence, the screen may be left
 
 ```
 struct SettingsSnapshot {
-    int     schemaVersion;          // kSettingsSchemaVersion (currently 1)
-    int     modifierKeyVK;          // VK_LWIN, VK_MENU, etc. (Ctrl excluded as scroll modifier)
+    int     schemaVersion;          // kSettingsSchemaVersion (currently 2)
+    int     modifierKeyVK;          // VK_LSHIFT default (kDefaultModifierVK); VK_LWIN, VK_LMENU also valid (Ctrl excluded)
     int     toggleKey1VK;           // VK_LCONTROL  (temporary-toggle combo, key 1)
     int     toggleKey2VK;           // VK_LMENU     (temporary-toggle combo, key 2)
     float   minZoom;                // 1.0
@@ -625,14 +687,21 @@ struct SettingsSnapshot {
     bool    followKeyboardFocus;    // true
     bool    followTextCursor;       // true
     bool    colorInversionEnabled;  // false (persisted; toggled by Ctrl+Alt+I)
-    float   scrollSensitivity;      // 1.0  (0.1–5.0; input-interop P0)
-    bool    momentumZoom;           // true (input-interop P0; gating logic is Phase 8)
+    bool    reverseScrollDirection; // false: mouse wheel away zooms in (AC-2.9.21)
+    float   scrollSensitivity;      // 1.0  (0.1–5.0): mouse (AC-2.9.20)
+    bool    momentumZoom;           // true: touchpad coast keeps zooming (AC-2.1.28–29, AC-2.9.23)
+    float   touchpadSensitivity;    // 1.0  (0.1–5.0), schema 2 (AC-2.9.20)
+    bool    touchpadReverseScrollDirection; // false: fingers up zoom in, whatever Windows' direction (AC-2.9.21)
+    bool    keyboardShortcutsEnabled; // false on fresh install; true for an existing config without the key
+    bool    blockStickyKeysShortcut;  // true; only acts while Shift is the modifier (AC-2.1.23)
 };
 ```
 
-**Validation on load:** Each field is validated against its allowed range (from Scope §2.9). Invalid values are silently replaced with defaults. A log entry records the correction.
+**Validation on load:** Each field is validated against its allowed range (from Scope §2.9). Invalid values are silently replaced with defaults. A log entry records the correction. An invalid `modifierKeyVK` (e.g. the retired Ctrl) falls back to the default, `Shift`.
 
-**Schema versioning:** `schemaVersion` (constant `kSettingsSchemaVersion`, currently `1`) is stamped on every save. A legacy config without the key is read as version 0 and migrated forward on first save, so new fields can be introduced without silently discarding a user's existing settings.
+**Shift default and upgrades (2026-10-01):** A fresh install (no `config.json`) starts with `Shift` as the modifier and keyboard shortcuts **off**. An existing `config.json` keeps its saved modifier. If it has no `keyboardShortcutsEnabled` key (written before the setting existed), it loads as **on**, so upgrading users keep their shortcuts. The first save writes the key, so this rule applies once.
+
+**Schema versioning:** `schemaVersion` (constant `kSettingsSchemaVersion`, currently `2`) is stamped on every save. A legacy config without the key is read as version 0 and migrated forward on first save, so new fields can be introduced without silently discarding a user's existing settings. **Schema 2 (2026-10-02):** separate touchpad settings. A file below version 2 copies `scrollSensitivity` / `reverseScrollDirection` into `touchpadSensitivity` / `touchpadReverseScrollDirection` on load (AC-2.9.22); a version-2 file missing either key gets the same copy.
 
 **Observer pattern:** Components that need to respond to settings changes (e.g., InputInterceptor needs to know the modifier key, WinKeyManager needs to know if Win is the modifier) register as observers. When the settings pointer is swapped, observers are notified on the main thread. This is a low-frequency event (only when the user changes a setting) so performance is not a concern.
 
@@ -642,9 +711,15 @@ struct SettingsSnapshot {
 
 **Implementation:** Standard Win32 tray icon using `Shell_NotifyIcon` with `NIF_ICON | NIF_TIP | NIF_MESSAGE`. The tray message handler responds to `WM_RBUTTONUP` (show context menu) and `WM_LBUTTONDBLCLK` (open settings).
 
+**Context menu:** Settings · Toggle Zoom On/Off · **Keyboard shortcuts** (checkable, AC-2.8.13) · Exit. The checkmark is read from the live settings snapshot each time the menu opens. Selecting it flips `keyboardShortcutsEnabled`, applies the snapshot and saves `config.json`. InputInterceptor's observer runs synchronously on the main thread, so the change applies to the next key event.
+
 **Explorer restart detection:** At startup, TrayUI registers for the `TaskbarCreated` window message via `RegisterWindowMessageW(L"TaskbarCreated")`. Windows broadcasts this message when `explorer.exe` restarts (e.g., after a crash or Shell update). On receipt, TrayUI calls `Shell_NotifyIcon` to re-add the tray icon, ensuring the icon remains visible without requiring a manual application restart.
 
-**Settings window:** A lightweight modal dialog or modeless window built with either Win32 dialogs or a minimal WinUI 3 / WPF UI. The window displays all settings from the SettingsSnapshot and writes changes back through SettingsManager. Complexity is intentionally low — this is a single-page settings panel, not a multi-tab wizard.
+**Settings window (AC-2.9.24–28):** a modeless top-level window of standard Win32 controls (Common Controls v6 visual styles via the manifest; no dark mode, no owner draw). It shows the settings in two columns of group boxes: Activation, Zoom | Touchpad, Mouse, Tracking, Display, Startup. Touchpad and mouse sensitivity are trackbars (0.1×–5.0×, 0.1 steps) with their value beside them. Apply writes the snapshot through SettingsManager and saves `config.json`.
+- **DPI:** the window is created hidden on the monitor under the pointer, takes that monitor's DPI (`GetDpiForWindow`), and is sized with `AdjustWindowRectExForDpi`. Text uses the system message font (`SystemParametersInfoForDpi(SPI_GETNONCLIENTMETRICS)`, Segoe UI) for that DPI. `WM_DPICHANGED` recreates the font, re-lays out the controls and takes the suggested rectangle.
+- **Layout:** one walk (`TrayUI::layoutSettingsControls`) creates the controls on the first call and repositions them on DPI changes, in DIPs scaled by the DPI. Creation order is the visual order, so it is also the tab order, and each field's label is the static just before it, which is where MSAA takes its accessible name from.
+- The "Keyboard shortcuts" checkbox mirrors the tray item; `toggleKeyboardShortcuts` updates it while the window is open. The image-smoothing checkbox was removed (the field stays for compatibility, R-01).
+- `tools\capture-settings.ps1` (dev builds, `--open-settings`) screenshots it with GDI and checks it fits the work area.
 
 ---
 
@@ -686,12 +761,12 @@ User holds Win + scrolls mouse wheel
 ### 4.2 Keyboard-Shortcut Zoom
 
 ```
-User presses Win+Plus
+User presses Modifier+Plus (Keyboard shortcuts on)
          │
          ▼
  ┌─────────────────────┐
  │  InputInterceptor    │  WH_KEYBOARD_LL callback
- │  (Main Thread)       │  Detects: Win held + VK_OEM_PLUS
+ │  (Main Thread)       │  Detects: modifier held + VK_OEM_PLUS
  │                      │  Posts ZOOM_IN command to keyboard queue
  └──────────┬──────────┘
             │  (command in lock-free queue)
@@ -861,3 +936,96 @@ Microsoft recommends the Desktop Duplication API (`IDXGIOutputDuplication`) or `
 4. No other component changes. ZoomController, ViewportTracker, RenderLoop, InputInterceptor, and all other components communicate with MagBridge through the same interface regardless of the underlying implementation.
 
 This migration would increase complexity and development effort but is architecturally bounded to a single component.
+
+---
+
+## 7. Development Tools and Performance Bench (dev builds only)
+
+Added in Phase 7 (2026-10-01) to tune zoom smoothness per machine with a build → deploy → bench loop that is judged on measured numbers. **None of this is in release builds.** Everything is behind the CMake option `SMOOTHZOOM_DEV_TOOLS` (default **OFF**). The one change compiled into every build is the behavior-preserving extraction of the wheel decision (§7.3).
+
+### 7.1 Command Line (dev-tools build)
+
+| Argument | Effect |
+|---|---|
+| `--record <file>` | Normal operation, plus a trace CSV of every wheel message the `WH_MOUSE_LL` hook sees (QPC, WHEEL/HWHEEL, delta, `MSLLHOOKSTRUCT::flags` incl. injected, Shift/Ctrl/Alt/Win, cursor, the hook's modifier verdict, consumed). Also records every Raw Input and PTP scroll decision in `main.cpp` (kinds `RAW`/`PTP`, with the modifier state and whether it zoomed), because precision-touchpad scroll in Direct-Manipulation apps never reaches the hook, and the touchpad contact changes (`CONTACT`, delta = fingers down) and new-stroke signals (`STROKE`) the gesture tracker uses (§3.1). The header adds `touchpad_natural`, `touchpad_reverse`, `touchpad_sensitivity` and `touchpad_coast`. Does not change behavior: loads `config.json` as usual (pass `--config` for test runs). Creates the trace's folder. If the file still cannot be opened it exits at once with code 12 instead of running unrecorded. `--timeout S` is the normal way to end a recording (exit 0). |
+| `--bench <trace> --out <dir>` | Replays a trace at its recorded timestamps from the **main thread**, through the hook's own decision (§7.3) and side effects. The render thread consumes the input as in production and drives the real `MagSetFullscreenTransform`. Writes `frames.csv`, `events.csv` and `summary.json`. Uses built-in default settings plus the trace's `modifier_vk`, and never saves. It loads a config only when `--config` names one. Modal dialogs become exit codes. |
+| `--config <path>` | Use this `config.json` instead of `%APPDATA%\SmoothZoom\config.json`. `smoothzoom.log` and the `.running` sentinel go next to it. **Use it for every test and bench run**, so the user's real config, log and crash sentinel are never touched. A path that does not exist means built-in defaults (a "fresh install"), and normal mode creates the file on the first settings change or on exit. `run-bench.ps1` passes `<run dir>\config.json`. |
+| `--cold` | Bench without the warm-up, to measure the first gesture after launch (R-24). |
+| `--open-settings` | Open the settings window at launch (for `tools\capture-settings.ps1`). |
+| `--no-cursor`, `--settle-ms N`, `--label S` | Don't `SetCursorPos` to trace positions; quiet time after the last event (default 750 ms); free-form label in the summary. |
+| `--timeout S`, `--selfkill-ms N` | Watchdog: request a clean exit after S s (bench default 180 s); `TerminateProcess` after N ms with no cleanup (kill test). |
+| `--reset` | Same sequence as the stale-sentinel recovery (`MagBridge::initialize` + `shutdown`: cursor shown, 1.0×, input transform off, identity color effect). Exits. Runs before the single-instance check. |
+| `--probe <file>` | Writes the current full-screen transform as JSON without resetting it. |
+
+Exit codes (dev builds): 0 ok · 2 transform failures · 3 watchdog/quit before completion · 4 forced terminate · 9 self-kill · 10 already running · 11 `MagInitialize` failed · 12 bad args/trace · 13 Magnify.exe running · 14 hook install failed.
+
+### 7.2 Threading and Hot-Path Invariants
+
+| Thread | Dev-tools work | Invariant kept |
+|---|---|---|
+| Main | Trace replay loop (high-resolution waitable timer + `MsgWaitForMultipleObjectsEx`, then a ≤1 ms spin), pumping the queue throughout (hooks keep working). Record ring drain on a 200 ms thread timer. All file output. | The hook tap only copies a POD into a **static** ring (no allocation, no I/O); the extra `GetAsyncKeyState` reads exist only while recording. |
+| Render | One `TransformSample` POD per frame into a buffer **allocated before the thread starts** (idle 1.0× frames included), plus `DwmGetCompositionTimingInfo`. | No allocation, lock or I/O (`rules/render-loop.md` 1–3). The telemetry pointer is null unless `--bench`. |
+| **Watchdog (new, dev only)** | Waits on the named event `Local\SmoothZoom.DevTools.Quit` with the `--timeout`/`--selfkill-ms` deadline. It then posts `WM_QUIT` to the main thread, and if clean shutdown has not finished 10 s later it runs the emergency reset and `TerminateProcess`. | **Justification:** a hung main thread cannot enforce its own timeout, and the existing shutdown watchdog is only armed after the message loop exits. The quit event is also the only way a medium-IL script can stop the UIAccess process (see §7.6). |
+
+No component boundary moves. `Magnification.h` stays confined to MagBridge (the dev tools call `MagBridge`). UIA and Caret threads are untouched.
+
+### 7.3 WheelDecision (compiled in all builds)
+
+`include/smoothzoom/input/WheelDecision.h` holds the `WM_MOUSEWHEEL`/`WM_MOUSEHWHEEL` decision as a pure, header-only function: `wheelIsZoomCandidate`, `decideWheel` → `{consume, accumulatorDelta, markWinUsedForZoom}`, and `modifierHeldFromState`. The mouse hook calls it, and `--bench` calls the same function through `InputInterceptor::devInjectWheel`, so replay and live input cannot diverge. Since the gesture lock (2026-10-02) the hook calls `decideWheelInGesture`, which feeds `decideWheel` the gesture's mode instead of the live modifier test and zeroes the delta of a swallowed event; `decideWheel` itself is unchanged. It is behavior-preserving: the modifier test is still evaluated lazily (horizontal wheel only with a Shift modifier), and int16 negation matches the old code (`tests/unit/test_WheelDecision.cpp`). The keyboard hook's shortcut decisions were extracted the same way into `KeyDecision.h` (2026-10-01, `tests/unit/test_KeyDecision.cpp`).
+
+### 7.4 Bench Metrics and Gate Criteria (yardstick v2, frozen at tag `loop-start`)
+
+A **gesture** is a run of consumed inputs with no gap over 100 ms, grouped on the trace's own timestamps (identical in every run). Its **active refresh range** runs from the refresh of its first transform update to the refresh of its last. A refresh index is `cRefresh + floor((t − qpcVBlank) / period)`. Metrics exclude the warm-up.
+
+Two producers:
+- **`summary.json`** (app, `DevTools.cpp`): run validity, tick cadence, `MagSetFullscreenTransform` call cost, cold start, round trip, plus the original pacing/latency/anchor numbers (informational since v2).
+- **`derived.json`** (`tools/bench/derive.py`, run by `run-bench.ps1` after every run): every pacing, latency and anchor metric the gate judges. It works from the raw `frames.csv`/`events.csv` columns, so app code under tuning cannot change how it is scored. Applied zoom and offsets are the **`MagGetFullscreenTransform` read-back** (`rb_zoom`, `rb_x`, `rb_y`), not a model of MagBridge's conversion.
+
+| Metric (`derived.`) | Definition |
+|---|---|
+| `gesture.refreshes.missed_pct`, `.multi_update` | Refreshes in an active range with no update / with more than one. **Bound-aware:** refreshes where the zoom is pinned at 1× or 10× (displayed and target both at the bound) are not scored |
+| `gesture.update_interval_periods` | Gap between consecutive updates within a gesture, in refresh periods; intervals that start pinned at a bound are not scored |
+| `gesture.latency_ms.input_to_update` / `.input_to_next_vblank` | Input injection → first update at or after it / → the vblank after that update completes. Inputs that left ZoomController's target unchanged (pushing into a bound) are not scored |
+| `gesture.settle_ms` | Last effective input of a gesture → its last update |
+| `gesture.zoom_wobble.pct` | Direction reversals of the displayed zoom (step ≥ 0.01 %) inside a gesture while the input direction did not change, per moving update pair |
+| `gesture.half_response_ms` | Isolated input step (no target change in the previous 50 ms): input → first update that has covered half of the log-zoom step |
+| `anchor_rel` | Anchor error relative to the whole-pixel floor: the larger over both axes of abs(ideal − applied) ÷ 0.5, in desktop px. *ideal* = committed pointer × (1 − 1/zoom), with RenderLoop's deadzone re-simulated from the raw cursor (deliberate deadzone lag is reported separately as `anchor_deadzone_px`). 1.0 = rounding; truncation reaches 2.0 |
+| `anchor_snapback.pct` | Per still-pointer update pair in a gesture: the anchor's on-screen error `e = zoom·(ideal−applied)` moves ≥ 1 physical px opposite to its previous ≥ 1 px move, on either axis |
+| `stall.r25` | R-25 signature: render-tick gap ≥ 100 ms **and** DWM `cRefresh` advanced < half the expected refreshes **and** an input scheduled inside the gap was injected ≥ 50 ms late (main thread paused too) |
+| `env.ok` | DWM reported refresh timing during the run |
+
+**Gate procedure** (`tools/bench/gate.ps1`): environment pre-flight (session unlocked, display on, DWM timing; else exit 3) → build/sign/deploy/unit tests → every trace × 5 runs (`-Quick`: 1). A run with the R-25 signature is set aside and rerun up to twice; if stalls recur (all three attempts, or more than 3 runs in total), the result is an **environment** error (exit 3), not a code failure. Distributions are judged on the **median of the runs**, so a bimodal metric cannot flip the result; run-validity invariants use the worst run. Exit 0 pass, 2 fail, 3 environment.
+
+`bench/criteria.json` (schema 2). Thresholds come from the refresh period *P* (16.667 ms on TEMPLAPTOP AC) and from what smooth zoom requires; anchor/snap-back thresholds were calibrated on the 2026-10-01 logs against what simple rounding scores.
+
+| Id | Metric | Threshold | Agg | Rationale |
+|---|---|---|---|---|
+| C-01–C-04 | completed, UIAccess, 0 failed updates, 0 dropped samples | — | worst | Run validity (R-12) |
+| C-05 | `gesture.refreshes.missed_pct` | ≤ 1 % | median | A new zoom value every refresh while a gesture is in motion (AC-2.2.02/03) |
+| C-06 | `gesture.refreshes.multi_update` | 0 | median | A second update in one refresh is never shown, so steps become uneven |
+| C-07 / C-08 | `gesture.update_interval_periods` p95 / max | ≤ 1.10 P / ≤ 1.5 P | median | One refresh apart (10 % DwmFlush jitter); never a 2-refresh hole. With C-14 this asks wheel motion to keep moving ~90–100 ms after a notch (recorded notch gaps reach 97 ms) |
+| C-09 | `late_ticks` | 0 | median | No render-loop hitch (AC-2.3.10) |
+| C-10 | `set_call_ms.max` | ≤ 2 ms | median | Small fraction of the frame |
+| C-11 | `cold_start.max_set_call_ms` | ≤ P | median | First zoom after launch lands on the next frame (AC-2.2.01, R-24) |
+| C-12 / C-13 | `gesture.latency_ms` input→update p95 / input→next vblank p95 | ≤ 17.0 ms / ≤ 33.4 ms | median | AC-2.2.01; at most two periods input-to-photon (R-03) |
+| C-14 | `gesture.settle_ms.max` | ≤ 100 ms | median | No perceptible catch-up (AC-2.2.03) |
+| C-15 / C-16 | `anchor_rel` p95 / max | ≤ 1.0 / ≤ 1.01 | median | At or below the rounding floor (rounding scores 0.94–0.98 / ≤ 1.000; truncation 1.76–1.96 / ~2.0). AC-2.1.09–11, R-23 |
+| C-17 | `roundtrip_error_pct_max` | ≤ 0.1 % | worst | AC-2.1.06, R-17 |
+| C-18 | `anchor_snapback.pct` | ≤ 15 % | median | Stricter than rounding (13–51 %); a monotone zoom nudge ≤ 0.5 % reached 0–11 % in simulation |
+| C-19 | `gesture.zoom_wobble.pct` | ≤ 0.5 % | median | Guard for C-18: no zoom pumping (baseline 0 %; a free per-frame nudge scored 1–21 %) |
+| C-20 | `gesture.half_response_ms.p95` | ≤ 40 ms | median | Guard for C-05/07/08: smoothing must not buy pacing with lag (baseline 4–16 ms) |
+| C-21 / C-22 | touchpad traces: input→update p95 / input→next vblank p95 | ≤ 16.5 ms / ≤ 31.7 ms | median | Touchpad latency no worse than baseline (15.7–16.1 / 30.8–31.2 ms), AC-2.2.03 |
+| C-23 | touchpad traces: `gesture.half_response_ms.p95` | ≤ 16.7 ms | median | Touchpad stays effectively direct (baseline 4–14 ms) |
+
+Baseline under v2 (`e90ca18`, before tuning): 49 of 172 checks fail, all in four families: stepping (C-05/07/08), cold start (C-11), anchor (C-15/16) and snap-backs (C-18).
+
+### 7.5 Trace Format
+
+CSV with `# key: value` metadata lines (`modifier_vk`, `screen`, `qpc_freq`, `power`, …) and a header row. The required columns are `t_us,source,delta`; the optional ones are `qpc,flags,injected,shift,ctrl,alt,win,x,y,mod_held,consumed`. `source` is one of `WHEEL | HWHEEL | RAW | PTP | MARK | CONTACT | STROKE` (MARK delta 1/2 bracket a round-trip segment; CONTACT delta = touchpad fingers down after a change; STROKE = the fingers started a new stroke). Replay applies the trace's `touchpad_natural` (default 0), not the live Windows setting. Traces without CONTACT rows replay exactly as before: their hook events are mouse events and RAW/PTP rows (all recorded with the modifier held) zoom. `events.csv` gains two trailing columns, `action` (zoom/swallow/pass) and `device`; the existing metrics ignore them, and CONTACT/STROKE rows are not inputs (consumed = 0). The scroll-gesture traces in `bench/gesture-traces/` (generated by `tools/bench/gen_gesture_traces.py`) are outside `bench/traces/`, so the smoothness gate does not bench them; `tools/bench/check-gestures.ps1` runs each with the coast on and off (`run-bench.ps1 -ConfigTemplate`) and `check_gestures.py` checks the verdicts. Live recordings of the gesture behavior are in `bench/traces-recorded-gestures/`. Coordinates are physical pixels (PerMonitorV2). The synthetic traces are produced deterministically by `tools/bench/gen_synthetic.py` into `bench/traces/synthetic/`.
+
+### 7.6 Deploy Loop, Security and Exit Safety
+
+- `tools/dev-setup.ps1` (elevated, once): a CurrentUser code-signing cert (non-exportable, CA=false, 6 months) trusted in LocalMachine\Root, plus a user-writable secure folder `C:\Program Files\SmoothZoom Dev\`. `tools/dev-revert.ps1` undoes both. **Tradeoff:** code running as the user can mint UIAccess binaries. Measured: such a process runs with the limited token at **High** integrity (`tools/README.md`).
+- `tools/deploy.ps1` (non-elevated): build `build-dev\` → sign → verify `Valid` → install → launch via ShellExecute. `CreateProcess` on a uiAccess binary fails with `ERROR_ELEVATION_REQUIRED`, and the brokered launch does not inherit the environment, so everything is passed as arguments.
+- `tools/bench/run-bench.ps1` runs traces N times and runs `--reset` after any abnormal exit. `tools/bench/gate.ps1` deploys, benches every trace under `bench/traces/` and evaluates `bench/criteria.json`. It exits 0 on pass and 2 with a stderr summary (Stop-hook compatible).
+- Exit safety: a clean exit (quit event, timeout, end of bench) runs the normal shutdown, which unhooks, resets to 1.0× on the render thread and runs the MagBridge shutdown sequence. An external `Stop-Process` from medium IL is denied. A hard kill (`--selfkill-ms`) was measured to leave the screen at 1.0× on Windows 11 build 26200 (R-14 note). The sentinel and `--reset` remain the backstop.

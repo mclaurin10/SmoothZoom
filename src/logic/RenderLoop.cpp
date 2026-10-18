@@ -16,6 +16,9 @@
 #include "smoothzoom/logic/ViewportTracker.h"
 #include "smoothzoom/output/MagBridge.h"
 #include "smoothzoom/support/Logger.h"
+#ifdef SMOOTHZOOM_DEV_TOOLS
+#include "smoothzoom/common/DevTelemetry.h"
+#endif
 
 #ifndef UNICODE
 #define UNICODE
@@ -67,6 +70,19 @@ static int32_t s_committedPtrX = 0;
 static int32_t s_committedPtrY = 0;
 static bool s_deadzoneInitialized = false;
 
+// Anchor alignment (R-23): the on-screen anchor error of the last displayed
+// frame, for the pointer it was computed at, and the unadjusted zoom of the
+// last frame (alignment only runs while that is changing).
+static float   s_anchorErrX = 0.0f, s_anchorErrY = 0.0f;
+static int32_t s_anchorPtrX = 0, s_anchorPtrY = 0;
+static bool    s_anchorValid = false;
+static int     s_anchorDirX = 0, s_anchorDirY = 0;   // direction of each axis's last >= 1 px anchor move
+static float   s_prevTrueZoom = 1.0f;
+static int     s_framesSinceTrueZoomChange = 0;
+// After the true zoom stops, the shown zoom closes any remaining alignment lag
+// over at most this many frames (at least half of it per frame), then lands.
+static constexpr int kAnchorCatchUpFrames = 3;
+
 // Phase 3: Source tracking state — all pre-allocated, no heap on hot path.
 static int64_t s_lastPointerMoveTimeMs = 0;  // Updated on ANY pointer movement (WS2A fix)
 static TrackingSource s_activeSource = TrackingSource::Pointer;
@@ -81,7 +97,8 @@ static int32_t s_lastRawPtrY = 0;
 static uint64_t s_cachedSettingsVersion = 0;
 static bool s_followKeyboardFocus = true;   // Match SettingsSnapshot defaults
 static bool s_followTextCursor = true;
-static bool s_reverseScrollDirection = false;
+static bool s_reverseScrollDirection = false;           // mouse
+static bool s_touchpadReverseScrollDirection = false;   // touchpad (AC-2.9.21)
 
 // Phase 6: Color inversion state — toggled by ToggleInvert command, synced from settings.
 // Render thread only (no contention). (AC-2.10.01–AC-2.10.05)
@@ -104,6 +121,41 @@ static int64_t s_perfTotalTicks = 0;
 static int64_t s_perfMinTicks = INT64_MAX;
 static int64_t s_perfMaxTicks = 0;
 static constexpr int64_t kPerfReportInterval = 600;
+#endif
+
+#ifdef SMOOTHZOOM_DEV_TOOLS
+// --bench telemetry sink (DevTools.cpp owns the pre-allocated buffer). Set once
+// before start(); read only on the render thread. Null = no telemetry.
+static TransformTelemetry* s_devTelemetry = nullptr;
+
+// What MagGetFullscreenTransform reports after the last successful update. The
+// bench scores the anchor from these, not from a model of MagBridge's float->int
+// conversion, so the numbers follow whatever MagBridge actually sends.
+static float   s_devRbZoom = 1.0f;
+static int32_t s_devRbX = 0, s_devRbY = 0;
+
+// Append one sample (render thread only). Copies into the pre-allocated buffer
+// and stamps DWM timing: no allocation, no lock, no I/O. DwmGetCompositionTiming-
+// Info reads DWM's shared timing data and only runs while telemetry is enabled.
+static void devTelemetryPush(TransformSample& t)
+{
+    uint32_t n = s_devTelemetry->count.load(std::memory_order_relaxed);
+    if (n >= s_devTelemetry->capacity)
+    {
+        s_devTelemetry->dropped.fetch_add(1, std::memory_order_relaxed);
+        return;
+    }
+    DWM_TIMING_INFO ti = {};
+    ti.cbSize = sizeof(ti);
+    if (SUCCEEDED(DwmGetCompositionTimingInfo(nullptr, &ti)))
+    {
+        t.qpcVBlank = static_cast<int64_t>(ti.qpcVBlank);
+        t.cRefresh = ti.cRefresh;
+        t.qpcRefreshPeriod = static_cast<int64_t>(ti.qpcRefreshPeriod);
+    }
+    s_devTelemetry->samples[n] = t;
+    s_devTelemetry->count.store(n + 1, std::memory_order_release);
+}
 #endif
 
 // Source transition smoothing (200ms ease-out between sources)
@@ -204,6 +256,21 @@ void RenderLoop::threadMain()
     running_.store(true, std::memory_order_release);
     initComplete_.store(true, std::memory_order_release);
 
+    // R-24 cold start: take DWM's one-time magnifier setup now, not on the
+    // user's first zoom. After initComplete_ so startup on the main thread is
+    // not held; scroll input arriving meanwhile accumulates as usual. Skipped
+    // while another magnifier owns the transform (AC-ERR.01).
+    if (!magnifierConflictDetected_.load(std::memory_order_relaxed))
+    {
+        LARGE_INTEGER t0, t1, f;
+        QueryPerformanceFrequency(&f);
+        QueryPerformanceCounter(&t0);
+        bool warmed = s_magBridge.warmUp();
+        QueryPerformanceCounter(&t1);
+        SZ_LOG_INFO("RenderLoop", L"Magnifier warm-up %s in %.1f ms", warmed ? L"done" : L"FAILED",
+                    double(t1.QuadPart - t0.QuadPart) * 1000.0 / double(f.QuadPart));
+    }
+
     // Frame pacing loop (Doc 3 §3.7):
     //   frameTick() → pump messages → DwmFlush() → repeat
     // The PeekMessage pump is required for MagSetFullscreenTransform offsets
@@ -233,6 +300,13 @@ void RenderLoop::threadMain()
 
     running_.store(false, std::memory_order_release);
 }
+
+#ifdef SMOOTHZOOM_DEV_TOOLS
+void RenderLoop::setDevTelemetry(TransformTelemetry* telemetry)
+{
+    s_devTelemetry = telemetry;
+}
+#endif
 
 void RenderLoop::finalizeShutdown()
 {
@@ -266,10 +340,11 @@ void RenderLoop::frameTick()
             s_zoomController.applySettings(
                 snap->minZoom, snap->maxZoom,
                 snap->keyboardZoomStep, snap->defaultZoomLevel,
-                snap->animationSpeed, snap->scrollSensitivity);
+                snap->animationSpeed, snap->scrollSensitivity, snap->touchpadSensitivity);
             s_followKeyboardFocus = snap->followKeyboardFocus;
             s_followTextCursor = snap->followTextCursor;
             s_reverseScrollDirection = snap->reverseScrollDirection;
+            s_touchpadReverseScrollDirection = snap->touchpadReverseScrollDirection;
 
             // Phase 6: Sync color inversion from settings (AC-2.10.03, AC-2.10.04)
             // BF-1: On first tick, force-apply regardless of state match to ensure
@@ -294,8 +369,12 @@ void RenderLoop::frameTick()
     s_screenOriginX = s_state->screenOriginX.load(std::memory_order_relaxed);
     s_screenOriginY = s_state->screenOriginY.load(std::memory_order_relaxed);
 
-    // 1. Consume scroll delta (atomic exchange with 0)
-    int32_t scrollDelta = s_state->scrollAccumulator.exchange(0, std::memory_order_acquire);
+    // 1. Consume scroll deltas (atomic exchange with 0), one per device
+    //    (AC-2.9.20–21). scrollDelta, their raw sum, is for bench telemetry.
+    int32_t mouseDelta = s_state->scrollAccumulator.exchange(0, std::memory_order_acquire);
+    int32_t touchpadDelta = s_state->touchpadScrollAccumulator.exchange(0, std::memory_order_acquire);
+    [[maybe_unused]] int32_t scrollDelta = mouseDelta + touchpadDelta;
+    const bool scrollInput = (mouseDelta != 0 || touchpadDelta != 0);
 
     // 2. Drain keyboard commands (lock-free queue)
     while (auto cmd = s_state->commandQueue.pop())
@@ -334,12 +413,28 @@ void RenderLoop::frameTick()
         }
     }
 
-    // 3. Apply scroll delta to zoom (if any)
-    if (scrollDelta != 0)
+    // 3. Apply scroll delta to zoom (if any). The input's age lets notch
+    //    smoothing come to rest a fixed time after the input itself (AC-2.2.03).
+    if (scrollInput)
     {
-        if (s_reverseScrollDirection)
-            scrollDelta = -scrollDelta;
-        s_zoomController.applyScrollDelta(scrollDelta);
+        double inputAgeSeconds = 0.0;
+        int64_t inputQpc = s_state->lastScrollInputQpc.load(std::memory_order_relaxed);
+        LARGE_INTEGER qpcNow;
+        QueryPerformanceCounter(&qpcNow);
+        if (inputQpc > 0 && inputQpc <= qpcNow.QuadPart && s_qpcFrequency > 0)
+        {
+            inputAgeSeconds = static_cast<double>(qpcNow.QuadPart - inputQpc) / static_cast<double>(s_qpcFrequency);
+            if (inputAgeSeconds > 0.1)
+                inputAgeSeconds = 0.0;   // stale stamp (e.g. touchpad path): treat as fresh
+        }
+        // Each device with its own direction and sensitivity. The log zoom
+        // model is additive, so two calls in one frame equal one combined call.
+        if (mouseDelta != 0)
+            s_zoomController.applyScrollDelta(s_reverseScrollDirection ? -mouseDelta : mouseDelta,
+                                              inputAgeSeconds, ScrollDevice::Mouse);
+        if (touchpadDelta != 0)
+            s_zoomController.applyScrollDelta(s_touchpadReverseScrollDirection ? -touchpadDelta : touchpadDelta,
+                                              inputAgeSeconds, ScrollDevice::Touchpad);
     }
 
     // 4. Compute dt and advance animation (Phase 2: ease-out interpolation)
@@ -362,7 +457,7 @@ void RenderLoop::frameTick()
     // controller settles from Scrolling to Idle. This arms the 1.0× idle
     // short-circuit below; a later scroll re-enters Scrolling via
     // applyScrollDelta(). (AC-2.3.13, R-18)
-    if (scrollDelta == 0)
+    if (!scrollInput)
         s_zoomController.endScroll();
 
     // Get current zoom level
@@ -386,6 +481,18 @@ void RenderLoop::frameTick()
         && s_lastZoom == 1.0f && s_lastOffX == 0.0f && s_lastOffY == 0.0f
         && !s_sourceTransitionActive)
     {
+#ifdef SMOOTHZOOM_DEV_TOOLS
+        // Idle 1.0x frames are logged too so --bench sees the full tick cadence
+        // (a stalled frame is otherwise indistinguishable from idle).
+        if (s_devTelemetry && s_devTelemetry->enabled.load(std::memory_order_relaxed))
+        {
+            TransformSample t;
+            t.qpcTick = now.QuadPart;
+            t.scrollDelta = scrollDelta;
+            t.mode = static_cast<uint8_t>(s_zoomController.mode());
+            devTelemetryPush(t);
+        }
+#endif
         return;
     }
 
@@ -446,6 +553,13 @@ void RenderLoop::frameTick()
         s_lastRawPtrX = rawPtrX;
         s_lastRawPtrY = rawPtrY;
     }
+    // A scroll-gesture zoom is pointer input too: the pointer is its focal
+    // point (AC-2.1.09) and the most recent input source wins (AC-2.5.10). So a
+    // focus change since the pointer last moved (e.g. clicking into a text
+    // field, then Shift+scrolling without moving the mouse) must not pull the
+    // zoom away from the pointer. Focus changes after the scroll still win.
+    if (scrollInput)
+        s_lastPointerMoveTimeMs = currentTimeMs();
 
     // Deadzone gates the committed position used for viewport offset calculation.
     int32_t dx = rawPtrX - s_committedPtrX;
@@ -497,6 +611,61 @@ void RenderLoop::frameTick()
     TrackingSource newSource = s_viewportTracker.determineActiveSource(
         nowMs, s_lastPointerMoveTimeMs, lastFocusChange, lastKeyboardInput,
         focusValid, caretValid);
+
+    // 5c'. Anchor alignment (R-23, AC-2.1.09–11). While the zoom moves under a
+    //      settled pointer, display a zoom up to 0.5% behind the true one that
+    //      keeps the point under the pointer from jumping back and forth on the
+    //      pixel grid. Monotone and never ahead (ViewportTracker); at rest the
+    //      exact zoom is shown, so resting levels and round trips are unchanged.
+    const float trueZoom = zoom;
+    const bool trueZoomChanged = (zoom != s_prevTrueZoom);
+    if (trueZoomChanged)
+        s_framesSinceTrueZoomChange = 0;
+    else if (s_framesSinceTrueZoomChange < kAnchorCatchUpFrames)
+        ++s_framesSinceTrueZoomChange;   // saturates: no overflow while zoomed for days
+    if (newSource == TrackingSource::Pointer && s_activeSource == TrackingSource::Pointer
+        && !s_sourceTransitionActive && zoom > 1.0f)
+    {
+        const bool samePtr = s_anchorValid
+            && s_anchorPtrX == s_committedPtrX && s_anchorPtrY == s_committedPtrY;
+        if (!samePtr)
+            s_anchorDirX = s_anchorDirY = 0;
+        // Align only during wheel-notch smoothing: that motion is already a
+        // smoothed display of the target, so a small extra lag is invisible.
+        // Touchpad input stays direct (AC-2.2.03) and keyboard/toggle
+        // animations exact. The frame where smoothing comes to rest shows the
+        // exact zoom; a leftover lag (smoothing interrupted mid-flight) is
+        // closed over a few frames instead of in one jump.
+        const bool moving = trueZoomChanged && s_zoomController.scrollSmoothing();
+        const bool catchingUp = !trueZoomChanged && s_lastZoom != zoom
+            && s_framesSinceTrueZoomChange < kAnchorCatchUpFrames;
+        ViewportTracker::AnchorAlign a;
+        if ((moving || catchingUp) && s_lastZoom > 1.0f)
+            a = ViewportTracker::alignZoomForAnchor(zoom, s_lastZoom, samePtr, s_anchorErrX, s_anchorErrY,
+                    s_committedPtrX, s_committedPtrY, s_screenW, s_screenH, s_screenOriginX, s_screenOriginY,
+                    s_anchorDirX, s_anchorDirY);
+        else
+            a = ViewportTracker::anchorError(zoom, s_committedPtrX, s_committedPtrY,
+                    s_screenW, s_screenH, s_screenOriginX, s_screenOriginY);
+        if (samePtr)
+        {
+            const float mx = a.errX - s_anchorErrX, my = a.errY - s_anchorErrY;
+            if (mx >= 1.0f || mx <= -1.0f) s_anchorDirX = (mx > 0.0f) ? 1 : -1;
+            if (my >= 1.0f || my <= -1.0f) s_anchorDirY = (my > 0.0f) ? 1 : -1;
+        }
+        zoom = a.zoom;
+        s_anchorErrX = a.errX;
+        s_anchorErrY = a.errY;
+        s_anchorPtrX = s_committedPtrX;
+        s_anchorPtrY = s_committedPtrY;
+        s_anchorValid = true;
+    }
+    else
+    {
+        s_anchorValid = false;
+        s_anchorDirX = s_anchorDirY = 0;
+    }
+    s_prevTrueZoom = trueZoom;
 
     // 5d. Compute target offset based on active source
     ViewportTracker::Offset targetOffset;
@@ -590,9 +759,20 @@ void RenderLoop::frameTick()
     // 6. Apply to MagBridge — only if values changed since last frame.
     bool changed = (zoom != s_lastZoom || offset.x != s_lastOffX || offset.y != s_lastOffY);
 
+#ifdef SMOOTHZOOM_DEV_TOOLS
+    LARGE_INTEGER devSetBegin = {}, devSetEnd = {};
+    bool devOk = true;
+#endif
     if (changed)
     {
+#ifdef SMOOTHZOOM_DEV_TOOLS
+        QueryPerformanceCounter(&devSetBegin);
+#endif
         bool ok = s_magBridge.setTransform(zoom, offset.x, offset.y);
+#ifdef SMOOTHZOOM_DEV_TOOLS
+        QueryPerformanceCounter(&devSetEnd);
+        devOk = ok;
+#endif
 
         // Log on transition: first failure and recovery (not every frame)
         if (!ok && s_magBridgeLastOk)
@@ -622,6 +802,46 @@ void RenderLoop::frameTick()
             s_state->currentZoomLevel.store(zoom, std::memory_order_relaxed);
         }
     }
+
+#ifdef SMOOTHZOOM_DEV_TOOLS
+    // --bench telemetry: one POD per frame into a pre-allocated buffer.
+    if (s_devTelemetry && s_devTelemetry->enabled.load(std::memory_order_relaxed))
+    {
+        TransformSample t;
+        t.qpcTick = now.QuadPart;
+        t.qpcSetBegin = changed ? devSetBegin.QuadPart : 0;
+        t.qpcSetEnd = changed ? devSetEnd.QuadPart : 0;
+        t.targetZoom = s_zoomController.targetZoom();
+        t.zoom = zoom;
+        ViewportTracker::Offset ideal = ViewportTracker::computePointerOffset(
+            rawPtrX, rawPtrY, zoom, s_screenW, s_screenH, s_screenOriginX, s_screenOriginY);
+        t.idealOffX = ideal.x;
+        t.idealOffY = ideal.y;
+        t.offX = offset.x;
+        t.offY = offset.y;
+        if (changed && devOk)
+        {
+            float rbZoom = 1.0f, rbX = 0.0f, rbY = 0.0f;
+            if (s_magBridge.getTransform(rbZoom, rbX, rbY))
+            {
+                s_devRbZoom = rbZoom;
+                s_devRbX = static_cast<int32_t>(rbX);  // exact: getTransform widens the API's ints
+                s_devRbY = static_cast<int32_t>(rbY);
+            }
+        }
+        t.appliedX = s_devRbX;
+        t.appliedY = s_devRbY;
+        t.rbZoom = s_devRbZoom;
+        t.cursorX = rawPtrX;
+        t.cursorY = rawPtrY;
+        t.scrollDelta = scrollDelta;
+        t.source = static_cast<uint8_t>(s_activeSource);
+        t.mode = static_cast<uint8_t>(s_zoomController.mode());
+        t.updated = changed ? 1 : 0;
+        t.ok = devOk ? 1 : 0;
+        devTelemetryPush(t);
+    }
+#endif
 
 #ifdef SMOOTHZOOM_PERF_AUDIT
     LARGE_INTEGER perfEnd;

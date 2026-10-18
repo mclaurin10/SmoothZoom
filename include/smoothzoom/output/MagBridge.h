@@ -15,6 +15,11 @@ public:
     bool initialize();
     void shutdown();
 
+    // Startup only (R-24): pay DWM's one-time full-screen magnifier setup now,
+    // with an imperceptible magnification immediately reset to 1.0x, so the
+    // user's first zoom does not block. Returns false if the API refused.
+    bool warmUp();
+
     // Per-frame: apply zoom level and viewport offset
     bool setTransform(float magnification, float xOffset, float yOffset);
 

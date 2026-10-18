@@ -45,6 +45,11 @@ option(SMOOTHZOOM_INPUT_DIAG   "Enable per-event input-hook tracing (R-05 hazard
 # latency stats (QPC, microseconds) via OutputDebugStringW every ~600 active frames.
 # OFF by default; the shipping/certified binary MUST be built WITHOUT this. (Verification-only.)
 option(SMOOTHZOOM_PERF_AUDIT   "Enable frame-timing instrumentation (E6.12; OutputDebugStringW)" OFF)
+# Dev tools for the build -> deploy -> bench tuning loop (Doc 3 §7): --record,
+# --bench, --reset, --probe, the quit event and watchdog. Adds per-frame telemetry
+# writes on the render thread and a wheel tap in the mouse hook. OFF by default;
+# release/certified builds MUST be built without it. Built by tools/deploy.ps1.
+option(SMOOTHZOOM_DEV_TOOLS    "Compile in record/bench dev tools (tuning loop only)" OFF)
 
 # Propagate logging define to all targets (ON by default → all configs incl.
 # Release; see the option comment above).
@@ -65,6 +70,11 @@ endif()
 # Perf-audit instrumentation define (E6.12 / VER-2). Verification-only; default OFF.
 if(SMOOTHZOOM_PERF_AUDIT)
     add_compile_definitions(SMOOTHZOOM_PERF_AUDIT)
+endif()
+
+# Dev-tools define (record/bench loop). Default OFF.
+if(SMOOTHZOOM_DEV_TOOLS)
+    add_compile_definitions(SMOOTHZOOM_DEV_TOOLS)
 endif()
 
 # ---------------------------------------------------------------------------
@@ -195,6 +205,10 @@ if(WIN32)
     )
 endif()
 
+if(SMOOTHZOOM_DEV_TOOLS)
+    target_sources(SmoothZoom PRIVATE src/app/DevTools.cpp)
+endif()
+
 # Embed application manifest (Doc 3 §5.3)
 if(MSVC)
     set_target_properties(SmoothZoom PROPERTIES
@@ -247,6 +261,10 @@ if(SMOOTHZOOM_BUILD_TESTS)
         tests/unit/test_ScrollNormalizer.cpp
         tests/unit/test_RectValidation.cpp
         tests/unit/test_SeqLock.cpp
+        tests/unit/test_WheelDecision.cpp
+        tests/unit/test_KeyDecision.cpp
+        tests/unit/test_StickyKeysPolicy.cpp
+        tests/unit/test_ScrollGesture.cpp
         src/logic/ZoomController.cpp
         src/logic/ViewportTracker.cpp
         src/input/WinKeyManager.cpp

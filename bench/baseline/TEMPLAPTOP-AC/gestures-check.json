@@ -1,0 +1,282 @@
+[
+  {
+    "trace": "touchpad-page-flick-shift-pressed",
+    "coast": "on",
+    "check": "every event is pass-through",
+    "pass": true,
+    "detail": "actions ['pass']"
+  },
+  {
+    "trace": "touchpad-page-flick-shift-pressed",
+    "coast": "on",
+    "check": "every wheel event reaches the app",
+    "pass": true,
+    "detail": "45/45"
+  },
+  {
+    "trace": "touchpad-page-flick-shift-pressed",
+    "coast": "on",
+    "check": "never zooms",
+    "pass": true,
+    "detail": "applied 0, max 1.0000"
+  },
+  {
+    "trace": "touchpad-touch-stops-coast",
+    "coast": "on",
+    "check": "flick and its coast zoom",
+    "pass": true,
+    "detail": "actions ['zoom']"
+  },
+  {
+    "trace": "touchpad-touch-stops-coast",
+    "coast": "on",
+    "check": "the touch stops the zoom: leftovers swallowed",
+    "pass": true,
+    "detail": "actions ['swallow'], leaked 0"
+  },
+  {
+    "trace": "touchpad-touch-stops-coast",
+    "coast": "on",
+    "check": "the new stroke starts a page-scroll gesture",
+    "pass": true,
+    "detail": "actions ['pass']"
+  },
+  {
+    "trace": "touchpad-touch-stops-coast",
+    "coast": "on",
+    "check": "no zoom after the touch: only the flick is applied",
+    "pass": true,
+    "detail": "applied 656, before 656"
+  },
+  {
+    "trace": "touchpad-touch-stops-page-coast",
+    "coast": "on",
+    "check": "page flick and its coast pass, Shift pressed mid-coast",
+    "pass": true,
+    "detail": "actions ['pass']"
+  },
+  {
+    "trace": "touchpad-touch-stops-page-coast",
+    "coast": "on",
+    "check": "leftovers after the touch still go to the app",
+    "pass": true,
+    "detail": "actions ['pass']"
+  },
+  {
+    "trace": "touchpad-touch-stops-page-coast",
+    "coast": "on",
+    "check": "a new stroke with Shift held zooms",
+    "pass": true,
+    "detail": "actions ['zoom']"
+  },
+  {
+    "trace": "touchpad-touch-stops-page-coast",
+    "coast": "on",
+    "check": "only the new stroke is applied",
+    "pass": true,
+    "detail": "applied 63, stroke 63"
+  },
+  {
+    "trace": "touchpad-zoom-flick-shift-released",
+    "coast": "on",
+    "check": "finger part zooms",
+    "pass": true,
+    "detail": "actions ['zoom']"
+  },
+  {
+    "trace": "touchpad-zoom-flick-shift-released",
+    "coast": "on",
+    "check": "nothing passes to the app",
+    "pass": true,
+    "detail": "0 wheel events passed through"
+  },
+  {
+    "trace": "touchpad-zoom-flick-shift-released",
+    "coast": "on",
+    "check": "coast zooms (incl. after Shift is released)",
+    "pass": true,
+    "detail": "actions ['zoom']"
+  },
+  {
+    "trace": "touchpad-zoom-flick-shift-released",
+    "coast": "on",
+    "check": "zoom keeps growing after the lift",
+    "pass": true,
+    "detail": "1.2294 -> 1.8331"
+  },
+  {
+    "trace": "wheel-shift-released",
+    "coast": "on",
+    "check": "whole spin zooms (Shift released after 4 notches)",
+    "pass": true,
+    "detail": "actions ['zoom']"
+  },
+  {
+    "trace": "wheel-shift-released",
+    "coast": "on",
+    "check": "coast setting ignored (no swallow on a wheel)",
+    "pass": true,
+    "detail": ""
+  },
+  {
+    "trace": "wheel-shift-released",
+    "coast": "on",
+    "check": "spin is a mouse gesture",
+    "pass": true,
+    "detail": ""
+  },
+  {
+    "trace": "wheel-shift-released",
+    "coast": "on",
+    "check": "after a pause, plain scroll passes",
+    "pass": true,
+    "detail": "actions ['pass']"
+  },
+  {
+    "trace": "wheel-shift-released",
+    "coast": "on",
+    "check": "zoomed by the whole spin",
+    "pass": true,
+    "detail": "3.797"
+  },
+  {
+    "trace": "touchpad-page-flick-shift-pressed",
+    "coast": "off",
+    "check": "every event is pass-through",
+    "pass": true,
+    "detail": "actions ['pass']"
+  },
+  {
+    "trace": "touchpad-page-flick-shift-pressed",
+    "coast": "off",
+    "check": "every wheel event reaches the app",
+    "pass": true,
+    "detail": "45/45"
+  },
+  {
+    "trace": "touchpad-page-flick-shift-pressed",
+    "coast": "off",
+    "check": "never zooms",
+    "pass": true,
+    "detail": "applied 0, max 1.0000"
+  },
+  {
+    "trace": "touchpad-touch-stops-coast",
+    "coast": "off",
+    "check": "flick and its coast zoom",
+    "pass": true,
+    "detail": "actions ['swallow', 'zoom']"
+  },
+  {
+    "trace": "touchpad-touch-stops-coast",
+    "coast": "off",
+    "check": "the touch stops the zoom: leftovers swallowed",
+    "pass": true,
+    "detail": "actions ['swallow'], leaked 0"
+  },
+  {
+    "trace": "touchpad-touch-stops-coast",
+    "coast": "off",
+    "check": "the new stroke starts a page-scroll gesture",
+    "pass": true,
+    "detail": "actions ['pass']"
+  },
+  {
+    "trace": "touchpad-touch-stops-coast",
+    "coast": "off",
+    "check": "no zoom after the touch: only the flick is applied",
+    "pass": true,
+    "detail": "applied 340, before 340"
+  },
+  {
+    "trace": "touchpad-touch-stops-page-coast",
+    "coast": "off",
+    "check": "page flick and its coast pass, Shift pressed mid-coast",
+    "pass": true,
+    "detail": "actions ['pass']"
+  },
+  {
+    "trace": "touchpad-touch-stops-page-coast",
+    "coast": "off",
+    "check": "leftovers after the touch still go to the app",
+    "pass": true,
+    "detail": "actions ['pass']"
+  },
+  {
+    "trace": "touchpad-touch-stops-page-coast",
+    "coast": "off",
+    "check": "a new stroke with Shift held zooms",
+    "pass": true,
+    "detail": "actions ['zoom']"
+  },
+  {
+    "trace": "touchpad-touch-stops-page-coast",
+    "coast": "off",
+    "check": "only the new stroke is applied",
+    "pass": true,
+    "detail": "applied 63, stroke 63"
+  },
+  {
+    "trace": "touchpad-zoom-flick-shift-released",
+    "coast": "off",
+    "check": "finger part zooms",
+    "pass": true,
+    "detail": "actions ['zoom']"
+  },
+  {
+    "trace": "touchpad-zoom-flick-shift-released",
+    "coast": "off",
+    "check": "nothing passes to the app",
+    "pass": true,
+    "detail": "0 wheel events passed through"
+  },
+  {
+    "trace": "touchpad-zoom-flick-shift-released",
+    "coast": "off",
+    "check": "coast is swallowed",
+    "pass": true,
+    "detail": "actions ['swallow']"
+  },
+  {
+    "trace": "touchpad-zoom-flick-shift-released",
+    "coast": "off",
+    "check": "zoom stops at the lift: only the finger part is applied",
+    "pass": true,
+    "detail": "applied 340, finger 340, coast 0"
+  },
+  {
+    "trace": "wheel-shift-released",
+    "coast": "off",
+    "check": "whole spin zooms (Shift released after 4 notches)",
+    "pass": true,
+    "detail": "actions ['zoom']"
+  },
+  {
+    "trace": "wheel-shift-released",
+    "coast": "off",
+    "check": "coast setting ignored (no swallow on a wheel)",
+    "pass": true,
+    "detail": ""
+  },
+  {
+    "trace": "wheel-shift-released",
+    "coast": "off",
+    "check": "spin is a mouse gesture",
+    "pass": true,
+    "detail": ""
+  },
+  {
+    "trace": "wheel-shift-released",
+    "coast": "off",
+    "check": "after a pause, plain scroll passes",
+    "pass": true,
+    "detail": "actions ['pass']"
+  },
+  {
+    "trace": "wheel-shift-released",
+    "coast": "off",
+    "check": "zoomed by the whole spin",
+    "pass": true,
+    "detail": "3.797"
+  }
+]
